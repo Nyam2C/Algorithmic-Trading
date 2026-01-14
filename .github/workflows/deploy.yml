@@ -1,0 +1,102 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # 수동 실행 가능
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 코드 체크아웃
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Python 설정
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 3. 의존성 설치
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        continue-on-error: true
+
+      # 4. 린트 체크 (선택)
+      - name: Lint with flake8
+        run: |
+          pip install flake8
+          flake8 src --count --select=E9,F63,F7,F82 --show-source --statistics
+        continue-on-error: true
+
+      # 5. Docker 빌드 테스트
+      - name: Test Docker build
+        run: |
+          docker-compose build
+        continue-on-error: true
+
+      # 6. EC2 배포
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd Algorithmic-Trading
+            git pull origin main
+
+            # 환경 변수 업데이트
+            cat > .env << EOF
+            BINANCE_API_KEY=${{ secrets.BINANCE_API_KEY }}
+            BINANCE_SECRET_KEY=${{ secrets.BINANCE_SECRET_KEY }}
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+            DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            DATABASE_URL=postgresql+asyncpg://trading:${{ secrets.DB_PASSWORD }}@postgres:5432/trading
+            EOF
+
+            # 재배포
+            docker-compose down
+            docker-compose up -d --build
+
+            # 헬스체크
+            echo "Waiting for services to start..."
+            sleep 15
+            docker-compose ps
+
+      # 7. Discord 알림 (성공)
+      - name: Notify Discord (Success)
+        if: success()
+        run: |
+          curl -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "✅ 배포 성공",
+                "description": "커밋: ${{ github.sha }}\n브랜치: ${{ github.ref }}\n배포자: ${{ github.actor }}",
+                "color": 65280,
+                "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S)'"
+              }]
+            }' \
+            ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+      # 8. Discord 알림 (실패)
+      - name: Notify Discord (Failure)
+        if: failure()
+        run: |
+          curl -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "❌ 배포 실패",
+                "description": "커밋: ${{ github.sha }}\n브랜치: ${{ github.ref }}\n배포자: ${{ github.actor }}",
+                "color": 16711680,
+                "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S)'"
+              }]
+            }' \
+            ${{ secrets.DISCORD_WEBHOOK_URL }}

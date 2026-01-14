@@ -2,6 +2,9 @@
 # High-Win Survival System - Git Ignore
 # ===========================================
 
+# Claude AI context (private)
+.claude/
+
 # Environment variables (API keys)
 .env
 !.env.example
