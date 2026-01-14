@@ -1,0 +1,15 @@
+# ===========================================
+# High-Win Survival System - Dependencies
+# ===========================================
+
+# Database
+asyncpg>=0.29.0
+
+# HTTP Client (Discord webhook)
+aiohttp>=3.9.0
+
+# Logging
+loguru>=0.7.0
+
+# Environment
+python-dotenv>=1.0.0

@@ -1,0 +1,37 @@
+# ===========================================
+# High-Win Survival System - Docker Ignore
+# ===========================================
+
+# Git
+.git
+.gitignore
+
+# Environment (secrets)
+.env
+configs/.env.*
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+
+# IDE
+.vscode
+.idea
+
+# Logs
+logs/
+*.log
+
+# Documentation
+.claude/
+docs/
+*.md
+
+# Tests (not needed in production image)
+tests/
+
+# Docker
+.docker
+*.tar

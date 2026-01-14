@@ -1,0 +1,47 @@
+# ===========================================
+# High-Win Survival System - Git Ignore
+# ===========================================
+
+# Environment variables (API keys)
+.env
+!.env.example
+
+# Bot configs (strategy values - private)
+configs/.env.*
+!configs/.env.*.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs/*.log
+*.log
+
+# Docker
+.docker/
+*.tar
+
+# OS
+.DS_Store
+Thumbs.db
+
+# n8n data (Sprint 5+)
+n8n_data/
