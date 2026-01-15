@@ -5,7 +5,7 @@ PR의 변경사항을 분석하고 코드 리뷰를 자동으로 작성합니다
 
 import os
 import requests
-import google.generativeai as genai
+from google import genai
 
 
 def get_pr_diff() -> str:
@@ -27,8 +27,7 @@ def review_with_gemini(diff: str) -> str:
     if not api_key:
         raise ValueError("GEMINI_API_KEY not found")
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    client = genai.Client(api_key=api_key)
 
     prompt = f"""당신은 시니어 소프트웨어 엔지니어입니다. 아래 코드 변경사항(diff)을 리뷰해주세요.
 
@@ -63,7 +62,10 @@ def review_with_gemini(diff: str) -> str:
 ```
 """
 
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+    )
     return response.text
 
 
@@ -87,7 +89,7 @@ def post_comment(review: str) -> None:
 {review}
 
 ---
-<sub>Powered by Gemini 1.5 Flash | [Report Issue](https://github.com/{repo}/issues)</sub>
+<sub>Powered by Gemini 2.0 Flash | [Report Issue](https://github.com/{repo}/issues)</sub>
 """
 
     response = requests.post(url, headers=headers, json={"body": body}, timeout=30)
