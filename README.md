@@ -16,16 +16,40 @@ Binance Testnet + Gemini AI 기반 비트코인 선물 자동매매 시스템
 
 ## 🚀 빠른 시작
 
+### 환경 설정 (최초 1회)
+
+```bash
+# 올인원 CLI (권장 ⭐)
+./scripts/bot.sh setup           # 환경 설정
+./scripts/bot.sh docker          # Docker 실행
+./scripts/bot.sh test            # 테스트
+./scripts/bot.sh help            # 도움말
+
+### 개별 스크립트
+./scripts/setup.sh               # 환경 설정
+
+**자동으로 하는 일:**
+- ✅ Python 3.11+ 버전 확인
+- ✅ Python 의존성 설치
+- ✅ .env 파일 생성 (대화형)
+- ✅ Docker 환경 설정
+- ✅ 데이터베이스 초기화
+- ✅ 테스트 실행 (64개 테스트)
+
+**자세한 설정 가이드**: [SETUP_GUIDE.md](docs/SETUP_GUIDE.md)
+
+---
+
 ### 방법 1: Docker로 실행 (권장 ⭐)
 
 **한 줄로 모든 것을 자동화!**
 
 ```bash
 # Python 스크립트 (Windows/Linux/Mac)
-python start-docker.py
+./scripts/bot.sh docker
 
 # 또는 Bash 스크립트 (Linux/Mac)
-./start-docker.sh
+./scripts/bot.sh docker
 ```
 
 **자동으로 하는 일:**
@@ -46,10 +70,10 @@ docker compose down
 
 ```bash
 # Python 스크립트 (의존성 자동 설치)
-python run.py
+./scripts/bot.sh run
 
 # 또는 Bash 스크립트 (Linux/Mac)
-./run.sh
+./scripts/bot.sh run
 
 # 또는 직접 실행
 pip install -r requirements.txt
@@ -59,6 +83,12 @@ python -m src.main
 ---
 
 ## ⚙️ 사전 준비
+
+### 시스템 요구사항
+
+- **Python 3.11+** (필수)
+- **Docker & Docker Compose** (Docker 실행 시 필수)
+- **Git** (선택)
 
 ### 필수 API 키 발급
 
@@ -100,8 +130,9 @@ DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your_webhook_url
 
 ```
 Algorithmic-Trading/
-├── src/
+├── src/                          # 소스 코드
 │   ├── config.py                 # 설정 관리
+│   ├── main.py                   # 메인 실행 파일
 │   ├── exchange/
 │   │   └── binance.py            # Binance Testnet 클라이언트
 │   ├── data/
@@ -112,12 +143,30 @@ Algorithmic-Trading/
 │   │   │   └── analysis.txt      # 분석 프롬프트
 │   │   ├── gemini.py             # Gemini AI 클라이언트
 │   │   └── signals.py            # 신호 파싱
-│   ├── trading/
-│   │   └── executor.py           # 주문 실행
-│   └── main.py                   # 메인 실행 파일
+│   └── trading/
+│       └── executor.py           # 주문 실행
+├── tests/                        # 테스트 (64개, 94% 커버리지)
+│   ├── conftest.py               # Pytest 설정
+│   ├── test_config.py
+│   ├── test_indicators.py
+│   ├── test_signals.py
+│   └── test_executor.py
+├── docs/                         # 📚 문서
+│   ├── README.md                 # 문서 목록
+│   ├── SETUP_GUIDE.md            # 환경 설정 가이드
+│   ├── TEST_GUIDE.md             # 테스트 가이드
+│   └── QUICK_START.md            # 명령어 치트시트
+├── db/                           # 🗄️ 데이터베이스
+│   ├── README.md                 # DB 문서
+│   ├── init.sql                  # 스키마 정의
+│   └── setup.sh                  # DB 초기화 스크립트
+├── scripts/                      # 🔧 실행 스크립트
+│   ├── bot.sh                    # ⭐ 올인원 CLI (권장)
+│   ├── setup.sh                  # 환경 설정
+│   ├── run.sh                    # 로컬 실행
+│   ├── start-docker.sh           # Docker 실행
+│   └── run-tests.sh              # 테스트 실행
 ├── .claude/                      # 개발 계획 문서
-├── run.py                        # 🔥 통합 실행 스크립트 (Python)
-├── run.sh                        # 🔥 통합 실행 스크립트 (Bash)
 ├── requirements.txt              # Python 의존성
 ├── .env.example                  # 환경 변수 템플릿
 └── README.md                     # 이 파일
@@ -170,6 +219,29 @@ Algorithmic-Trading/
 ---
 
 ## 🧪 테스트
+
+### 테스트 실행
+
+**전체 테스트 스위트 (64개 테스트)**
+
+```bash
+# Bash 스크립트 (권장)
+./scripts/run-tests.sh
+
+# 또는 직접 pytest 실행
+pytest
+
+# 커버리지 리포트 확인
+open htmlcov/index.html   # Mac
+xdg-open htmlcov/index.html  # Linux
+start htmlcov/index.html  # Windows
+```
+
+**테스트 커버리지**: 94%+ (src/ 모듈)
+
+자세한 테스트 가이드: [TEST_GUIDE.md](docs/TEST_GUIDE.md)
+
+---
 
 ### Import 테스트
 ```bash
@@ -234,6 +306,11 @@ google.genai.errors.APIError: API key not valid
 - [x] ✅ src/trading/executor.py - 주문 실행
 - [x] ✅ src/main.py - 메인 루프 통합
 - [x] ✅ run.py / run.sh - 통합 실행 스크립트
+- [x] ✅ setup.py / setup.sh - 환경 설정 스크립트
+- [x] ✅ tests/ - 테스트 스위트 (64개 테스트, 94% 커버리지)
+- [x] ✅ db/init.sql - 데이터베이스 스키마
+- [x] ✅ SETUP_GUIDE.md - 환경 설정 가이드
+- [x] ✅ TEST_GUIDE.md - 테스트 가이드
 
 ### 실행 테스트 체크리스트
 - [ ] Binance Testnet 데이터 수집 확인
@@ -258,6 +335,16 @@ Sprint 1이 완료되면 다음 기능을 추가합니다:
 ---
 
 ## 📚 관련 문서
+
+### 📖 사용자 가이드
+
+문서는 [docs/](docs/) 폴더에 있습니다:
+
+- **[SETUP_GUIDE.md](docs/SETUP_GUIDE.md)** - 환경 설정 완벽 가이드
+- **[TEST_GUIDE.md](docs/TEST_GUIDE.md)** - 테스트 실행 및 작성 가이드
+- **[README.md](README.md)** - 프로젝트 개요 (현재 문서)
+
+### 개발 계획 문서 (.claude/)
 
 프로젝트의 상세한 계획 문서는 `.claude/` 폴더에 있습니다:
 

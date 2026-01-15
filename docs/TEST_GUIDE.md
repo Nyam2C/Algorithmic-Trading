@@ -10,7 +10,7 @@ Sprint 1 프로젝트의 테스트 가이드입니다.
 
 ```bash
 # Bash 스크립트 (권장)
-./run-tests.sh
+./scripts/run-tests.sh
 
 # 또는 직접 pytest 실행
 pytest
@@ -23,10 +23,10 @@ python -m pytest
 
 ```bash
 # 커버리지 없이 실행 (빠름)
-./run-tests.sh --no-cov
+./scripts/run-tests.sh --no-cov
 
 # Verbose 모드
-./run-tests.sh --verbose
+./scripts/run-tests.sh --verbose
 
 # 특정 파일만 실행
 pytest tests/test_config.py

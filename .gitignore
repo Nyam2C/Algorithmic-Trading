@@ -46,5 +46,10 @@ logs/*.log
 .DS_Store
 Thumbs.db
 
+# Database data (keep schema files)
+db/data/
+db/backups/
+*.sql.backup
+
 # n8n data (Sprint 5+)
 n8n_data/
