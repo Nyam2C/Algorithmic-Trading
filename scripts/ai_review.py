@@ -4,8 +4,10 @@ PR의 변경사항을 분석하고 코드 리뷰를 자동으로 작성합니다
 """
 
 import os
+import time
 import requests
 from google import genai
+from google.genai import errors as genai_errors
 
 
 def get_pr_diff() -> str:
@@ -21,8 +23,8 @@ def truncate_diff(diff: str, max_chars: int = 30000) -> str:
     return diff
 
 
-def review_with_gemini(diff: str) -> str:
-    """Gemini API로 코드 리뷰 수행"""
+def review_with_gemini(diff: str, max_retries: int = 3) -> str:
+    """Gemini API로 코드 리뷰 수행 (재시도 로직 포함)"""
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY not found")
@@ -62,11 +64,23 @@ def review_with_gemini(diff: str) -> str:
 ```
 """
 
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt,
-    )
-    return response.text
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt,
+            )
+            return response.text
+        except genai_errors.ClientError as e:
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                wait_time = (attempt + 1) * 30  # 30초, 60초, 90초
+                print(f"Rate limit hit, waiting {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+            else:
+                raise
+
+    # 모든 재시도 실패 시 기본 메시지 반환
+    return "⚠️ AI 리뷰를 수행할 수 없습니다 (API 할당량 초과). 나중에 다시 시도해주세요."
 
 
 def post_comment(review: str) -> None:
