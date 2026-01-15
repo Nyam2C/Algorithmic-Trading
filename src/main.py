@@ -1,50 +1,66 @@
 """
 High-Win Survival System - Main Entry Point
+Sprint 1: Paper Trading MVP
 """
-import os
 import asyncio
 from datetime import datetime
+from typing import Dict
 
-import asyncpg
 import aiohttp
 from loguru import logger
 
-
-async def check_database() -> bool:
-    """PostgreSQL 연결 테스트"""
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        logger.warning("DATABASE_URL not set")
-        return False
-
-    try:
-        conn = await asyncpg.connect(database_url)
-        version = await conn.fetchval("SELECT version()")
-        logger.info(f"Database connected: {version[:50]}...")
-        await conn.close()
-        return True
-    except Exception as e:
-        logger.error(f"Database connection failed: {e}")
-        return False
+# Import our modules
+from src.config import get_config
+from src.exchange.binance import BinanceTestnetClient
+from src.data.indicators import analyze_market
+from src.ai.gemini import GeminiSignalGenerator
+from src.ai.signals import (
+    parse_signal,
+    validate_signal,
+    should_enter_trade,
+    get_signal_emoji,
+    get_signal_color,
+)
+from src.trading.executor import TradingExecutor
 
 
-async def send_discord_message(message: str) -> bool:
-    """Discord Webhook으로 메시지 전송"""
-    webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+async def send_discord_embed(
+    webhook_url: str, title: str, description: str, color: int, fields: list = None
+) -> bool:
+    """
+    Send Discord embed message
+
+    Args:
+        webhook_url: Discord webhook URL
+        title: Embed title
+        description: Embed description
+        color: Embed color (int)
+        fields: List of field dicts (optional)
+
+    Returns:
+        True if successful
+    """
     if not webhook_url:
         logger.warning("DISCORD_WEBHOOK_URL not set")
         return False
 
-    payload = {
-        "content": message,
-        "username": "Trading Bot",
+    embed = {
+        "title": title,
+        "description": description,
+        "color": color,
+        "timestamp": datetime.utcnow().isoformat(),
     }
+
+    if fields:
+        embed["fields"] = fields
+
+    payload = {"embeds": [embed], "username": "Trading Bot"}
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(webhook_url, json=payload) as resp:
                 if resp.status == 204:
-                    logger.info("Discord message sent successfully")
+                    logger.debug("Discord embed sent successfully")
                     return True
                 else:
                     logger.error(f"Discord webhook failed: {resp.status}")
@@ -54,27 +70,222 @@ async def send_discord_message(message: str) -> bool:
         return False
 
 
-async def main():
-    """메인 실행 함수"""
-    bot_name = os.getenv("BOT_NAME", "trading-bot")
-    logger.info(f"=== {bot_name} Starting ===")
-    logger.info(f"Time: {datetime.now().isoformat()}")
+async def trading_loop():
+    """Main trading loop"""
+    logger.info("=" * 60)
+    logger.info("High-Win Survival System - Starting")
+    logger.info("=" * 60)
 
-    # 1. Database 연결 테스트
-    db_ok = await check_database()
-    logger.info(f"Database: {'OK' if db_ok else 'FAILED'}")
+    # Load configuration
+    config = get_config()
 
-    # 2. Discord 알림 테스트
-    await send_discord_message(
-        f"**{bot_name}** started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    # Initialize clients
+    binance = BinanceTestnetClient(
+        api_key=config.binance_api_key,
+        secret_key=config.binance_secret_key,
+        testnet=config.binance_testnet,
     )
 
-    logger.info("=== Initialization Complete ===")
+    gemini = GeminiSignalGenerator(
+        api_key=config.gemini_api_key,
+        model=config.gemini_model,
+        temperature=config.gemini_temperature,
+    )
 
-    # 메인 루프 (테스트용 - 60초마다 heartbeat)
+    executor = TradingExecutor(binance_client=binance, config=config)
+
+    # Send startup notification
+    await send_discord_embed(
+        webhook_url=config.discord_webhook_url,
+        title="🤖 Bot Started",
+        description=f"**{config.bot_name}** started successfully",
+        color=0x00FF00,
+        fields=[
+            {"name": "Symbol", "value": config.symbol, "inline": True},
+            {"name": "Leverage", "value": f"{config.leverage}x", "inline": True},
+            {
+                "name": "Mode",
+                "value": "Testnet" if config.binance_testnet else "LIVE",
+                "inline": True,
+            },
+        ],
+    )
+
+    logger.info("Initialization complete")
+    logger.info(f"Trading {config.symbol} with {config.leverage}x leverage")
+    logger.info(f"Loop interval: {config.loop_interval_seconds} seconds")
+
+    # Main loop
+    loop_count = 0
     while True:
-        logger.debug("Heartbeat...")
-        await asyncio.sleep(60)
+        try:
+            loop_count += 1
+            logger.info(f"\n{'='*60}")
+            logger.info(f"Loop #{loop_count} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"{'='*60}")
+
+            # 1. Fetch market data
+            logger.info("Step 1: Fetching market data...")
+            current_price = await binance.get_current_price(config.symbol)
+            klines = await binance.get_klines(config.symbol, limit=24)
+            ticker_24h = await binance.get_ticker_24h(config.symbol)
+
+            # 2. Calculate indicators
+            logger.info("Step 2: Calculating indicators...")
+            market_data = analyze_market(klines, ticker_24h, current_price)
+
+            # 3. Generate AI signal
+            logger.info("Step 3: Generating AI signal...")
+            raw_signal = await gemini.get_signal(market_data)
+            signal = parse_signal(raw_signal)
+
+            if not validate_signal(signal):
+                logger.warning(f"Invalid signal '{signal}', defaulting to WAIT")
+                signal = "WAIT"
+
+            logger.info(f"Signal: {get_signal_emoji(signal)} {signal}")
+
+            # 4. Check current position
+            logger.info("Step 4: Checking position...")
+            current_position = await executor.get_position()
+            has_position = current_position is not None
+
+            if has_position:
+                logger.info(
+                    f"Current position: {current_position['side']} "
+                    f"{abs(current_position['position_amt'])} @ "
+                    f"${current_position['entry_price']:,.2f}"
+                )
+
+                # Check TP/SL
+                exit_reason = await executor.check_tp_sl(current_position, current_price)
+                if exit_reason:
+                    logger.info(f"Exit condition met: {exit_reason}")
+
+                    # Close position
+                    order = await executor.close_position()
+
+                    if order:
+                        # Calculate PnL
+                        entry_price = current_position["entry_price"]
+                        pnl_pct = executor.calculate_pnl_pct(
+                            entry_price, current_price, current_position["side"]
+                        )
+
+                        # Send Discord notification
+                        await send_discord_embed(
+                            webhook_url=config.discord_webhook_url,
+                            title=f"{'✅' if exit_reason == 'TP' else '❌'} Position Closed - {exit_reason}",
+                            description=f"**{current_position['side']}** position closed",
+                            color=0x00FF00 if exit_reason == "TP" else 0xFF0000,
+                            fields=[
+                                {
+                                    "name": "Entry Price",
+                                    "value": f"${entry_price:,.2f}",
+                                    "inline": True,
+                                },
+                                {
+                                    "name": "Exit Price",
+                                    "value": f"${current_price:,.2f}",
+                                    "inline": True,
+                                },
+                                {
+                                    "name": "PnL",
+                                    "value": f"{pnl_pct:+.2f}%",
+                                    "inline": True,
+                                },
+                            ],
+                        )
+            else:
+                logger.info("No current position")
+
+            # 5. Execute signal
+            logger.info("Step 5: Executing signal...")
+
+            if should_enter_trade(signal, has_position):
+                logger.info(f"Entering {signal} trade...")
+
+                # Open position
+                order = await executor.open_position(signal, current_price)
+
+                if order:
+                    # Calculate TP/SL prices
+                    if signal == "LONG":
+                        tp_price = current_price * (1 + config.take_profit_pct)
+                        sl_price = current_price * (1 - config.stop_loss_pct)
+                    else:  # SHORT
+                        tp_price = current_price * (1 - config.take_profit_pct)
+                        sl_price = current_price * (1 + config.stop_loss_pct)
+
+                    # Send Discord notification
+                    await send_discord_embed(
+                        webhook_url=config.discord_webhook_url,
+                        title=f"{get_signal_emoji(signal)} Position Opened - {signal}",
+                        description=f"**{signal}** position opened",
+                        color=get_signal_color(signal),
+                        fields=[
+                            {
+                                "name": "Entry Price",
+                                "value": f"${current_price:,.2f}",
+                                "inline": True,
+                            },
+                            {
+                                "name": "TP Target",
+                                "value": f"${tp_price:,.2f} (+{config.take_profit_pct*100:.2f}%)",
+                                "inline": True,
+                            },
+                            {
+                                "name": "SL Target",
+                                "value": f"${sl_price:,.2f} (-{config.stop_loss_pct*100:.2f}%)",
+                                "inline": True,
+                            },
+                            {
+                                "name": "RSI",
+                                "value": f"{market_data['rsi']:.2f}",
+                                "inline": True,
+                            },
+                            {
+                                "name": "Leverage",
+                                "value": f"{config.leverage}x",
+                                "inline": True,
+                            },
+                        ],
+                    )
+            else:
+                logger.info(f"Signal: {signal} - No action taken")
+
+            # 6. Wait for next iteration
+            logger.info(f"\nWaiting {config.loop_interval_seconds} seconds...")
+            await asyncio.sleep(config.loop_interval_seconds)
+
+        except KeyboardInterrupt:
+            logger.info("\nShutting down gracefully...")
+            await send_discord_embed(
+                webhook_url=config.discord_webhook_url,
+                title="🛑 Bot Stopped",
+                description=f"**{config.bot_name}** stopped by user",
+                color=0xFF0000,
+            )
+            break
+
+        except Exception as e:
+            logger.error(f"Error in trading loop: {e}", exc_info=True)
+            await send_discord_embed(
+                webhook_url=config.discord_webhook_url,
+                title="⚠️ Error",
+                description=f"Error in trading loop: {str(e)}",
+                color=0xFFA500,
+            )
+            # Wait before retrying
+            await asyncio.sleep(60)
+
+
+async def main():
+    """Entry point"""
+    try:
+        await trading_loop()
+    except Exception as e:
+        logger.error(f"Fatal error: {e}", exc_info=True)
 
 
 if __name__ == "__main__":

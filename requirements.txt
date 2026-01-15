@@ -13,3 +13,29 @@ loguru>=0.7.0
 
 # Environment
 python-dotenv>=1.0.0
+
+# ===========================================
+# Trading Dependencies (Sprint 1)
+# ===========================================
+
+# Binance API Client
+python-binance>=1.0.19
+
+# AI - Gemini
+google-genai>=1.0.0
+
+# Data Analysis
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Technical Indicators
+ta>=0.11.0
+
+# ===========================================
+# Testing (Sprint 1)
+# ===========================================
+pytest>=7.0.0
+pytest-asyncio>=0.21.0  # 비동기 테스트
+pytest-mock>=3.12.0     # Mock 유틸리티
+pytest-cov>=4.1.0       # 코드 커버리지
+httpx>=0.25.0           # FastAPI 테스트 클라이언트

@@ -1,0 +1,111 @@
+"""
+Configuration management for High-Win Survival System
+"""
+import os
+from typing import Optional
+from pydantic import BaseModel, Field, validator
+from dotenv import load_dotenv
+from loguru import logger
+
+# Load environment variables
+load_dotenv()
+
+
+class TradingConfig(BaseModel):
+    """Trading configuration with validation"""
+
+    # Bot Info
+    bot_name: str = Field(default="trading-bot")
+
+    # Binance Configuration
+    binance_testnet: bool = Field(default=True)
+    binance_api_key: str
+    binance_secret_key: str
+
+    # Trading Parameters
+    symbol: str = Field(default="BTCUSDT")
+    leverage: int = Field(default=15, ge=1, le=125)
+    position_size_pct: float = Field(default=0.05, gt=0, le=1)
+    take_profit_pct: float = Field(default=0.004, gt=0)
+    stop_loss_pct: float = Field(default=0.004, gt=0)
+    time_cut_minutes: int = Field(default=120, gt=0)
+
+    # AI Configuration
+    gemini_api_key: str
+    gemini_model: str = Field(default="gemini-2.0-flash-exp")
+    gemini_temperature: float = Field(default=0.1, ge=0, le=2)
+
+    # Discord Configuration
+    discord_webhook_url: str
+
+    # Database Configuration
+    database_url: Optional[str] = None
+
+    # Trading Loop
+    loop_interval_seconds: int = Field(default=300, gt=0)  # 5 minutes
+
+    @validator("symbol")
+    def validate_symbol(cls, v):
+        """Validate symbol format"""
+        if not v.endswith("USDT"):
+            raise ValueError("Symbol must end with USDT")
+        return v.upper()
+
+    @validator("position_size_pct")
+    def validate_position_size(cls, v):
+        """Validate position size is reasonable"""
+        if v > 0.1:  # Max 10% of capital
+            logger.warning(f"Position size {v*100}% is high, recommended: <=10%")
+        return v
+
+    class Config:
+        validate_assignment = True
+
+
+def load_config() -> TradingConfig:
+    """Load configuration from environment variables"""
+    try:
+        config = TradingConfig(
+            bot_name=os.getenv("BOT_NAME", "trading-bot"),
+            binance_testnet=os.getenv("BINANCE_TESTNET", "true").lower() == "true",
+            binance_api_key=os.getenv("BINANCE_API_KEY", ""),
+            binance_secret_key=os.getenv("BINANCE_SECRET_KEY", ""),
+            symbol=os.getenv("SYMBOL", "BTCUSDT"),
+            leverage=int(os.getenv("LEVERAGE", "15")),
+            position_size_pct=float(os.getenv("POSITION_SIZE_PCT", "0.05")),
+            take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "0.004")),
+            stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0.004")),
+            time_cut_minutes=int(os.getenv("TIME_CUT_MINUTES", "120")),
+            gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
+            gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp"),
+            gemini_temperature=float(os.getenv("GEMINI_TEMPERATURE", "0.1")),
+            discord_webhook_url=os.getenv("DISCORD_WEBHOOK_URL", ""),
+            database_url=os.getenv("DATABASE_URL"),
+            loop_interval_seconds=int(os.getenv("LOOP_INTERVAL_SECONDS", "300")),
+        )
+
+        logger.info(f"Configuration loaded successfully")
+        logger.info(f"Bot: {config.bot_name}")
+        logger.info(f"Symbol: {config.symbol}")
+        logger.info(f"Leverage: {config.leverage}x")
+        logger.info(f"Position Size: {config.position_size_pct*100}%")
+        logger.info(f"TP/SL: {config.take_profit_pct*100}% / {config.stop_loss_pct*100}%")
+        logger.info(f"Testnet: {config.binance_testnet}")
+
+        return config
+
+    except Exception as e:
+        logger.error(f"Configuration load failed: {e}")
+        raise
+
+
+# Singleton instance
+_config: Optional[TradingConfig] = None
+
+
+def get_config() -> TradingConfig:
+    """Get singleton configuration instance"""
+    global _config
+    if _config is None:
+        _config = load_config()
+    return _config
