@@ -1,5 +1,6 @@
 """
 High-Win Survival System - Main Entry Point
+Version: 0.1.0
 """
 import os
 import asyncio
