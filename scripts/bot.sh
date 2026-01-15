@@ -62,6 +62,7 @@ show_help() {
     echo "  stop          봇 중지 (Docker)"
     echo "  restart       봇 재시작 (Docker)"
     echo "  status        봇 상태 확인"
+    echo "  monitoring    모니터링 스택 관리 (start/stop/restart/logs)"
     echo "  clean         임시 파일 정리"
     echo "  help          이 도움말 표시"
     echo ""
@@ -161,6 +162,77 @@ cmd_status() {
     echo "Database: $(docker ps | grep postgres &>/dev/null && echo 'Running' || echo 'Stopped')"
 }
 
+cmd_monitoring() {
+    local subcommand=$1
+
+    case $subcommand in
+        start)
+            print_header "모니터링 스택 시작"
+            print_info "Grafana + Loki + Promtail 시작 중..."
+            docker compose -f monitoring/docker-compose.yml up -d
+
+            echo ""
+            print_success "모니터링 스택이 시작되었습니다"
+            echo ""
+            echo -e "${BLUE}접속 정보:${NC}"
+            echo "  Grafana: http://localhost:3000"
+            echo "  ID: admin"
+            echo "  PW: admin123"
+            echo ""
+            echo -e "${BLUE}대시보드:${NC}"
+            echo "  1. Trading Overview - 거래 현황"
+            echo "  2. AI Signals - AI 신호 분석"
+            echo "  3. System Health - 시스템 상태"
+            ;;
+        stop)
+            print_header "모니터링 스택 중지"
+            docker compose -f monitoring/docker-compose.yml down
+            print_success "모니터링 스택이 중지되었습니다"
+            ;;
+        restart)
+            print_header "모니터링 스택 재시작"
+            docker compose -f monitoring/docker-compose.yml restart
+            print_success "모니터링 스택이 재시작되었습니다"
+            ;;
+        logs)
+            print_info "모니터링 로그 확인 중..."
+            docker compose -f monitoring/docker-compose.yml logs -f
+            ;;
+        status)
+            print_header "모니터링 스택 상태"
+            docker compose -f monitoring/docker-compose.yml ps
+
+            echo ""
+            echo -e "${BLUE}서비스 상태:${NC}"
+
+            # Loki 상태
+            if curl -s http://localhost:3100/ready > /dev/null 2>&1; then
+                echo "  Loki: $(print_success '✓ Running')"
+            else
+                echo "  Loki: $(print_error '✗ Stopped')"
+            fi
+
+            # Grafana 상태
+            if curl -s http://localhost:3000/api/health > /dev/null 2>&1; then
+                echo "  Grafana: $(print_success '✓ Running')"
+            else
+                echo "  Grafana: $(print_error '✗ Stopped')"
+            fi
+            ;;
+        *)
+            print_error "알 수 없는 모니터링 명령어: $subcommand"
+            echo ""
+            echo "사용 가능한 명령어:"
+            echo "  ./scripts/bot.sh monitoring start    # 시작"
+            echo "  ./scripts/bot.sh monitoring stop     # 중지"
+            echo "  ./scripts/bot.sh monitoring restart  # 재시작"
+            echo "  ./scripts/bot.sh monitoring logs     # 로그 확인"
+            echo "  ./scripts/bot.sh monitoring status   # 상태 확인"
+            exit 1
+            ;;
+    esac
+}
+
 cmd_clean() {
     print_info "임시 파일 정리 중..."
 
@@ -219,6 +291,9 @@ main() {
             ;;
         status)
             cmd_status "$@"
+            ;;
+        monitoring)
+            cmd_monitoring "$@"
             ;;
         clean)
             cmd_clean "$@"

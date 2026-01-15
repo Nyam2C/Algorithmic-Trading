@@ -3,6 +3,9 @@ High-Win Survival System - Main Entry Point
 Sprint 1: Paper Trading MVP
 """
 import asyncio
+import sys
+import json
+from pathlib import Path
 from datetime import datetime
 from typing import Dict
 
@@ -22,6 +25,62 @@ from src.ai.signals import (
     get_signal_color,
 )
 from src.trading.executor import TradingExecutor
+
+
+def setup_logging():
+    """
+    Configure structured JSON logging for Loki/Promtail
+    """
+    # Remove default logger
+    logger.remove()
+
+    # Create logs directory
+    Path("logs").mkdir(exist_ok=True)
+
+    # JSON formatter for file logging (Loki/Promtail)
+    def json_formatter(record):
+        log_entry = {
+            "timestamp": record["time"].isoformat(),
+            "level": record["level"].name,
+            "message": record["message"],
+            "module": record["name"],
+            "function": record["function"],
+            "line": record["line"],
+        }
+
+        # Add extra fields if present
+        if record["extra"]:
+            log_entry.update(record["extra"])
+
+        return json.dumps(log_entry)
+
+    # Console logger (human-readable)
+    logger.add(
+        sys.stdout,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        level="INFO",
+        colorize=True,
+    )
+
+    # JSON file logger (bot.log) - for Promtail
+    logger.add(
+        "logs/bot.log",
+        format=json_formatter,
+        level="DEBUG",
+        rotation="100 MB",
+        retention="30 days",
+        compression="zip",
+    )
+
+    # Error-only logger (error.log)
+    logger.add(
+        "logs/error.log",
+        format=json_formatter,
+        level="ERROR",
+        rotation="10 MB",
+        retention="30 days",
+        compression="zip",
+    )
 
 
 async def send_discord_embed(
@@ -143,7 +202,16 @@ async def trading_loop():
                 logger.warning(f"Invalid signal '{signal}', defaulting to WAIT")
                 signal = "WAIT"
 
-            logger.info(f"Signal: {get_signal_emoji(signal)} {signal}")
+            # Log signal with structured data for Grafana
+            logger.bind(
+                event="SIGNAL",
+                signal=signal,
+                price=current_price,
+                rsi=market_data.get("rsi"),
+                ma_7=market_data.get("ma_7"),
+                ma_25=market_data.get("ma_25"),
+                volume_ratio=market_data.get("volume_ratio"),
+            ).info(f"Signal: {get_signal_emoji(signal)} {signal}")
 
             # 4. Check current position
             logger.info("Step 4: Checking position...")
@@ -209,6 +277,15 @@ async def trading_loop():
                 order = await executor.open_position(signal, current_price)
 
                 if order:
+                    # Log trade execution with structured data
+                    logger.bind(
+                        event="TRADE_OPENED",
+                        signal=signal,
+                        side=signal,
+                        price=current_price,
+                        quantity=order.get("origQty", 0),
+                        order_id=order.get("orderId"),
+                    ).info(f"Trade opened: {signal} @ ${current_price:,.2f}")
                     # Calculate TP/SL prices
                     if signal == "LONG":
                         tp_price = current_price * (1 + config.take_profit_pct)
@@ -289,4 +366,8 @@ async def main():
 
 
 if __name__ == "__main__":
+    # Setup structured JSON logging
+    setup_logging()
+
+    # Run the bot
     asyncio.run(main())

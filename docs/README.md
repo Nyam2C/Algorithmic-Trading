@@ -46,6 +46,20 @@ High-Win Survival System 프로젝트 문서 모음
 
 ---
 
+### 모니터링 가이드
+
+#### [../monitoring/README.md](../monitoring/README.md)
+**모니터링 시스템 사용 가이드**
+
+- Grafana + Loki + Promtail 설치 및 설정
+- 3개 대시보드 설명 (Trading Overview, AI Signals, System Health)
+- LogQL 쿼리 예시
+- 트러블슈팅 및 관리 명령어
+
+**대상:** 모니터링 시스템을 설정하고 사용하는 사용자
+
+---
+
 ### 개발 계획 문서 (../.claude/)
 
 프로젝트 루트의 `.claude/` 폴더에 있는 개발 계획 문서:
@@ -146,9 +160,11 @@ High-Win Survival System 프로젝트 문서 모음
 ### Sprint 2+
 - **API_REFERENCE.md** - FastAPI 엔드포인트 문서
 - **DEPLOYMENT.md** - 프로덕션 배포 가이드
-- **MONITORING.md** - 모니터링 및 알림 설정
 - **BACKUP.md** - 백업 및 복구 가이드
 - **SECURITY.md** - 보안 설정 가이드
+
+### Sprint 1 완료 ✅
+- **[../monitoring/README.md](../monitoring/README.md)** - 모니터링 시스템 가이드
 
 ---
 

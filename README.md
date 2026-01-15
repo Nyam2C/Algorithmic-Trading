@@ -296,6 +296,61 @@ google.genai.errors.APIError: API key not valid
 
 ---
 
+## 📊 모니터링 (Grafana + Loki)
+
+### 모니터링 스택 시작
+
+```bash
+# 올인원 CLI
+./scripts/bot.sh monitoring start
+
+# 또는 직접 실행
+docker compose -f monitoring/docker-compose.yml up -d
+```
+
+### Grafana 접속
+
+```
+URL: http://localhost:3000
+ID: admin
+PW: admin123
+```
+
+### 대시보드
+
+모니터링 시스템에는 3개의 대시보드가 포함되어 있습니다:
+
+1. **Trading Overview** - 전체 거래 현황
+   - LONG/SHORT/WAIT 신호 발생 횟수
+   - 신호 분포 파이 차트
+   - 거래 타임라인
+   - Discord 알림 로그
+
+2. **AI Signals** - AI 신호 분석
+   - 신호 분포 및 신뢰도
+   - RSI 추이
+   - 신호 발생 추이
+
+3. **System Health** - 시스템 상태
+   - 에러 발생 횟수
+   - Bot 상태 (HEARTBEAT)
+   - API 성공률
+   - 에러 로그
+
+### 모니터링 관리
+
+```bash
+./scripts/bot.sh monitoring start     # 시작
+./scripts/bot.sh monitoring stop      # 중지
+./scripts/bot.sh monitoring restart   # 재시작
+./scripts/bot.sh monitoring logs      # 로그 확인
+./scripts/bot.sh monitoring status    # 상태 확인
+```
+
+**자세한 가이드**: [monitoring/README.md](monitoring/README.md)
+
+---
+
 ## 📝 Sprint 1 완료 체크리스트
 
 - [x] ✅ src/config.py - 설정 관리
@@ -311,12 +366,15 @@ google.genai.errors.APIError: API key not valid
 - [x] ✅ db/init.sql - 데이터베이스 스키마
 - [x] ✅ SETUP_GUIDE.md - 환경 설정 가이드
 - [x] ✅ TEST_GUIDE.md - 테스트 가이드
+- [x] ✅ monitoring/ - Grafana + Loki 모니터링 스택
+- [x] ✅ JSON 구조화 로그 - Promtail 연동
 
 ### 실행 테스트 체크리스트
 - [ ] Binance Testnet 데이터 수집 확인
 - [ ] Gemini AI 신호 생성 확인 (LONG/SHORT/WAIT)
 - [ ] Testnet 주문 생성 확인
 - [ ] Discord 알림 수신 확인
+- [ ] Grafana 대시보드 확인
 - [ ] 3회 이상 정상 실행 확인
 
 ---
