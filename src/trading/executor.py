@@ -2,6 +2,7 @@
 Trading executor for opening and closing positions
 """
 from typing import Dict, Optional
+from datetime import datetime, timedelta
 from binance.enums import (
     SIDE_BUY,
     SIDE_SELL,
@@ -116,13 +117,14 @@ class TradingExecutor:
                 quantity=quantity,
             )
 
-            # Store position info
+            # Store position info with entry time
             self.current_position = {
                 "signal": signal,
                 "side": side,
                 "quantity": quantity,
                 "entry_price": current_price,
                 "order_id": order["orderId"],
+                "entry_time": datetime.now(),  # Add entry time for timecut
             }
 
             logger.info(
@@ -243,3 +245,45 @@ class TradingExecutor:
         except Exception as e:
             logger.error(f"Failed to check TP/SL: {e}")
             return None
+
+    def check_timecut(self, position: Dict) -> bool:
+        """
+        Check if position should be closed due to timecut (2 hours)
+
+        Args:
+            position: Position info with entry_time
+
+        Returns:
+            True if timecut should be triggered
+        """
+        try:
+            if "entry_time" not in position:
+                logger.warning("Position does not have entry_time, skipping timecut check")
+                return False
+
+            entry_time = position["entry_time"]
+            current_time = datetime.now()
+            time_elapsed = current_time - entry_time
+
+            # Get timecut duration from config (default 120 minutes = 2 hours)
+            timecut_minutes = getattr(self.config, "time_cut_minutes", 120)
+            timecut_duration = timedelta(minutes=timecut_minutes)
+
+            logger.debug(
+                f"Time elapsed: {time_elapsed.total_seconds()/60:.1f} minutes "
+                f"(Timecut at {timecut_minutes} minutes)"
+            )
+
+            # Check if timecut should be triggered
+            if time_elapsed >= timecut_duration:
+                logger.info(
+                    f"Timecut triggered: {time_elapsed.total_seconds()/60:.1f} minutes "
+                    f">= {timecut_minutes} minutes"
+                )
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.error(f"Failed to check timecut: {e}")
+            return False

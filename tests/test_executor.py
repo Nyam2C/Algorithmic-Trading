@@ -3,6 +3,7 @@ Tests for trading executor
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
+from datetime import datetime, timedelta
 
 from src.trading.executor import TradingExecutor
 from src.config import TradingConfig
@@ -252,3 +253,71 @@ class TestTradingExecutor:
         result = await executor.check_tp_sl(position, current_price)
 
         assert result is None
+
+
+class TestTimecutFeature:
+    """타임컷 기능 테스트"""
+
+    def test_check_timecut_not_triggered(self, executor):
+        """타임컷 조건 미달 (1시간 경과)"""
+        position = {
+            "entry_time": datetime.now() - timedelta(hours=1),
+            "side": "LONG"
+        }
+
+        result = executor.check_timecut(position)
+
+        assert result is False
+
+    def test_check_timecut_triggered(self, executor):
+        """타임컷 조건 충족 (2시간 경과)"""
+        position = {
+            "entry_time": datetime.now() - timedelta(hours=2, minutes=1),
+            "side": "LONG"
+        }
+
+        result = executor.check_timecut(position)
+
+        assert result is True
+
+    def test_check_timecut_exactly_2_hours(self, executor):
+        """타임컷 정확히 2시간"""
+        position = {
+            "entry_time": datetime.now() - timedelta(hours=2),
+            "side": "LONG"
+        }
+
+        result = executor.check_timecut(position)
+
+        assert result is True
+
+    def test_check_timecut_no_entry_time(self, executor):
+        """entry_time 필드 없음"""
+        position = {
+            "side": "LONG"
+        }
+
+        result = executor.check_timecut(position)
+
+        assert result is False
+
+    def test_check_timecut_custom_duration(self, mock_binance_client):
+        """커스텀 타임컷 시간 (60분)"""
+        config = TradingConfig(
+            bot_name="test-bot",
+            binance_api_key="test_key",
+            binance_secret_key="test_secret",
+            gemini_api_key="test_gemini",
+            discord_webhook_url="https://test.com",
+            time_cut_minutes=60,  # 60분으로 설정
+        )
+        executor = TradingExecutor(mock_binance_client, config)
+
+        position = {
+            "entry_time": datetime.now() - timedelta(minutes=61),
+            "side": "LONG"
+        }
+
+        result = executor.check_timecut(position)
+
+        assert result is True
