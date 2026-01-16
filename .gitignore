@@ -21,12 +21,19 @@ __pycache__/
 .Python
 .venv/
 venv/
+env/
 ENV/
+*.egg-info/
+dist/
+build/
+.eggs/
 
 # Testing
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
+.tox/
 
 # Linting and Type Checking
 .mypy_cache/
@@ -40,6 +47,7 @@ htmlcov/
 
 # Logs
 logs/*.log
+logs/*.json
 *.log
 
 # Docker
