@@ -7,6 +7,8 @@ from binance.enums import (
     SIDE_BUY,
     SIDE_SELL,
     ORDER_TYPE_MARKET,
+    ORDER_TYPE_LIMIT,
+    TIME_IN_FORCE_GTC,
 )
 from binance.exceptions import BinanceAPIException
 import pandas as pd
@@ -217,6 +219,95 @@ class BinanceTestnetClient:
             return order
         except Exception as e:
             logger.error(f"Failed to create market order: {e}")
+            raise
+
+    @async_retry(
+        max_attempts=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
+    async def create_limit_order(
+        self, symbol: str, side: str, quantity: float, price: float
+    ) -> Dict:
+        """
+        Create a limit order (Maker order with retry)
+
+        Args:
+            symbol: Trading pair
+            side: "BUY" or "SELL"
+            quantity: Order quantity in base asset
+            price: Limit price
+
+        Returns:
+            Order details
+        """
+        try:
+            order = self.client.futures_create_order(
+                symbol=symbol,
+                side=side,
+                type=ORDER_TYPE_LIMIT,
+                timeInForce=TIME_IN_FORCE_GTC,
+                quantity=quantity,
+                price=price,
+            )
+            logger.info(
+                f"Limit order created: {side} {quantity} {symbol} @ ${price:,.2f}"
+            )
+            logger.info(f"Order ID: {order['orderId']}")
+            return order
+        except Exception as e:
+            logger.error(f"Failed to create limit order: {e}")
+            raise
+
+    @async_retry(
+        max_attempts=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
+    async def get_order_status(self, symbol: str, order_id: int) -> Dict:
+        """
+        Get order status (with retry)
+
+        Args:
+            symbol: Trading pair
+            order_id: Order ID
+
+        Returns:
+            Order details with status
+        """
+        try:
+            order = self.client.futures_get_order(symbol=symbol, orderId=order_id)
+            logger.debug(f"Order {order_id} status: {order['status']}")
+            return order
+        except Exception as e:
+            logger.error(f"Failed to get order status: {e}")
+            raise
+
+    @async_retry(
+        max_attempts=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
+    async def cancel_order(self, symbol: str, order_id: int) -> Dict:
+        """
+        Cancel an open order (with retry)
+
+        Args:
+            symbol: Trading pair
+            order_id: Order ID to cancel
+
+        Returns:
+            Cancel response
+        """
+        try:
+            result = self.client.futures_cancel_order(symbol=symbol, orderId=order_id)
+            logger.info(f"Order {order_id} cancelled")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to cancel order {order_id}: {e}")
             raise
 
     async def get_position(self, symbol: str) -> Optional[Dict]:
