@@ -1,0 +1,21 @@
+# ===========================================
+# CodeRabbit AI Code Review Configuration
+# ===========================================
+
+# 리뷰 언어
+language: ko
+
+# 리뷰 활성화
+reviews:
+  review_status: true
+
+# 제외할 파일
+path_filters:
+  excluded:
+    - "**/*.md"
+    - "**/*.txt"
+    - "**/*.json"
+    - ".github/**"
+    - "logs/**"
+    - "htmlcov/**"
+    - "**/__pycache__/**"

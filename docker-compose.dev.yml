@@ -1,0 +1,27 @@
+# ===========================================
+# Development Environment Configuration
+# ===========================================
+# 개발 환경 전용 설정
+# 사용: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+version: '3.8'
+
+services:
+  postgres:
+    restart: "no"  # 개발 시 수동 재시작
+    environment:
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+
+  trading-bot:
+    restart: "no"
+    volumes:
+      - ./src:/app/src:ro  # 소스 코드 마운트 (읽기 전용)
+      - ./logs:/app/logs
+    environment:
+      - LOG_LEVEL=DEBUG
+      - TESTNET=true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
