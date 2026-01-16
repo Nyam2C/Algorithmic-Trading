@@ -224,6 +224,52 @@ async def trading_loop():
                     f"${current_position['entry_price']:,.2f}"
                 )
 
+                # Check Timecut first
+                if executor.current_position and executor.check_timecut(executor.current_position):
+                    exit_reason = "TIMECUT"
+                    logger.info("Exit condition met: TIMECUT")
+
+                    # Close position
+                    order = await executor.close_position()
+
+                    if order:
+                        # Calculate PnL
+                        entry_price = current_position["entry_price"]
+                        pnl_pct = executor.calculate_pnl_pct(
+                            entry_price, current_price, current_position["side"]
+                        )
+
+                        # Send Discord notification
+                        await send_discord_embed(
+                            webhook_url=config.discord_webhook_url,
+                            title="⏰ Position Closed - TIMECUT",
+                            description=f"**{current_position['side']}** position closed due to timecut (2 hours)",
+                            color=0xFFA500,  # Orange color
+                            fields=[
+                                {
+                                    "name": "Entry Price",
+                                    "value": f"${entry_price:,.2f}",
+                                    "inline": True,
+                                },
+                                {
+                                    "name": "Exit Price",
+                                    "value": f"${current_price:,.2f}",
+                                    "inline": True,
+                                },
+                                {
+                                    "name": "PnL",
+                                    "value": f"{pnl_pct:+.2f}%",
+                                    "inline": True,
+                                },
+                                {
+                                    "name": "Reason",
+                                    "value": "Time limit reached (2 hours)",
+                                    "inline": False,
+                                },
+                            ],
+                        )
+                    continue  # Skip TP/SL check and signal execution
+
                 # Check TP/SL
                 exit_reason = await executor.check_tp_sl(current_position, current_price)
                 if exit_reason:

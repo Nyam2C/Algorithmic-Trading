@@ -2,7 +2,8 @@
 Tests for trading executor
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock
+from datetime import datetime, timedelta
 
 from src.trading.executor import TradingExecutor
 from src.config import TradingConfig
@@ -252,3 +253,256 @@ class TestTradingExecutor:
         result = await executor.check_tp_sl(position, current_price)
 
         assert result is None
+
+
+class TestTimecutFeature:
+    """타임컷 기능 테스트"""
+
+    def test_check_timecut_not_triggered(self, executor):
+        """타임컷 조건 미달 (1시간 경과)"""
+        position = {
+            "entry_time": datetime.now() - timedelta(hours=1),
+            "side": "LONG"
+        }
+
+        result = executor.check_timecut(position)
+
+        assert result is False
+
+    def test_check_timecut_triggered(self, executor):
+        """타임컷 조건 충족 (2시간 경과)"""
+        position = {
+            "entry_time": datetime.now() - timedelta(hours=2, minutes=1),
+            "side": "LONG"
+        }
+
+        result = executor.check_timecut(position)
+
+        assert result is True
+
+    def test_check_timecut_exactly_2_hours(self, executor):
+        """타임컷 정확히 2시간"""
+        position = {
+            "entry_time": datetime.now() - timedelta(hours=2),
+            "side": "LONG"
+        }
+
+        result = executor.check_timecut(position)
+
+        assert result is True
+
+    def test_check_timecut_no_entry_time(self, executor):
+        """entry_time 필드 없음"""
+        position = {
+            "side": "LONG"
+        }
+
+        result = executor.check_timecut(position)
+
+        assert result is False
+
+    def test_check_timecut_custom_duration(self, mock_binance_client):
+        """커스텀 타임컷 시간 (60분)"""
+        config = TradingConfig(
+            bot_name="test-bot",
+            binance_api_key="test_key",
+            binance_secret_key="test_secret",
+            gemini_api_key="test_gemini",
+            discord_webhook_url="https://test.com",
+            time_cut_minutes=60,  # 60분으로 설정
+        )
+        executor = TradingExecutor(mock_binance_client, config)
+
+        position = {
+            "entry_time": datetime.now() - timedelta(minutes=61),
+            "side": "LONG"
+        }
+
+        result = executor.check_timecut(position)
+
+        assert result is True
+
+
+class TestMakerOrderFeature:
+    """Maker 주문 기능 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_open_position_maker_long_filled(self, mock_binance_client, mock_config):
+        """LONG Maker 주문 정상 체결"""
+        # Mock 설정
+        mock_binance_client.create_limit_order = AsyncMock(return_value={
+            "orderId": 11111,
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "status": "NEW"
+        })
+        mock_binance_client.get_order_status = AsyncMock(return_value={
+            "orderId": 11111,
+            "status": "FILLED"
+        })
+
+        executor = TradingExecutor(mock_binance_client, mock_config)
+        current_price = 100000.0
+
+        order = await executor.open_position_maker("LONG", current_price, use_maker=True)
+
+        assert order is not None
+        assert order["orderId"] == 11111
+
+        # Limit order 호출 확인
+        mock_binance_client.create_limit_order.assert_called_once()
+        call_args = mock_binance_client.create_limit_order.call_args
+        assert call_args[1]["symbol"] == "BTCUSDT"
+        assert call_args[1]["side"] == "BUY"
+
+        # LONG 주문은 현재가보다 0.01% 낮은 가격
+        expected_price = round(current_price * (1 - 0.0001), 2)
+        assert call_args[1]["price"] == expected_price
+
+    @pytest.mark.asyncio
+    async def test_open_position_maker_short_filled(self, mock_binance_client, mock_config):
+        """SHORT Maker 주문 정상 체결"""
+        # Mock 설정
+        mock_binance_client.create_limit_order = AsyncMock(return_value={
+            "orderId": 22222,
+            "symbol": "BTCUSDT",
+            "side": "SELL",
+            "status": "NEW"
+        })
+        mock_binance_client.get_order_status = AsyncMock(return_value={
+            "orderId": 22222,
+            "status": "FILLED"
+        })
+
+        executor = TradingExecutor(mock_binance_client, mock_config)
+        current_price = 100000.0
+
+        order = await executor.open_position_maker("SHORT", current_price, use_maker=True)
+
+        assert order is not None
+        assert order["orderId"] == 22222
+
+        # SHORT 주문은 현재가보다 0.01% 높은 가격
+        call_args = mock_binance_client.create_limit_order.call_args
+        expected_price = round(current_price * (1 + 0.0001), 2)
+        assert call_args[1]["price"] == expected_price
+        assert call_args[1]["side"] == "SELL"
+
+    @pytest.mark.asyncio
+    async def test_open_position_maker_timeout_fallback(self, mock_binance_client, mock_config):
+        """Maker 주문 미체결 -> Market 주문으로 fallback"""
+        # Limit order는 미체결 상태 유지
+        mock_binance_client.create_limit_order = AsyncMock(return_value={
+            "orderId": 33333,
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "status": "NEW"
+        })
+        # 계속 NEW 상태로 반환 (미체결)
+        mock_binance_client.get_order_status = AsyncMock(return_value={
+            "orderId": 33333,
+            "status": "NEW"
+        })
+        mock_binance_client.cancel_order = AsyncMock(return_value={
+            "orderId": 33333,
+            "status": "CANCELED"
+        })
+        # Market order로 fallback
+        mock_binance_client.create_market_order = AsyncMock(return_value={
+            "orderId": 44444,
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "status": "FILLED"
+        })
+
+        executor = TradingExecutor(mock_binance_client, mock_config)
+        current_price = 100000.0
+
+        order = await executor.open_position_maker("LONG", current_price, use_maker=True)
+
+        assert order is not None
+        assert order["orderId"] == 44444  # Market order ID
+
+        # Limit order 취소 확인
+        mock_binance_client.cancel_order.assert_called_once_with("BTCUSDT", 33333)
+
+        # Market order로 fallback 확인
+        mock_binance_client.create_market_order.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_open_position_maker_with_use_maker_false(self, mock_binance_client, mock_config):
+        """use_maker=False로 Market 주문 직접 사용"""
+        executor = TradingExecutor(mock_binance_client, mock_config)
+        current_price = 100000.0
+
+        order = await executor.open_position_maker("LONG", current_price, use_maker=False)
+
+        assert order is not None
+        assert order["orderId"] == 12345  # Market order의 기본 mock ID
+
+        # Limit order는 호출되지 않아야 함
+        assert not hasattr(mock_binance_client, 'create_limit_order') or \
+               not mock_binance_client.create_limit_order.called
+
+        # Market order만 호출
+        mock_binance_client.create_market_order.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_wait_for_fill_filled(self, mock_binance_client, mock_config):
+        """_wait_for_fill: 주문 체결됨"""
+        mock_binance_client.get_order_status = AsyncMock(return_value={
+            "orderId": 99999,
+            "status": "FILLED"
+        })
+
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        result = await executor._wait_for_fill(99999, timeout=10, check_interval=1)
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_wait_for_fill_canceled(self, mock_binance_client, mock_config):
+        """_wait_for_fill: 주문 취소됨"""
+        mock_binance_client.get_order_status = AsyncMock(return_value={
+            "orderId": 99999,
+            "status": "CANCELED"
+        })
+
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        result = await executor._wait_for_fill(99999, timeout=10, check_interval=1)
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_wait_for_fill_timeout(self, mock_binance_client, mock_config):
+        """_wait_for_fill: 타임아웃"""
+        # 계속 NEW 상태로 유지
+        mock_binance_client.get_order_status = AsyncMock(return_value={
+            "orderId": 99999,
+            "status": "NEW"
+        })
+
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        # 짧은 타임아웃으로 테스트
+        result = await executor._wait_for_fill(99999, timeout=3, check_interval=1)
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_open_position_maker_with_existing_position(self, mock_binance_client, mock_config):
+        """Maker 주문: 이미 포지션 있을 때"""
+        # 기존 포지션 있음
+        mock_binance_client.get_position.return_value = {
+            "side": "LONG",
+            "position_amt": 0.01
+        }
+
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        order = await executor.open_position_maker("LONG", 100000.0, use_maker=True)
+
+        # 주문이 생성되지 않아야 함
+        assert order is None

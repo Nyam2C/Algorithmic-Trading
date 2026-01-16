@@ -4,7 +4,10 @@ Gemini AI client for trading signal generation
 from typing import Dict
 from pathlib import Path
 from google import genai
+from google.genai.errors import ClientError, ServerError
 from loguru import logger
+
+from src.utils.retry import async_retry
 
 
 class GeminiSignalGenerator:
@@ -118,9 +121,15 @@ class GeminiSignalGenerator:
             logger.error(f"Failed to build market prompt: {e}")
             raise
 
+    @async_retry(
+        max_attempts=3,
+        delay=2.0,
+        backoff=2.0,
+        exceptions=(ClientError, ServerError, ConnectionError, TimeoutError),
+    )
     async def get_signal(self, market_data: Dict) -> str:
         """
-        Generate trading signal from market data
+        Generate trading signal from market data (with retry)
 
         Args:
             market_data: Dictionary with market indicators
