@@ -47,45 +47,177 @@ print_error() {
 }
 
 show_help() {
-    print_header "High-Win Survival System CLI"
+    print_header "Algorithmic Trading CLI"
 
     echo "사용법:"
     echo "  ./scripts/bot.sh <command> [options]"
     echo ""
-    echo "명령어:"
-    echo "  setup         전체 환경 설정 (최초 1회)"
+    echo "🚀 빠른 시작 (One-Command):"
+    echo "  setup         전체 환경 자동 설정 (최초 1회)"
+    echo "  dev           봇만 실행 (빠른 개발)"
+    echo "  dev:monitor   봇 + 모니터링"
+    echo "  dev:backend   봇 + Go API 백엔드"
+    echo "  dev:all       전체 스택 (Bot + DB + Backend + Monitoring)"
+    echo "  dev:down      전체 중지"
+    echo "  dev:logs      전체 로그"
+    echo "  prod          프로덕션 실행"
+    echo ""
+    echo "📦 기본 명령어:"
     echo "  run           로컬에서 봇 실행"
-    echo "  docker        Docker로 봇 실행 (권장)"
+    echo "  docker        Docker로 봇 실행"
     echo "  test          테스트 실행"
+    echo "  test:ci       CI 테스트 (로컬에서 GitHub Actions 검증)"
     echo "  db            데이터베이스 초기화"
     echo "  logs          로그 확인"
-    echo "  stop          봇 중지 (Docker)"
-    echo "  restart       봇 재시작 (Docker)"
+    echo "  stop          봇 중지"
+    echo "  restart       봇 재시작"
     echo "  status        봇 상태 확인"
-    echo "  monitoring    모니터링 스택 관리 (start/stop/restart/logs)"
     echo "  clean         임시 파일 정리"
     echo "  help          이 도움말 표시"
     echo ""
-    echo "옵션:"
-    echo "  --dev         개발 모드"
-    echo "  --verbose     상세 로그"
+    echo "📊 모니터링:"
+    echo "  monitoring start      모니터링 스택 시작"
+    echo "  monitoring stop       모니터링 스택 중지"
+    echo "  monitoring status     모니터링 상태 확인"
     echo ""
     echo "예시:"
-    echo "  ./scripts/bot.sh setup           # 최초 설정"
-    echo "  ./scripts/bot.sh docker          # Docker 실행"
-    echo "  ./scripts/bot.sh test            # 테스트"
-    echo "  ./scripts/bot.sh logs            # 로그 확인"
+    echo "  ./scripts/bot.sh setup           # 최초 설정 (1회)"
+    echo "  ./scripts/bot.sh dev:all         # 전체 스택 시작"
+    echo "  ./scripts/bot.sh dev:monitor     # 봇 + 모니터링만"
+    echo "  ./scripts/bot.sh prod            # 프로덕션 실행"
     echo ""
 }
 
 cmd_setup() {
-    print_header "환경 설정"
+    print_header "전체 환경 설정"
+    ./scripts/setup-all.sh "$@"
+}
 
-    if [ "$1" == "--dev" ]; then
-        ./scripts/setup.sh --dev
-    else
-        ./scripts/setup.sh --all
+cmd_dev() {
+    print_header "개발 환경 (Bot + DB)"
+    print_info "Starting: Bot + PostgreSQL"
+    docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+    print_success "Services started!"
+    echo ""
+    echo "  Bot: docker logs -f trading-bot"
+    echo "  DB:  docker logs -f trading-db"
+    echo ""
+}
+
+cmd_dev_monitor() {
+    print_header "개발 환경 (Bot + DB + Monitoring)"
+    print_info "Starting: Bot + PostgreSQL + Grafana + Loki"
+    docker compose \
+        -f docker-compose.yml \
+        -f docker-compose.dev.yml \
+        -f docker-compose.monitoring.yml \
+        up -d --build
+
+    print_success "Services started!"
+    echo ""
+    echo "  Grafana:     http://localhost:3000 (admin/admin123)"
+    echo "  Bot logs:    docker logs -f trading-bot"
+    echo "  All logs:    ./scripts/bot.sh dev:logs"
+    echo ""
+
+    # 모니터링 초기화
+    print_info "Initializing monitoring stack..."
+    sleep 5
+    ./monitoring/init-monitoring.sh
+}
+
+cmd_dev_backend() {
+    print_header "개발 환경 (Bot + DB + Backend)"
+    print_info "Starting: Bot + PostgreSQL + Go API"
+    docker compose \
+        -f docker-compose.yml \
+        -f docker-compose.dev.yml \
+        -f docker-compose.backend.yml \
+        up -d --build
+
+    print_success "Services started!"
+    echo ""
+    echo "  Backend API: http://localhost:8080/api/health"
+    echo "  Bot logs:    docker logs -f trading-bot"
+    echo "  API logs:    docker logs -f trading-backend"
+    echo ""
+}
+
+cmd_dev_all() {
+    print_header "전체 스택 (Bot + DB + Backend + Monitoring)"
+    print_info "Starting: All services"
+    docker compose \
+        -f docker-compose.yml \
+        -f docker-compose.dev.yml \
+        -f docker-compose.backend.yml \
+        -f docker-compose.monitoring.yml \
+        up -d --build
+
+    print_success "All services started!"
+    echo ""
+    echo "  Backend API: http://localhost:8080/api/health"
+    echo "  Grafana:     http://localhost:3000 (admin/admin123)"
+    echo "  Database:    localhost:5432"
+    echo ""
+    echo "  Logs:        ./scripts/bot.sh dev:logs"
+    echo ""
+
+    # 모니터링 초기화
+    print_info "Initializing monitoring stack..."
+    sleep 5
+    ./monitoring/init-monitoring.sh
+}
+
+cmd_dev_down() {
+    print_header "전체 스택 중지"
+    print_info "Stopping all services..."
+    docker compose \
+        -f docker-compose.yml \
+        -f docker-compose.dev.yml \
+        -f docker-compose.backend.yml \
+        -f docker-compose.monitoring.yml \
+        down
+
+    print_success "All services stopped"
+}
+
+cmd_dev_logs() {
+    print_info "전체 서비스 로그 확인 중..."
+    docker compose \
+        -f docker-compose.yml \
+        -f docker-compose.dev.yml \
+        -f docker-compose.backend.yml \
+        -f docker-compose.monitoring.yml \
+        logs -f
+}
+
+cmd_prod() {
+    print_header "프로덕션 실행"
+    print_info "Starting production stack..."
+
+    # 프로덕션 경고
+    echo ""
+    echo -e "${RED}⚠️  WARNING: Production mode will use REAL TRADING${NC}"
+    echo -e "${RED}⚠️  Make sure TESTNET=false in .env${NC}"
+    echo ""
+    read -p "Continue? (yes/no): " response
+
+    if [ "$response" != "yes" ]; then
+        print_info "Aborted"
+        exit 0
     fi
+
+    docker compose \
+        -f docker-compose.yml \
+        -f docker-compose.prod.yml \
+        -f docker-compose.monitoring.yml \
+        up -d --build
+
+    print_success "Production stack started!"
+    echo ""
+    echo "  Grafana:     http://localhost:3000"
+    echo "  Logs:        docker compose logs -f"
+    echo ""
 }
 
 cmd_run() {
@@ -101,6 +233,11 @@ cmd_docker() {
 cmd_test() {
     print_header "테스트 실행"
     ./scripts/run-tests.sh "$@"
+}
+
+cmd_test_ci() {
+    print_header "CI 테스트 (로컬)"
+    ./scripts/test-ci.sh "$@"
 }
 
 cmd_db() {
@@ -268,6 +405,27 @@ main() {
         setup)
             cmd_setup "$@"
             ;;
+        dev)
+            cmd_dev "$@"
+            ;;
+        dev:monitor)
+            cmd_dev_monitor "$@"
+            ;;
+        dev:backend)
+            cmd_dev_backend "$@"
+            ;;
+        dev:all)
+            cmd_dev_all "$@"
+            ;;
+        dev:down)
+            cmd_dev_down "$@"
+            ;;
+        dev:logs)
+            cmd_dev_logs "$@"
+            ;;
+        prod)
+            cmd_prod "$@"
+            ;;
         run)
             cmd_run "$@"
             ;;
@@ -276,6 +434,9 @@ main() {
             ;;
         test)
             cmd_test "$@"
+            ;;
+        test:ci)
+            cmd_test_ci "$@"
             ;;
         db)
             cmd_db "$@"

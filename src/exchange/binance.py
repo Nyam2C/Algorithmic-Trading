@@ -1,9 +1,13 @@
 """
 Binance Testnet Client for futures trading
 """
-from typing import List, Dict, Optional
+from typing import Dict, Optional
 from binance.client import Client
-from binance.enums import *
+from binance.enums import (
+    SIDE_BUY,
+    SIDE_SELL,
+    ORDER_TYPE_MARKET,
+)
 import pandas as pd
 from loguru import logger
 

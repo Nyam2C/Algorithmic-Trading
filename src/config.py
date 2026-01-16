@@ -47,9 +47,12 @@ class TradingConfig(BaseModel):
     @validator("symbol")
     def validate_symbol(cls, v):
         """Validate symbol format"""
+        # 먼저 대문자로 변환
+        v = v.upper()
+        # 그 다음 USDT로 끝나는지 확인
         if not v.endswith("USDT"):
             raise ValueError("Symbol must end with USDT")
-        return v.upper()
+        return v
 
     @validator("position_size_pct")
     def validate_position_size(cls, v):
@@ -84,7 +87,7 @@ def load_config() -> TradingConfig:
             loop_interval_seconds=int(os.getenv("LOOP_INTERVAL_SECONDS", "300")),
         )
 
-        logger.info(f"Configuration loaded successfully")
+        logger.info("Configuration loaded successfully")
         logger.info(f"Bot: {config.bot_name}")
         logger.info(f"Symbol: {config.symbol}")
         logger.info(f"Leverage: {config.leverage}x")

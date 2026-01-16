@@ -1,0 +1,37 @@
+# ===========================================
+# Production Environment Configuration
+# ===========================================
+# 프로덕션 환경 전용 설정
+# 사용: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+
+version: '3.8'
+
+services:
+  postgres:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  trading-bot:
+    restart: always
+    environment:
+      - LOG_LEVEL=INFO
+      - TESTNET=false  # Real Trading
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"

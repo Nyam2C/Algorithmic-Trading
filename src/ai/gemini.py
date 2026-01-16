@@ -1,8 +1,7 @@
 """
 Gemini AI client for trading signal generation
 """
-import os
-from typing import Dict, Optional
+from typing import Dict
 from pathlib import Path
 from google import genai
 from loguru import logger
@@ -147,6 +146,10 @@ class GeminiSignalGenerator:
             )
 
             # Parse response
+            if response.text is None:
+                logger.warning("Empty response from Gemini, defaulting to WAIT")
+                return "WAIT"
+
             signal = response.text.strip().upper()
 
             # Validate signal
@@ -192,6 +195,10 @@ class GeminiSignalGenerator:
             )
 
             # Parse response
+            if response.text is None:
+                logger.warning("Empty response from Gemini (sync), defaulting to WAIT")
+                return "WAIT"
+
             signal = response.text.strip().upper()
 
             # Validate signal

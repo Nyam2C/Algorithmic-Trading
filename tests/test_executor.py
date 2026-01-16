@@ -77,7 +77,9 @@ class TestTradingExecutor:
         # capital * size_pct * leverage / price
         expected_value = 1000 * 0.05 * 15  # = 750
         expected_quantity = expected_value / current_price  # = 0.0075
-        assert pytest.approx(quantity, rel=0.01) == expected_quantity
+        # round(0.0075, 3) = 0.007 (소수점 3자리 반올림)
+        expected_quantity_rounded = round(expected_quantity, 3)
+        assert quantity == expected_quantity_rounded
 
     @pytest.mark.asyncio
     async def test_open_position_long(self, executor, mock_binance_client):

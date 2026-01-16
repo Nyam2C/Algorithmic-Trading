@@ -2,7 +2,10 @@
 Trading executor for opening and closing positions
 """
 from typing import Dict, Optional
-from binance.enums import *
+from binance.enums import (
+    SIDE_BUY,
+    SIDE_SELL,
+)
 from loguru import logger
 
 

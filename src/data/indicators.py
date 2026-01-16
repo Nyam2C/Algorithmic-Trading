@@ -3,7 +3,6 @@ Technical indicators calculation using ta library
 """
 from typing import Dict, Tuple
 import pandas as pd
-import numpy as np
 from ta.momentum import RSIIndicator
 from ta.trend import SMAIndicator
 from ta.volatility import AverageTrueRange

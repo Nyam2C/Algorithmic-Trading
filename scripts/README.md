@@ -13,20 +13,27 @@
 # 도움말
 ./scripts/bot.sh help
 
-# 환경 설정 (최초 1회)
-./scripts/bot.sh setup
+# 🚀 원-커맨드 (새로 추가!)
+./scripts/bot.sh setup           # 전체 환경 설정 (최초 1회)
+./scripts/bot.sh dev             # Bot + DB만 (빠름)
+./scripts/bot.sh dev:monitor     # Bot + DB + Monitoring
+./scripts/bot.sh dev:backend     # Bot + DB + Go API
+./scripts/bot.sh dev:all         # 전체 스택
+./scripts/bot.sh dev:down        # 전체 중지
+./scripts/bot.sh dev:logs        # 전체 로그
+./scripts/bot.sh prod            # 프로덕션 실행
 
-# 실행
-./scripts/bot.sh docker          # Docker로 실행 (권장)
+# 📦 기본 실행
+./scripts/bot.sh docker          # Docker로 실행 (레거시)
 ./scripts/bot.sh run             # 로컬 실행
 
-# 테스트
+# 🧪 테스트
 ./scripts/bot.sh test            # 전체 테스트
 
-# 데이터베이스
+# 🗄️ 데이터베이스
 ./scripts/bot.sh db              # DB 초기화
 
-# 관리
+# 🔧 관리
 ./scripts/bot.sh logs            # 로그 확인
 ./scripts/bot.sh status          # 상태 확인
 ./scripts/bot.sh restart         # 재시작

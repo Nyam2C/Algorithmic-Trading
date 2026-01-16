@@ -7,7 +7,6 @@ import sys
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Dict
 
 import aiohttp
 from loguru import logger
@@ -84,7 +83,7 @@ def setup_logging():
 
 
 async def send_discord_embed(
-    webhook_url: str, title: str, description: str, color: int, fields: list = None
+    webhook_url: str, title: str, description: str, color: int, fields: list | None = None
 ) -> bool:
     """
     Send Discord embed message

@@ -1,7 +1,6 @@
 """
 Trading signal parsing and validation
 """
-from typing import Optional
 from loguru import logger
 
 

@@ -1,12 +1,38 @@
-# Documentation
+# 📚 Documentation Index
 
-High-Win Survival System 프로젝트 문서 모음
+Algorithmic Trading 프로젝트의 모든 문서는 이 폴더에서 관리됩니다.
 
 ---
 
-## 📚 문서 목록
+## 🚀 빠른 시작
 
-### 사용자 가이드
+### 처음 사용하는 경우 (추천 순서)
+
+#### 1️⃣ [QUICKSTART.md](QUICKSTART.md) ⭐
+**30초 빠른 시작 가이드 (원-커맨드)**
+
+- `./scripts/bot.sh setup` 한 번으로 전체 환경 설정
+- `./scripts/bot.sh dev:all` 한 번으로 전체 스택 실행
+- Docker Compose 계층화 설명
+- 사용 시나리오별 예시 (개발/모니터링/백엔드/프로덕션)
+
+**대상:** 빠르게 시작하고 싶은 모든 사용자
+
+---
+
+#### 2️⃣ [TEST_NOW.md](TEST_NOW.md) ⭐
+**API 키 없이 지금 바로 테스트**
+
+- 구조 검증: `./scripts/test-structure.sh`
+- 실행 테스트: `./scripts/test-quick.sh`
+- DB + 모니터링 자동 초기화 확인
+- Docker Compose 계층화 작동 확인
+
+**대상:** API 키가 없거나 구조만 먼저 확인하고 싶은 사용자
+
+---
+
+### 기존 사용자 가이드
 
 #### [SETUP_GUIDE.md](SETUP_GUIDE.md)
 **환경 설정 완벽 가이드**
@@ -17,7 +43,7 @@ High-Win Survival System 프로젝트 문서 모음
 - 트러블슈팅 가이드
 - 고급 설정 옵션
 
-**대상:** 처음 프로젝트를 설정하는 사용자
+**대상:** 상세한 설정이 필요한 사용자
 
 ---
 
@@ -31,18 +57,6 @@ High-Win Survival System 프로젝트 문서 모음
 - 디버깅 방법
 
 **대상:** 개발자, 테스트 작성자
-
----
-
-#### [QUICK_START.md](QUICK_START.md)
-**빠른 참조용 명령어 모음**
-
-- 자주 사용하는 명령어 치트시트
-- 설정/실행/테스트/DB 명령어
-- Docker 명령어
-- 트러블슈팅 빠른 해결법
-
-**대상:** 반복 작업 시 빠른 참조가 필요한 사용자
 
 ---
 
@@ -88,23 +102,45 @@ High-Win Survival System 프로젝트 문서 모음
 
 ## 📖 문서 읽는 순서
 
-### 처음 시작하는 경우
-1. **[../README.md](../README.md)** - 프로젝트 개요
-2. **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - 환경 설정
-3. **[QUICK_START.md](QUICK_START.md)** - 명령어 참조
+### 🆕 처음 시작하는 경우 (원-커맨드 방식)
+1. **[QUICKSTART.md](QUICKSTART.md)** - 30초 빠른 시작 ⭐
+2. **[TEST_NOW.md](TEST_NOW.md)** - API 키 없이 테스트 ⭐
+3. **[../README.md](../README.md)** - 프로젝트 개요
 
-### 개발하는 경우
+### 📦 상세 설정이 필요한 경우
+1. **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - 환경 설정
+2. **[TEST_GUIDE.md](TEST_GUIDE.md)** - 테스트 방법
+
+### 💻 개발하는 경우
 1. **[TEST_GUIDE.md](TEST_GUIDE.md)** - 테스트 방법
 2. **[../.claude/DEVELOPMENT_PLAN.md](../.claude/DEVELOPMENT_PLAN.md)** - 개발 계획
 3. **[../.claude/IMPLEMENTATION_PLAN.md](../.claude/IMPLEMENTATION_PLAN.md)** - 구현 가이드
 
-### 전략 이해하는 경우
+### 📊 전략 이해하는 경우
 1. **[../.claude/TRADING_PLAN.md](../.claude/TRADING_PLAN.md)** - 트레이딩 전략
 2. **[../.claude/PROMPT_ENGINEERING.md](../.claude/PROMPT_ENGINEERING.md)** - AI 프롬프트
 
 ---
 
 ## 🔍 문서별 주요 내용
+
+### QUICKSTART.md (원-커맨드) ⭐ NEW
+```
+- 30초 빠른 시작: ./scripts/bot.sh setup
+- 개발 환경 선택: dev / dev:monitor / dev:backend / dev:all
+- Docker Compose 계층화 설명
+- 사용 시나리오 (AI 개발, 모니터링, Go API, 통합 테스트)
+- 자동 초기화 (DB + 모니터링)
+```
+
+### TEST_NOW.md (API 키 불필요) ⭐ NEW
+```
+- 구조 검증: ./scripts/test-structure.sh (10초)
+- 실행 테스트: ./scripts/test-quick.sh (1분)
+- DB 자동 초기화 확인
+- Grafana 자동 설정 확인
+- Docker Compose 계층화 작동 확인
+```
 
 ### SETUP_GUIDE.md
 ```
@@ -124,16 +160,6 @@ High-Win Survival System 프로젝트 문서 모음
 - 64개 테스트 케이스 상세
 - CI/CD 통합
 - 테스트 작성 패턴
-```
-
-### QUICK_START.md
-```
-- 초기 설정 명령어
-- 실행 명령어 (Docker/로컬)
-- 테스트 명령어
-- DB 명령어
-- Docker 명령어
-- 트러블슈팅 빠른 해결
 ```
 
 ---
@@ -188,6 +214,19 @@ High-Win Survival System 프로젝트 문서 모음
 
 ---
 
-**문서 버전:** 1.0
+## 📂 문서 구조
+
+```
+docs/
+├── README.md              # 이 파일 (문서 인덱스)
+├── QUICKSTART.md          # 원-커맨드 빠른 시작 ⭐ NEW
+├── TEST_NOW.md            # API 키 없이 테스트 ⭐ NEW
+├── SETUP_GUIDE.md         # 상세 설정 가이드
+└── TEST_GUIDE.md          # 테스트 가이드
+```
+
+---
+
+**문서 버전:** 2.0 (원-커맨드 지원)
 **마지막 업데이트:** 2026-01-16
-**상태:** Sprint 1 완료
+**상태:** Sprint 1 완료 + Docker Compose 계층화 완료
