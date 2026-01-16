@@ -1,7 +1,6 @@
 """
 Tests for trading signal parsing and validation
 """
-import pytest
 
 from src.ai.signals import (
     parse_signal,

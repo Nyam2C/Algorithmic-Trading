@@ -242,7 +242,7 @@ async def trading_loop():
                         # Send Discord notification
                         await send_discord_embed(
                             webhook_url=config.discord_webhook_url,
-                            title=f"⏰ Position Closed - TIMECUT",
+                            title="⏰ Position Closed - TIMECUT",
                             description=f"**{current_position['side']}** position closed due to timecut (2 hours)",
                             color=0xFFA500,  # Orange color
                             fields=[

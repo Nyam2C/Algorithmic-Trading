@@ -8,8 +8,11 @@ from binance.enums import (
     SIDE_SELL,
     ORDER_TYPE_MARKET,
 )
+from binance.exceptions import BinanceAPIException
 import pandas as pd
 from loguru import logger
+
+from src.utils.retry import async_retry
 
 
 class BinanceTestnetClient:
@@ -42,9 +45,15 @@ class BinanceTestnetClient:
             )
             logger.warning("Binance REAL trading client initialized")
 
+    @async_retry(
+        max_attempts=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     async def get_current_price(self, symbol: str) -> float:
         """
-        Get current price for a symbol
+        Get current price for a symbol (with retry)
 
         Args:
             symbol: Trading pair (e.g., "BTCUSDT")
@@ -61,6 +70,12 @@ class BinanceTestnetClient:
             logger.error(f"Failed to get current price for {symbol}: {e}")
             raise
 
+    @async_retry(
+        max_attempts=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     async def get_klines(
         self,
         symbol: str,
@@ -68,7 +83,7 @@ class BinanceTestnetClient:
         limit: int = 24,
     ) -> pd.DataFrame:
         """
-        Get candlestick data
+        Get candlestick data (with retry)
 
         Args:
             symbol: Trading pair
@@ -141,9 +156,15 @@ class BinanceTestnetClient:
             logger.error(f"Failed to get 24h ticker for {symbol}: {e}")
             raise
 
+    @async_retry(
+        max_attempts=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     async def set_leverage(self, symbol: str, leverage: int) -> Dict:
         """
-        Set leverage for a symbol
+        Set leverage for a symbol (with retry)
 
         Args:
             symbol: Trading pair
@@ -162,11 +183,17 @@ class BinanceTestnetClient:
             logger.error(f"Failed to set leverage for {symbol}: {e}")
             raise
 
+    @async_retry(
+        max_attempts=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     async def create_market_order(
         self, symbol: str, side: str, quantity: float
     ) -> Dict:
         """
-        Create a market order (for Sprint 1 simplicity)
+        Create a market order (with retry)
 
         Args:
             symbol: Trading pair
@@ -229,9 +256,15 @@ class BinanceTestnetClient:
             logger.error(f"Failed to get position for {symbol}: {e}")
             raise
 
+    @async_retry(
+        max_attempts=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     async def close_position(self, symbol: str) -> Optional[Dict]:
         """
-        Close current position for a symbol
+        Close current position for a symbol (with retry)
 
         Args:
             symbol: Trading pair

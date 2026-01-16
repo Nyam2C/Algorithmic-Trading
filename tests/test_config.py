@@ -1,9 +1,7 @@
 """
 Tests for configuration management
 """
-import os
 import pytest
-from pathlib import Path
 from pydantic import ValidationError
 
 from src.config import TradingConfig, load_config, get_config

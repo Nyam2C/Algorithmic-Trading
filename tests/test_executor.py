@@ -2,7 +2,7 @@
 Tests for trading executor
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock
 from datetime import datetime, timedelta
 
 from src.trading.executor import TradingExecutor
