@@ -2,92 +2,20 @@
 # CodeRabbit AI Code Review Configuration
 # ===========================================
 
-# Review settings
+# 리뷰 언어
+language: ko
+
+# 리뷰 활성화
 reviews:
-  # 리뷰 언어
-  language: ko
+  review_status: true
 
-  # 자동 리뷰 활성화
-  auto_review: true
-  auto_reply: true
-
-  # 리뷰 포커스 영역
-  focus:
-    - security          # 보안 취약점
-    - performance       # 성능 최적화
-    - bugs              # 버그 및 로직 에러
-    - best_practices    # 베스트 프랙티스
-    - testing           # 테스트 커버리지
-
-  # 리뷰 상세도 (low, medium, high)
-  detail_level: high
-
-  # 특정 패턴 체크
-  checks:
-    # API 키 노출 체크
-    - name: api_keys
-      pattern: "(api[_-]?key|secret[_-]?key|token)"
-      severity: critical
-
-    # SQL 인젝션 체크
-    - name: sql_injection
-      pattern: "execute.*%|execute.*format"
-      severity: high
-
-    # 에러 핸들링 체크
-    - name: error_handling
-      pattern: "except:\\s*pass"
-      severity: medium
-
-# 제외할 파일/디렉토리
-exclude:
-  - "**/*.md"
-  - "**/*.txt"
-  - "**/*.json"
-  - "**/*.yaml"
-  - "**/*.yml"
-  - ".github/**"
-  - "logs/**"
-  - "htmlcov/**"
-  - "**/__pycache__/**"
-  - "**/*.pyc"
-
-# Python 특화 설정
-python:
-  # Linting 도구
-  linters:
-    - ruff
-    - mypy
-
-  # 타입 힌트 체크
-  type_checking: true
-
-  # Docstring 체크
-  docstrings: true
-
-# 알림 설정
-notifications:
-  # PR에 자동 코멘트
-  comment_on_pr: true
-
-  # 요약 생성
-  generate_summary: true
-
-  # 개선 제안
-  suggest_improvements: true
-
-# 커스텀 규칙
-custom_rules:
-  # Trading bot 특화 규칙
-  - name: trading_safety
-    description: "거래 관련 안전성 체크"
-    patterns:
-      - "leverage.*>.*20"  # 과도한 레버리지 경고
-      - "position_size.*>.*0.1"  # 과도한 포지션 크기 경고
-    severity: high
-
-  - name: api_error_handling
-    description: "API 에러 핸들링 체크"
-    patterns:
-      - "requests.get|requests.post"  # API 호출 시 에러 핸들링 확인
-    severity: medium
+# 제외할 파일
+path_filters:
+  excluded:
+    - "**/*.md"
+    - "**/*.txt"
+    - "**/*.json"
+    - ".github/**"
+    - "logs/**"
+    - "htmlcov/**"
+    - "**/__pycache__/**"
