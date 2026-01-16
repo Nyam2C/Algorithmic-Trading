@@ -16,6 +16,7 @@ from src.config import get_config
 from src.exchange.binance import BinanceTestnetClient
 from src.data.indicators import analyze_market
 from src.ai.gemini import GeminiSignalGenerator
+from src.ai.rule_based import RuleBasedSignalGenerator
 from src.ai.signals import (
     parse_signal,
     validate_signal,
@@ -144,10 +145,16 @@ async def trading_loop():
         testnet=config.binance_testnet,
     )
 
-    gemini = GeminiSignalGenerator(
-        api_key=config.gemini_api_key,
-        model=config.gemini_model,
-        temperature=config.gemini_temperature,
+    # Use rule-based signal generator (temporary fallback)
+    # gemini = GeminiSignalGenerator(
+    #     api_key=config.gemini_api_key,
+    #     model=config.gemini_model,
+    #     temperature=config.gemini_temperature,
+    # )
+    signal_generator = RuleBasedSignalGenerator(
+        rsi_oversold=35.0,
+        rsi_overbought=65.0,
+        volume_threshold=1.2,
     )
 
     executor = TradingExecutor(binance_client=binance, config=config)
@@ -156,7 +163,7 @@ async def trading_loop():
     await send_discord_embed(
         webhook_url=config.discord_webhook_url,
         title="🤖 Bot Started",
-        description=f"**{config.bot_name}** started successfully",
+        description=f"**{config.bot_name}** started successfully\n⚠️ Using **Rule-Based** signals (Gemini API unavailable)",
         color=0x00FF00,
         fields=[
             {"name": "Symbol", "value": config.symbol, "inline": True},
@@ -166,6 +173,7 @@ async def trading_loop():
                 "value": "Testnet" if config.binance_testnet else "LIVE",
                 "inline": True,
             },
+            {"name": "Signal Method", "value": "Rule-Based (RSI + MA)", "inline": False},
         ],
     )
 
@@ -192,10 +200,9 @@ async def trading_loop():
             logger.info("Step 2: Calculating indicators...")
             market_data = analyze_market(klines, ticker_24h, current_price)
 
-            # 3. Generate AI signal
-            logger.info("Step 3: Generating AI signal...")
-            raw_signal = await gemini.get_signal(market_data)
-            signal = parse_signal(raw_signal)
+            # 3. Generate signal (rule-based)
+            logger.info("Step 3: Generating signal (rule-based)...")
+            signal = signal_generator.get_signal(market_data)
 
             if not validate_signal(signal):
                 logger.warning(f"Invalid signal '{signal}', defaulting to WAIT")
