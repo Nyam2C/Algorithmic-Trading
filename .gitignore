@@ -28,6 +28,10 @@ ENV/
 .coverage
 htmlcov/
 
+# Linting and Type Checking
+.mypy_cache/
+.ruff_cache/
+
 # IDE
 .vscode/
 .idea/
