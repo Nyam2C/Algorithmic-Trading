@@ -25,6 +25,8 @@ from src.ai.signals import (
     get_signal_color,
 )
 from src.trading.executor import TradingExecutor
+from src.discord_bot.bot import start_discord_bot
+from src.storage.trade_history import TradeHistoryDB
 
 
 def setup_logging():
@@ -138,6 +140,51 @@ async def trading_loop():
     # Load configuration
     config = get_config()
 
+    # Initialize shared bot state for Discord bot
+    bot_state = {
+        "is_running": True,
+        "is_paused": False,
+        "emergency_close": False,
+        "uptime_start": datetime.now(),
+        "current_price": 0,
+        "last_signal": "WAIT",
+        "last_signal_time": None,
+        "position": None,
+        "symbol": config.symbol,
+        "leverage": config.leverage,
+    }
+
+    # Initialize PostgreSQL database
+    trade_db = None
+    if config.database_url:
+        try:
+            trade_db = TradeHistoryDB(config.database_url)
+            await trade_db.connect()
+            logger.info("PostgreSQL trade history database connected")
+        except Exception as e:
+            logger.error(f"Failed to connect to trade database: {e}")
+            logger.warning("Continuing without trade history database")
+    else:
+        logger.warning("DATABASE_URL not set - trade history will not be saved")
+
+    # Start Discord bot in background
+    discord_task = None
+    if config.discord_bot_token and config.discord_bot_token != "your_bot_token_here":
+        try:
+            discord_task = asyncio.create_task(
+                start_discord_bot(
+                    token=config.discord_bot_token,
+                    bot_state=bot_state,
+                    trade_db=trade_db
+                )
+            )
+            logger.info("Discord bot started in background")
+        except Exception as e:
+            logger.error(f"Failed to start Discord bot: {e}")
+            logger.warning("Continuing without Discord bot")
+    else:
+        logger.warning("DISCORD_BOT_TOKEN not set - Discord commands disabled")
+
     # Initialize clients
     binance = BinanceTestnetClient(
         api_key=config.binance_api_key,
@@ -219,10 +266,59 @@ async def trading_loop():
                 volume_ratio=market_data.get("volume_ratio"),
             ).info(f"Signal: {get_signal_emoji(signal)} {signal}")
 
-            # 4. Check current position
+            # Update bot state for Discord bot
+            bot_state["current_price"] = current_price
+            bot_state["last_signal"] = signal
+            bot_state["last_signal_time"] = datetime.now()
+            bot_state["market_data"] = market_data
+
+            # 4. Check for emergency close command
+            if bot_state.get("emergency_close", False):
+                logger.warning("Emergency close triggered by Discord command!")
+                current_position = await executor.get_position()
+                if current_position:
+                    order = await executor.close_position()
+                    if order:
+                        entry_price = current_position["entry_price"]
+                        pnl_pct = executor.calculate_pnl_pct(
+                            entry_price, current_price, current_position["side"]
+                        )
+                        pnl_usd = (current_price - entry_price) * current_position["position_amt"] * config.leverage
+
+                        # Record to database
+                        if trade_db and executor.current_position and executor.current_position.get("trade_id"):
+                            await trade_db.add_exit(
+                                trade_id=executor.current_position["trade_id"],
+                                exit_time=datetime.now(),
+                                exit_price=current_price,
+                                exit_reason="EMERGENCY",
+                                pnl_usd=pnl_usd,
+                                pnl_pct=pnl_pct
+                            )
+
+                        await send_discord_embed(
+                            webhook_url=config.discord_webhook_url,
+                            title="🚨 Emergency Close",
+                            description=f"**{current_position['side']}** position closed via emergency command",
+                            color=0xFF0000,
+                            fields=[
+                                {"name": "Entry Price", "value": f"${entry_price:,.2f}", "inline": True},
+                                {"name": "Exit Price", "value": f"${current_price:,.2f}", "inline": True},
+                                {"name": "PnL", "value": f"{pnl_pct:+.2f}%", "inline": True},
+                            ],
+                        )
+                bot_state["emergency_close"] = False
+                bot_state["is_paused"] = True
+                logger.info("Bot paused after emergency close")
+                continue
+
+            # 5. Check current position
             logger.info("Step 4: Checking position...")
             current_position = await executor.get_position()
             has_position = current_position is not None
+
+            # Update bot state with position info
+            bot_state["position"] = current_position
 
             if has_position:
                 logger.info(
@@ -245,6 +341,18 @@ async def trading_loop():
                         pnl_pct = executor.calculate_pnl_pct(
                             entry_price, current_price, current_position["side"]
                         )
+                        pnl_usd = (current_price - entry_price) * current_position["position_amt"] * config.leverage
+
+                        # Record to database
+                        if trade_db and executor.current_position and executor.current_position.get("trade_id"):
+                            await trade_db.add_exit(
+                                trade_id=executor.current_position["trade_id"],
+                                exit_time=datetime.now(),
+                                exit_price=current_price,
+                                exit_reason="TIMECUT",
+                                pnl_usd=pnl_usd,
+                                pnl_pct=pnl_pct
+                            )
 
                         # Send Discord notification
                         await send_discord_embed(
@@ -291,6 +399,18 @@ async def trading_loop():
                         pnl_pct = executor.calculate_pnl_pct(
                             entry_price, current_price, current_position["side"]
                         )
+                        pnl_usd = (current_price - entry_price) * current_position["position_amt"] * config.leverage
+
+                        # Record to database
+                        if trade_db and executor.current_position and executor.current_position.get("trade_id"):
+                            await trade_db.add_exit(
+                                trade_id=executor.current_position["trade_id"],
+                                exit_time=datetime.now(),
+                                exit_price=current_price,
+                                exit_reason=exit_reason,
+                                pnl_usd=pnl_usd,
+                                pnl_pct=pnl_pct
+                            )
 
                         # Send Discord notification
                         await send_discord_embed(
@@ -322,7 +442,10 @@ async def trading_loop():
             # 5. Execute signal
             logger.info("Step 5: Executing signal...")
 
-            if should_enter_trade(signal, has_position):
+            # Check if bot is paused
+            if bot_state.get("is_paused", False):
+                logger.info("Bot is paused - skipping signal execution")
+            elif should_enter_trade(signal, has_position):
                 logger.info(f"Entering {signal} trade...")
 
                 # Open position
@@ -338,6 +461,7 @@ async def trading_loop():
                         quantity=order.get("origQty", 0),
                         order_id=order.get("orderId"),
                     ).info(f"Trade opened: {signal} @ ${current_price:,.2f}")
+
                     # Calculate TP/SL prices
                     if signal == "LONG":
                         tp_price = current_price * (1 + config.take_profit_pct)
@@ -345,6 +469,24 @@ async def trading_loop():
                     else:  # SHORT
                         tp_price = current_price * (1 - config.take_profit_pct)
                         sl_price = current_price * (1 + config.stop_loss_pct)
+
+                    # Record to database
+                    if trade_db and executor.current_position:
+                        trade_id = await trade_db.add_entry(
+                            entry_time=datetime.now(),
+                            entry_price=current_price,
+                            side=signal,
+                            size=float(order.get("origQty", 0)),
+                            leverage=config.leverage,
+                            signal=signal,
+                            rsi=market_data.get("rsi", 0),
+                            ma_7=market_data.get("ma_7", 0),
+                            volume_ratio=market_data.get("volume_ratio", 0),
+                            symbol=config.symbol
+                        )
+                        # Store trade_id in executor for later use
+                        executor.current_position["trade_id"] = trade_id
+                        logger.info(f"Trade entry recorded in database: ID={trade_id}")
 
                     # Send Discord notification
                     await send_discord_embed(
@@ -389,6 +531,22 @@ async def trading_loop():
 
         except KeyboardInterrupt:
             logger.info("\nShutting down gracefully...")
+
+            # Cleanup
+            bot_state["is_running"] = False
+
+            # Disconnect from database
+            if trade_db:
+                await trade_db.disconnect()
+
+            # Cancel Discord bot task
+            if discord_task and not discord_task.done():
+                discord_task.cancel()
+                try:
+                    await discord_task
+                except asyncio.CancelledError:
+                    logger.info("Discord bot task cancelled")
+
             await send_discord_embed(
                 webhook_url=config.discord_webhook_url,
                 title="🛑 Bot Stopped",
