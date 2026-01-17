@@ -37,6 +37,7 @@ class TradingConfig(BaseModel):
 
     # Discord Configuration
     discord_webhook_url: str
+    discord_bot_token: Optional[str] = None
 
     # Database Configuration
     database_url: Optional[str] = None
@@ -84,6 +85,7 @@ def load_config() -> TradingConfig:
             gemini_temperature=float(os.getenv("GEMINI_TEMPERATURE", "0.1")),
             discord_webhook_url=os.getenv("DISCORD_WEBHOOK_URL", ""),
             database_url=os.getenv("DATABASE_URL"),
+            discord_bot_token=os.getenv("DISCORD_BOT_TOKEN"),
             loop_interval_seconds=int(os.getenv("LOOP_INTERVAL_SECONDS", "300")),
         )
 

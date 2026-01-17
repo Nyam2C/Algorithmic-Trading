@@ -152,9 +152,9 @@ async def trading_loop():
     #     temperature=config.gemini_temperature,
     # )
     signal_generator = RuleBasedSignalGenerator(
-        rsi_oversold=35.0,
-        rsi_overbought=65.0,
-        volume_threshold=1.2,
+        rsi_oversold=45.0,  # 35 → 45 (more signals)
+        rsi_overbought=55.0,  # 65 → 55 (more signals)
+        volume_threshold=0.3,  # 1.2 → 0.3 (lower volume requirement)
     )
 
     executor = TradingExecutor(binance_client=binance, config=config)
