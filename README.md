@@ -16,68 +16,48 @@ Binance Testnet + Gemini AI 기반 비트코인 선물 자동매매 시스템
 
 ## 🚀 빠른 시작
 
-### 환경 설정 (최초 1회)
-
 ```bash
-# 올인원 CLI (권장 ⭐)
-./scripts/bot.sh setup           # 환경 설정
-./scripts/bot.sh docker          # Docker 실행
-./scripts/bot.sh test            # 테스트
-./scripts/bot.sh help            # 도움말
+# 1. 환경 설정 (최초 1회)
+./scripts/setup.sh
 
-### 개별 스크립트
-./scripts/setup.sh               # 환경 설정
+# 2. 서비스 시작
+./scripts/start.sh
 
-**자동으로 하는 일:**
-- ✅ Python 3.11+ 버전 확인
-- ✅ Python 의존성 설치
-- ✅ .env 파일 생성 (대화형)
-- ✅ Docker 환경 설정
-- ✅ 데이터베이스 초기화
-- ✅ 테스트 실행 (64개 테스트)
+# 3. 상태 확인
+./scripts/start.sh --status
+
+# 4. 로그 보기
+./scripts/start.sh --logs
+```
 
 **자세한 설정 가이드**: [SETUP_GUIDE.md](docs/SETUP_GUIDE.md)
 
 ---
 
-### 방법 1: Docker로 실행 (권장 ⭐)
+### 스크립트 사용법
 
-**한 줄로 모든 것을 자동화!**
+| 스크립트 | 용도 |
+|----------|------|
+| `./scripts/setup.sh` | 전체 환경 설정 (최초 1회) |
+| `./scripts/start.sh` | Docker 서비스 관리 |
+| `./scripts/test.sh` | CI 테스트 |
 
 ```bash
-# Python 스크립트 (Windows/Linux/Mac)
-./scripts/bot.sh docker
+# 서비스 관리
+./scripts/start.sh              # 시작
+./scripts/start.sh --stop       # 중지
+./scripts/start.sh --logs       # 로그 보기
+./scripts/start.sh --status     # 상태 확인
 
-# 또는 Bash 스크립트 (Linux/Mac)
-./scripts/bot.sh docker
+# 테스트
+./scripts/test.sh               # 빠른 테스트
+./scripts/test.sh --coverage    # 커버리지 포함
+./scripts/test.sh --ci          # CI 환경 (lint + type + coverage)
 ```
 
-**자동으로 하는 일:**
-- ✅ Docker 설치 확인
-- ✅ .env 파일 생성 및 검증
-- ✅ Docker 이미지 빌드
-- ✅ PostgreSQL + Trading Bot 컨테이너 실행
-- ✅ 실시간 로그 표시
-
-**종료:**
+**서비스 종료:**
 ```bash
-docker compose down
-```
-
----
-
-### 방법 2: 로컬에서 직접 실행
-
-```bash
-# Python 스크립트 (의존성 자동 설치)
-./scripts/bot.sh run
-
-# 또는 Bash 스크립트 (Linux/Mac)
-./scripts/bot.sh run
-
-# 또는 직접 실행
-pip install -r requirements.txt
-python -m src.main
+./scripts/start.sh --stop
 ```
 
 ---
@@ -108,6 +88,14 @@ python -m src.main
 - Discord 서버 설정 > **연동** > **웹후크**
 - 새 웹후크 생성 후 URL 복사
 
+#### 4. Discord Bot Token (선택사항)
+- 🔗 https://discord.com/developers/applications
+- **New Application** 클릭 후 봇 생성
+- **Bot** 메뉴에서 **Add Bot** 클릭
+- **Reset Token** 클릭하여 토큰 복사
+- **OAuth2** > **URL Generator**에서 `bot`, `applications.commands` 권한 선택
+- 생성된 URL로 서버에 봇 초대
+
 ### .env 파일 설정
 
 처음 실행하면 `.env.example`이 자동으로 복사되어 `.env` 파일이 생성됩니다.
@@ -120,8 +108,12 @@ BINANCE_SECRET_KEY=your_actual_secret_key_here
 # Gemini AI
 GEMINI_API_KEY=your_actual_gemini_key_here
 
-# Discord
+# Discord Webhook (알림용)
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your_webhook_url
+
+# Discord Bot (원격 제어용 - 선택사항)
+DISCORD_BOT_TOKEN=your_bot_token_here
+DATABASE_URL=postgresql://user:password@localhost:5432/trading
 ```
 
 ---
@@ -151,6 +143,11 @@ Algorithmic-Trading/
 │   ├── test_indicators.py
 │   ├── test_signals.py
 │   └── test_executor.py
+├── deploy/                       # 🐳 Docker 배포
+│   ├── docker-compose.yml        # 기본 설정
+│   ├── docker-compose.dev.yml    # 개발 환경
+│   ├── docker-compose.backend.yml # Go 백엔드
+│   └── docker-compose.monitoring.yml # 모니터링
 ├── docs/                         # 📚 문서
 │   ├── README.md                 # 문서 목록
 │   ├── SETUP_GUIDE.md            # 환경 설정 가이드
@@ -161,11 +158,9 @@ Algorithmic-Trading/
 │   ├── init.sql                  # 스키마 정의
 │   └── setup.sh                  # DB 초기화 스크립트
 ├── scripts/                      # 🔧 실행 스크립트
-│   ├── bot.sh                    # ⭐ 올인원 CLI (권장)
-│   ├── setup.sh                  # 환경 설정
-│   ├── run.sh                    # 로컬 실행
-│   ├── start-docker.sh           # Docker 실행
-│   └── run-tests.sh              # 테스트 실행
+│   ├── setup.sh                  # 환경 설정 (최초 1회)
+│   ├── start.sh                  # Docker 서비스 관리
+│   └── test.sh                   # CI 테스트
 ├── .claude/                      # 개발 계획 문서
 ├── requirements.txt              # Python 의존성
 ├── .env.example                  # 환경 변수 템플릿
@@ -197,10 +192,73 @@ Algorithmic-Trading/
 - **레버리지**: 15배 (격리 모드)
 - **포지션 크기**: 시드의 5%
 
-### 5. Discord 알림
+### 5. Discord 알림 & 봇 제어
 - 봇 시작/중지 알림
 - 진입/청산 알림 (Embed 형식)
 - 에러 발생 알림
+- **Discord 봇 UI** (선택사항):
+  - `/대시보드` - 인터랙티브 버튼 UI로 빠른 조회
+  - `/상태`, `/포지션`, `/통계`, `/내역` - 실시간 정보 조회
+  - `/일시정지`, `/재시작`, `/긴급청산` - 원격 봇 제어
+  - 한글 및 영어 명령어 모두 지원
+
+---
+
+## 🎮 Discord 봇 제어 (선택사항)
+
+Discord 봇을 설정하면 채팅으로 봇을 원격 제어할 수 있습니다.
+
+### 📊 대시보드 (추천)
+
+```
+/대시보드
+```
+
+버튼 UI가 표시되며 한 번의 클릭으로 모든 정보에 접근할 수 있습니다:
+
+```
+┌─────────────────────────────────────────┐
+│  🤖 트레이딩 봇 대시보드                  │
+│                                         │
+│  상태: 실행 중 | 가격: $43,250          │
+│  포지션: 🟢 LONG @ $43,100             │
+│  마지막 신호: LONG (2분 전)             │
+└─────────────────────────────────────────┘
+
+[📊 상태] [📍 포지션] [📈 통계] [📜 내역]
+[⏸️ 일시정지]  [▶️ 재시작]   [🚨 긴급청산]
+```
+
+### 💬 명령어 목록
+
+#### 정보 조회
+| 명령어 | 설명 | 예시 |
+|--------|------|------|
+| `/상태` | 봇 실행 상태 및 포지션 요약 | 가동시간, 현재가, 포지션 |
+| `/포지션` | 현재 포지션 상세 정보 | 진입가, TP/SL, PnL, 타임컷 |
+| `/통계` | 거래 통계 (기본 24시간) | 승률, 총 PnL, 최고/최악 거래 |
+| `/내역` | 최근 거래 내역 (기본 5개) | 진입/청산가, PnL, 시간 |
+
+#### 봇 제어 (확인 필요)
+| 명령어 | 설명 | 효과 |
+|--------|------|------|
+| `/일시정지` | 봇 일시 정지 | 새 포지션 진입 중지, 기존 포지션 유지 |
+| `/재시작` | 봇 재시작 | 정상 거래 재개 |
+| `/긴급청산` | 긴급 포지션 청산 | 현재 포지션 즉시 시장가 청산 + 봇 정지 |
+
+**참고**: 제어 명령어는 확인 대화상자가 표시되며, "예" 클릭 시에만 실행됩니다.
+
+### 🌐 영어 명령어
+
+모든 명령어는 한글과 영어를 모두 지원합니다:
+- `/dashboard` (대시보드)
+- `/status` (상태)
+- `/position` (포지션)
+- `/stats` (통계)
+- `/history` (내역)
+- `/stop` (일시정지)
+- `/start` (재시작)
+- `/emergency` (긴급청산)
 
 ---
 
@@ -225,11 +283,14 @@ Algorithmic-Trading/
 **전체 테스트 스위트 (64개 테스트)**
 
 ```bash
-# Bash 스크립트 (권장)
-./scripts/run-tests.sh
+# 빠른 테스트
+./scripts/test.sh
 
-# 또는 직접 pytest 실행
-pytest
+# 커버리지 포함
+./scripts/test.sh --coverage
+
+# CI 환경 (lint + type + coverage)
+./scripts/test.sh --ci
 
 # 커버리지 리포트 확인
 open htmlcov/index.html   # Mac
@@ -298,15 +359,7 @@ google.genai.errors.APIError: API key not valid
 
 ## 📊 모니터링 (Grafana + Loki)
 
-### 모니터링 스택 시작
-
-```bash
-# 올인원 CLI
-./scripts/bot.sh monitoring start
-
-# 또는 직접 실행
-docker compose -f monitoring/docker-compose.yml up -d
-```
+모니터링은 `./scripts/start.sh` 실행 시 자동으로 시작됩니다.
 
 ### Grafana 접속
 
@@ -321,30 +374,14 @@ PW: admin123
 모니터링 시스템에는 3개의 대시보드가 포함되어 있습니다:
 
 1. **Trading Overview** - 전체 거래 현황
-   - LONG/SHORT/WAIT 신호 발생 횟수
-   - 신호 분포 파이 차트
-   - 거래 타임라인
-   - Discord 알림 로그
-
 2. **AI Signals** - AI 신호 분석
-   - 신호 분포 및 신뢰도
-   - RSI 추이
-   - 신호 발생 추이
-
 3. **System Health** - 시스템 상태
-   - 에러 발생 횟수
-   - Bot 상태 (HEARTBEAT)
-   - API 성공률
-   - 에러 로그
 
-### 모니터링 관리
+### 서비스 상태 확인
 
 ```bash
-./scripts/bot.sh monitoring start     # 시작
-./scripts/bot.sh monitoring stop      # 중지
-./scripts/bot.sh monitoring restart   # 재시작
-./scripts/bot.sh monitoring logs      # 로그 확인
-./scripts/bot.sh monitoring status    # 상태 확인
+./scripts/start.sh --status    # 전체 상태 확인
+./scripts/start.sh --logs      # 로그 스트리밍
 ```
 
 **자세한 가이드**: [monitoring/README.md](monitoring/README.md)
@@ -360,8 +397,8 @@ PW: admin123
 - [x] ✅ src/ai/signals.py - 신호 파싱
 - [x] ✅ src/trading/executor.py - 주문 실행
 - [x] ✅ src/main.py - 메인 루프 통합
-- [x] ✅ run.py / run.sh - 통합 실행 스크립트
-- [x] ✅ setup.py / setup.sh - 환경 설정 스크립트
+- [x] ✅ scripts/start.sh - 서비스 관리 스크립트
+- [x] ✅ scripts/setup.sh - 환경 설정 스크립트
 - [x] ✅ tests/ - 테스트 스위트 (64개 테스트, 94% 커버리지)
 - [x] ✅ db/init.sql - 데이터베이스 스키마
 - [x] ✅ SETUP_GUIDE.md - 환경 설정 가이드
@@ -443,6 +480,6 @@ Sprint 1이 완료되면 다음 기능을 추가합니다:
 
 ---
 
-**마지막 업데이트**: 2026-01-15
+**마지막 업데이트**: 2026-01-20
 **현재 버전**: Sprint 1 MVP
 **라이선스**: Private
