@@ -434,7 +434,7 @@ class TradingBotClient(discord.Client):
         # Build position details
         side = position.get("side")
         entry_price = position.get("entry_price", 0)
-        size = position.get("size", 0)
+        size = position.get("quantity", position.get("size", 0))
         leverage = position.get("leverage", 15)
 
         # Entry time
@@ -635,28 +635,34 @@ class TradingBotClient(discord.Client):
         for i, trade in enumerate(trades, 1):
             side = trade["side"]
             emoji = "🟢" if side == "LONG" else "🔴"
-            entry = trade["entry_price"]
-            exit_p = trade["exit_price"]
+            entry = float(trade["entry_price"])
+            exit_p = float(trade["exit_price"]) if trade["exit_price"] else 0
             exit_reason = trade["exit_reason"]
-            pnl_usd = trade["pnl_usd"]
-            pnl_pct = trade["pnl_pct"]
+            pnl = float(trade.get("pnl", 0) or 0)
+            pnl_pct = float(trade.get("pnl_pct", 0) or 0)
 
             # Time ago
             exit_time = trade["exit_time"]
-            time_diff = datetime.now() - exit_time.replace(tzinfo=None)
-            hours_ago = int(time_diff.total_seconds() / 3600)
-            mins_ago = int((time_diff.total_seconds() % 3600) / 60)
+            if exit_time:
+                if hasattr(exit_time, 'replace'):
+                    time_diff = datetime.now() - exit_time.replace(tzinfo=None)
+                else:
+                    time_diff = datetime.now() - exit_time
+                hours_ago = int(time_diff.total_seconds() / 3600)
+                mins_ago = int((time_diff.total_seconds() % 3600) / 60)
 
-            if hours_ago > 0:
-                time_ago = f"{hours_ago}시간 {mins_ago}분 전"
+                if hours_ago > 0:
+                    time_ago = f"{hours_ago}시간 {mins_ago}분 전"
+                else:
+                    time_ago = f"{mins_ago}분 전"
             else:
-                time_ago = f"{mins_ago}분 전"
+                time_ago = "N/A"
 
-            pnl_emoji = "💰" if pnl_usd > 0 else "📉"
+            pnl_emoji = "💰" if pnl > 0 else "📉"
 
             value = (
                 f"{emoji} **{side}** | 진입: ${entry:,.2f} → 청산: ${exit_p:,.2f} ({exit_reason})\n"
-                f"{pnl_emoji} 손익: ${pnl_usd:+.2f} ({pnl_pct:+.2f}%) | {time_ago}"
+                f"{pnl_emoji} 손익: ${pnl:+.2f} ({pnl_pct:+.2f}%) | {time_ago}"
             )
 
             embed.add_field(
@@ -1070,7 +1076,7 @@ class TradingBotClient(discord.Client):
 
             side = position.get("side")
             entry_price = position.get("entry_price", 0)
-            size = position.get("size", 0)
+            size = position.get("quantity", position.get("size", 0))
 
             embed = discord.Embed(
                 title="🚨 긴급 청산 시작",

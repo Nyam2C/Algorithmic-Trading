@@ -383,6 +383,111 @@ class BinanceTestnetClient:
             logger.error(f"Failed to close position for {symbol}: {e}")
             raise
 
+    async def get_funding_rate(self, symbol: str) -> Dict:
+        """
+        현재 펀딩비 조회
+
+        Args:
+            symbol: 거래쌍 (예: "BTCUSDT")
+
+        Returns:
+            펀딩비 정보 딕셔너리
+        """
+        try:
+            # 현재 펀딩비
+            funding_info = self.client.futures_funding_rate(symbol=symbol, limit=1)
+            if funding_info:
+                rate = float(funding_info[0]["fundingRate"]) * 100  # 퍼센트로 변환
+                funding_time = funding_info[0]["fundingTime"]
+                logger.debug(f"{symbol} 펀딩비: {rate:+.4f}%")
+                return {
+                    "funding_rate": rate,
+                    "funding_time": funding_time,
+                }
+            return {"funding_rate": 0.0, "funding_time": None}
+        except Exception as e:
+            logger.error(f"펀딩비 조회 실패 {symbol}: {e}")
+            return {"funding_rate": 0.0, "funding_time": None}
+
+    async def get_long_short_ratio(self, symbol: str) -> Dict:
+        """
+        롱숏 비율 조회 (상위 트레이더 포지션 기준)
+
+        Args:
+            symbol: 거래쌍 (예: "BTCUSDT")
+
+        Returns:
+            롱숏 비율 정보
+        """
+        try:
+            # 상위 트레이더 롱숏 비율
+            ratio_data = self.client.futures_top_longshort_position_ratio(
+                symbol=symbol, period="5m", limit=1
+            )
+            if ratio_data:
+                long_ratio = float(ratio_data[0]["longAccount"])
+                short_ratio = float(ratio_data[0]["shortAccount"])
+                ls_ratio = float(ratio_data[0]["longShortRatio"])
+                logger.debug(
+                    f"{symbol} 롱숏비율: 롱 {long_ratio:.1%} / 숏 {short_ratio:.1%}"
+                )
+                return {
+                    "long_ratio": long_ratio,
+                    "short_ratio": short_ratio,
+                    "long_short_ratio": ls_ratio,
+                }
+            return {"long_ratio": 0.5, "short_ratio": 0.5, "long_short_ratio": 1.0}
+        except Exception as e:
+            logger.error(f"롱숏 비율 조회 실패 {symbol}: {e}")
+            return {"long_ratio": 0.5, "short_ratio": 0.5, "long_short_ratio": 1.0}
+
+    async def get_open_interest(self, symbol: str) -> Dict:
+        """
+        미결제약정 조회
+
+        Args:
+            symbol: 거래쌍 (예: "BTCUSDT")
+
+        Returns:
+            미결제약정 정보
+        """
+        try:
+            oi_data = self.client.futures_open_interest(symbol=symbol)
+            oi = float(oi_data["openInterest"])
+            logger.debug(f"{symbol} 미결제약정: {oi:,.2f}")
+            return {"open_interest": oi, "symbol": symbol}
+        except Exception as e:
+            logger.error(f"미결제약정 조회 실패 {symbol}: {e}")
+            return {"open_interest": 0.0, "symbol": symbol}
+
+    async def get_market_sentiment(self, symbol: str) -> Dict:
+        """
+        시장 심리 데이터 통합 조회 (펀딩비 + 롱숏비율 + 미결제약정)
+
+        Args:
+            symbol: 거래쌍 (예: "BTCUSDT")
+
+        Returns:
+            통합 시장 심리 데이터
+        """
+        funding = await self.get_funding_rate(symbol)
+        ls_ratio = await self.get_long_short_ratio(symbol)
+        oi = await self.get_open_interest(symbol)
+
+        sentiment = {
+            "funding_rate": funding["funding_rate"],
+            "long_ratio": ls_ratio["long_ratio"],
+            "short_ratio": ls_ratio["short_ratio"],
+            "long_short_ratio": ls_ratio["long_short_ratio"],
+            "open_interest": oi["open_interest"],
+        }
+
+        logger.debug(
+            f"{symbol} 시장심리: 펀딩={sentiment['funding_rate']:+.4f}%, "
+            f"롱숏={sentiment['long_ratio']:.1%}:{sentiment['short_ratio']:.1%}"
+        )
+        return sentiment
+
     async def get_account_balance(self) -> Dict:
         """
         Get account balance

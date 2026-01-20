@@ -1,7 +1,7 @@
 """
-Trade History Storage with PostgreSQL
+거래 이력 저장소 (PostgreSQL)
 
-Stores all trade entries and exits for analysis and reporting
+모든 거래 진입/청산 기록을 분석 및 리포트용으로 저장
 """
 import asyncpg
 from datetime import datetime, timedelta
@@ -10,20 +10,20 @@ from loguru import logger
 
 
 class TradeHistoryDB:
-    """PostgreSQL database for trade history"""
+    """PostgreSQL 거래 이력 데이터베이스"""
 
     def __init__(self, database_url: str):
         """
-        Initialize trade history database
+        거래 이력 데이터베이스 초기화
 
         Args:
-            database_url: PostgreSQL connection URL
+            database_url: PostgreSQL 연결 URL
         """
         self.database_url = database_url
         self.pool: Optional[asyncpg.Pool] = None
 
     async def connect(self):
-        """Create database connection pool"""
+        """데이터베이스 연결 풀 생성"""
         try:
             self.pool = await asyncpg.create_pool(
                 self.database_url,
@@ -31,144 +31,104 @@ class TradeHistoryDB:
                 max_size=10,
                 command_timeout=60
             )
-            logger.info("Connected to PostgreSQL trade history database")
+            logger.info("PostgreSQL 거래 이력 데이터베이스 연결 완료")
 
-            # Create tables if not exist
+            # 테이블 확인
             await self.create_tables()
 
         except Exception as e:
-            logger.error(f"Failed to connect to database: {e}")
+            logger.error(f"데이터베이스 연결 실패: {e}")
             raise
 
     async def disconnect(self):
-        """Close database connection pool"""
+        """데이터베이스 연결 풀 종료"""
         if self.pool:
             await self.pool.close()
-            logger.info("Disconnected from trade history database")
+            logger.info("거래 이력 데이터베이스 연결 종료")
 
     async def create_tables(self):
-        """Create database tables"""
+        """데이터베이스 테이블 확인 - db/init.sql 스키마 사용"""
+        # 테이블은 db/init.sql로 생성됨, 연결만 확인
         async with self.pool.acquire() as conn:
-            # Trades table
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS trades (
-                    id SERIAL PRIMARY KEY,
-
-                    -- Entry info
-                    entry_time TIMESTAMP NOT NULL,
-                    entry_price DECIMAL(12, 2) NOT NULL,
-                    side VARCHAR(10) NOT NULL,  -- LONG or SHORT
-                    size DECIMAL(12, 8) NOT NULL,
-                    leverage INTEGER NOT NULL,
-
-                    -- Exit info
-                    exit_time TIMESTAMP,
-                    exit_price DECIMAL(12, 2),
-                    exit_reason VARCHAR(20),  -- TP, SL, TIMECUT, MANUAL
-
-                    -- PnL
-                    pnl_usd DECIMAL(12, 2),
-                    pnl_pct DECIMAL(8, 4),
-
-                    -- Strategy info
-                    signal VARCHAR(10),  -- LONG, SHORT
-                    rsi DECIMAL(6, 2),
-                    ma_7 DECIMAL(12, 2),
-                    volume_ratio DECIMAL(8, 4),
-
-                    -- Metadata
-                    symbol VARCHAR(20) NOT NULL DEFAULT 'BTCUSDT',
-                    created_at TIMESTAMP DEFAULT NOW(),
-                    updated_at TIMESTAMP DEFAULT NOW()
+            # trades 테이블 존재 확인
+            exists = await conn.fetchval("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables
+                    WHERE table_name = 'trades'
                 )
             """)
+            if not exists:
+                logger.warning("trades 테이블 없음 - db/init.sql 실행 필요")
 
-            # Create indexes
-            await conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_trades_entry_time
-                ON trades(entry_time DESC)
-            """)
-            await conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_trades_exit_time
-                ON trades(exit_time DESC)
-            """)
-            await conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_trades_symbol
-                ON trades(symbol)
-            """)
-
-            logger.info("Trade history tables created/verified")
+            logger.info("거래 이력 테이블 확인 완료")
 
     async def add_entry(
         self,
         entry_time: datetime,
         entry_price: float,
         side: str,
-        size: float,
+        quantity: float,
         leverage: int,
-        signal: str,
-        rsi: float,
-        ma_7: float,
-        volume_ratio: float,
         symbol: str = "BTCUSDT"
-    ) -> int:
+    ) -> str:
         """
-        Record trade entry
+        거래 진입 기록
 
         Returns:
-            Trade ID
+            거래 ID (UUID)
         """
         async with self.pool.acquire() as conn:
             trade_id = await conn.fetchval("""
                 INSERT INTO trades (
-                    entry_time, entry_price, side, size, leverage,
-                    signal, rsi, ma_7, volume_ratio, symbol
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    entry_time, entry_price, side, quantity, leverage, symbol, status
+                ) VALUES ($1, $2, $3, $4, $5, $6, 'OPEN')
                 RETURNING id
-            """, entry_time, entry_price, side, size, leverage,
-                signal, rsi, ma_7, volume_ratio, symbol)
+            """, entry_time, entry_price, side, quantity, leverage, symbol)
 
-            logger.info(f"Trade entry recorded: ID={trade_id}, {side} @ ${entry_price}")
-            return trade_id
+            logger.info(f"거래 진입 기록: ID={trade_id}, {side} @ ${entry_price}")
+            return str(trade_id)
 
     async def add_exit(
         self,
-        trade_id: int,
+        trade_id: str,
         exit_time: datetime,
         exit_price: float,
         exit_reason: str,
-        pnl_usd: float,
-        pnl_pct: float
+        pnl: float,
+        pnl_pct: float,
+        duration_minutes: int = None
     ):
-        """Record trade exit"""
+        """거래 청산 기록"""
         async with self.pool.acquire() as conn:
             await conn.execute("""
                 UPDATE trades
                 SET exit_time = $2,
                     exit_price = $3,
                     exit_reason = $4,
-                    pnl_usd = $5,
+                    pnl = $5,
                     pnl_pct = $6,
+                    duration_minutes = $7,
+                    status = 'CLOSED',
                     updated_at = NOW()
-                WHERE id = $1
-            """, trade_id, exit_time, exit_price, exit_reason, pnl_usd, pnl_pct)
+                WHERE id = $1::uuid
+            """, trade_id, exit_time, exit_price, exit_reason, pnl, pnl_pct, duration_minutes)
 
             logger.info(
-                f"Trade exit recorded: ID={trade_id}, "
-                f"Exit={exit_reason} @ ${exit_price}, "
-                f"PnL=${pnl_usd:+.2f} ({pnl_pct:+.2f}%)"
+                f"거래 청산 기록: ID={trade_id}, "
+                f"사유={exit_reason} @ ${exit_price}, "
+                f"손익=${pnl:+.2f} ({pnl_pct:+.2f}%)"
             )
 
     async def get_recent_trades(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get recent completed trades"""
+        """최근 완료된 거래 조회"""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT
                     id, entry_time, entry_price, exit_time, exit_price,
-                    side, size, leverage, exit_reason,
-                    pnl_usd, pnl_pct, signal, symbol
+                    side, quantity, leverage, exit_reason,
+                    pnl, pnl_pct, duration_minutes, symbol, status
                 FROM trades
-                WHERE exit_time IS NOT NULL
+                WHERE status = 'CLOSED'
                 ORDER BY exit_time DESC
                 LIMIT $1
             """, limit)
@@ -177,19 +137,19 @@ class TradeHistoryDB:
 
     async def get_statistics(self, hours: int = 24) -> Dict[str, Any]:
         """
-        Get trading statistics for the last N hours
+        최근 N시간 동안의 거래 통계 조회
 
         Returns:
-            Dictionary with trading statistics
+            거래 통계 딕셔너리
         """
         async with self.pool.acquire() as conn:
             cutoff_time = datetime.now() - timedelta(hours=hours)
 
-            # Total trades
+            # 전체 거래 수
             total_trades = await conn.fetchval("""
                 SELECT COUNT(*)
                 FROM trades
-                WHERE exit_time IS NOT NULL
+                WHERE status = 'CLOSED'
                 AND exit_time >= $1
             """, cutoff_time)
 
@@ -207,43 +167,43 @@ class TradeHistoryDB:
                     "short_trades": 0,
                 }
 
-            # Winners and losers
+            # 수익/손실 거래
             winners = await conn.fetchval("""
                 SELECT COUNT(*)
                 FROM trades
-                WHERE exit_time IS NOT NULL
+                WHERE status = 'CLOSED'
                 AND exit_time >= $1
-                AND pnl_usd > 0
+                AND pnl > 0
             """, cutoff_time)
 
-            # Total PnL
+            # 총 손익
             total_pnl = await conn.fetchval("""
-                SELECT COALESCE(SUM(pnl_usd), 0)
+                SELECT COALESCE(SUM(pnl), 0)
                 FROM trades
-                WHERE exit_time IS NOT NULL
+                WHERE status = 'CLOSED'
                 AND exit_time >= $1
             """, cutoff_time)
 
-            # Best and worst trades
+            # 최고/최저 거래
             best_trade = await conn.fetchval("""
                 SELECT COALESCE(MAX(pnl_pct), 0)
                 FROM trades
-                WHERE exit_time IS NOT NULL
+                WHERE status = 'CLOSED'
                 AND exit_time >= $1
             """, cutoff_time)
 
             worst_trade = await conn.fetchval("""
                 SELECT COALESCE(MIN(pnl_pct), 0)
                 FROM trades
-                WHERE exit_time IS NOT NULL
+                WHERE status = 'CLOSED'
                 AND exit_time >= $1
             """, cutoff_time)
 
-            # LONG vs SHORT
+            # 롱 vs 숏
             long_trades = await conn.fetchval("""
                 SELECT COUNT(*)
                 FROM trades
-                WHERE exit_time IS NOT NULL
+                WHERE status = 'CLOSED'
                 AND exit_time >= $1
                 AND side = 'LONG'
             """, cutoff_time)
@@ -266,14 +226,13 @@ class TradeHistoryDB:
             }
 
     async def get_open_trade(self) -> Optional[Dict[str, Any]]:
-        """Get current open trade (not yet exited)"""
+        """현재 열린 거래 조회 (아직 청산되지 않음)"""
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow("""
                 SELECT
-                    id, entry_time, entry_price, side, size, leverage,
-                    signal, rsi, ma_7, volume_ratio, symbol
+                    id, entry_time, entry_price, side, quantity, leverage, symbol
                 FROM trades
-                WHERE exit_time IS NULL
+                WHERE status = 'OPEN'
                 ORDER BY entry_time DESC
                 LIMIT 1
             """)
@@ -281,7 +240,7 @@ class TradeHistoryDB:
             return dict(row) if row else None
 
     async def cleanup_old_trades(self, days: int = 30):
-        """Delete trades older than N days"""
+        """N일 이상 지난 거래 삭제"""
         async with self.pool.acquire() as conn:
             cutoff_time = datetime.now() - timedelta(days=days)
 
@@ -291,5 +250,5 @@ class TradeHistoryDB:
                 RETURNING COUNT(*)
             """, cutoff_time)
 
-            logger.info(f"Cleaned up {deleted} old trades (older than {days} days)")
+            logger.info(f"오래된 거래 정리: {deleted}건 삭제 ({days}일 이전)")
             return deleted

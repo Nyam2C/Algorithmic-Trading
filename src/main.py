@@ -270,13 +270,16 @@ async def trading_loop():
 
                         # Record to database
                         if trade_db and executor.current_position and executor.current_position.get("trade_id"):
+                            entry_time = executor.current_position.get("entry_time", datetime.now())
+                            duration = int((datetime.now() - entry_time).total_seconds() / 60)
                             await trade_db.add_exit(
                                 trade_id=executor.current_position["trade_id"],
                                 exit_time=datetime.now(),
                                 exit_price=current_price,
-                                exit_reason="EMERGENCY",
-                                pnl_usd=pnl_usd,
-                                pnl_pct=pnl_pct
+                                exit_reason="MANUAL",
+                                pnl=pnl_usd,
+                                pnl_pct=pnl_pct,
+                                duration_minutes=duration
                             )
 
                         await send_discord_embed(
@@ -328,13 +331,16 @@ async def trading_loop():
 
                         # Record to database
                         if trade_db and executor.current_position and executor.current_position.get("trade_id"):
+                            entry_time = executor.current_position.get("entry_time", datetime.now())
+                            duration = int((datetime.now() - entry_time).total_seconds() / 60)
                             await trade_db.add_exit(
                                 trade_id=executor.current_position["trade_id"],
                                 exit_time=datetime.now(),
                                 exit_price=current_price,
-                                exit_reason="TIMECUT",
-                                pnl_usd=pnl_usd,
-                                pnl_pct=pnl_pct
+                                exit_reason="TIME_CUT",
+                                pnl=pnl_usd,
+                                pnl_pct=pnl_pct,
+                                duration_minutes=duration
                             )
 
                         # Send Discord notification
@@ -386,13 +392,16 @@ async def trading_loop():
 
                         # Record to database
                         if trade_db and executor.current_position and executor.current_position.get("trade_id"):
+                            entry_time = executor.current_position.get("entry_time", datetime.now())
+                            duration = int((datetime.now() - entry_time).total_seconds() / 60)
                             await trade_db.add_exit(
                                 trade_id=executor.current_position["trade_id"],
                                 exit_time=datetime.now(),
                                 exit_price=current_price,
                                 exit_reason=exit_reason,
-                                pnl_usd=pnl_usd,
-                                pnl_pct=pnl_pct
+                                pnl=pnl_usd,
+                                pnl_pct=pnl_pct,
+                                duration_minutes=duration
                             )
 
                         # Send Discord notification
@@ -459,12 +468,8 @@ async def trading_loop():
                             entry_time=datetime.now(),
                             entry_price=current_price,
                             side=signal,
-                            size=float(order.get("origQty", 0)),
+                            quantity=float(order.get("origQty", 0)),
                             leverage=config.leverage,
-                            signal=signal,
-                            rsi=market_data.get("rsi", 0),
-                            ma_7=market_data.get("ma_7", 0),
-                            volume_ratio=market_data.get("volume_ratio", 0),
                             symbol=config.symbol
                         )
                         # Store trade_id in executor for later use
