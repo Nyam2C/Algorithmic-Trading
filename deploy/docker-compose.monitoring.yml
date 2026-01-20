@@ -14,7 +14,7 @@ services:
     ports:
       - "3100:3100"
     volumes:
-      - ./monitoring/loki/loki-config.yml:/etc/loki/local-config.yaml
+      - ../monitoring/loki/loki-config.yml:/etc/loki/local-config.yaml
       - loki-data:/loki
     command: -config.file=/etc/loki/local-config.yaml
     networks:
@@ -31,8 +31,8 @@ services:
     image: grafana/promtail:2.9.3
     container_name: trading-promtail
     volumes:
-      - ./monitoring/promtail/promtail-config.yml:/etc/promtail/config.yml
-      - ./logs:/var/log/trading:ro
+      - ../monitoring/promtail/promtail-config.yml:/etc/promtail/config.yml
+      - ../logs:/var/log/trading:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
     command: -config.file=/etc/promtail/config.yml
     networks:
@@ -55,8 +55,8 @@ services:
       - GF_SERVER_ROOT_URL=http://localhost:3000
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards
     networks:
       - trading_net
     restart: unless-stopped

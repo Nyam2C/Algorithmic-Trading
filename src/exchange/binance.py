@@ -330,7 +330,7 @@ class BinanceTestnetClient:
                         "position_amt": float(pos["positionAmt"]),
                         "entry_price": float(pos["entryPrice"]),
                         "unrealized_pnl": float(pos["unRealizedProfit"]),
-                        "leverage": int(pos["leverage"]),
+                        "leverage": int(pos.get("leverage", 1)),  # Default to 1x if not present
                         "side": "LONG" if float(pos["positionAmt"]) > 0 else "SHORT",
                     }
                     logger.debug(

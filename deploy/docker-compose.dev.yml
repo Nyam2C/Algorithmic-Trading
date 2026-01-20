@@ -15,8 +15,8 @@ services:
   trading-bot:
     restart: "no"
     volumes:
-      - ./src:/app/src:ro  # 소스 코드 마운트 (읽기 전용)
-      - ./logs:/app/logs
+      - ../src:/app/src:ro  # 소스 코드 마운트 (읽기 전용)
+      - ../logs:/app/logs
     environment:
       - LOG_LEVEL=DEBUG
       - TESTNET=true

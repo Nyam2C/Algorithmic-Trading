@@ -4,7 +4,6 @@ Sprint 1: Paper Trading MVP
 """
 import asyncio
 import sys
-import json
 from pathlib import Path
 from datetime import datetime
 
@@ -15,10 +14,8 @@ from loguru import logger
 from src.config import get_config
 from src.exchange.binance import BinanceTestnetClient
 from src.data.indicators import analyze_market
-from src.ai.gemini import GeminiSignalGenerator
 from src.ai.rule_based import RuleBasedSignalGenerator
 from src.ai.signals import (
-    parse_signal,
     validate_signal,
     should_enter_trade,
     get_signal_emoji,
@@ -39,23 +36,6 @@ def setup_logging():
     # Create logs directory
     Path("logs").mkdir(exist_ok=True)
 
-    # JSON formatter for file logging (Loki/Promtail)
-    def json_formatter(record):
-        log_entry = {
-            "timestamp": record["time"].isoformat(),
-            "level": record["level"].name,
-            "message": record["message"],
-            "module": record["name"],
-            "function": record["function"],
-            "line": record["line"],
-        }
-
-        # Add extra fields if present
-        if record["extra"]:
-            log_entry.update(record["extra"])
-
-        return json.dumps(log_entry)
-
     # Console logger (human-readable)
     logger.add(
         sys.stdout,
@@ -67,21 +47,23 @@ def setup_logging():
     # JSON file logger (bot.log) - for Promtail
     logger.add(
         "logs/bot.log",
-        format=json_formatter,
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
         level="DEBUG",
         rotation="100 MB",
         retention="30 days",
         compression="zip",
+        serialize=False,  # Use simple format instead of JSON to avoid errors
     )
 
     # Error-only logger (error.log)
     logger.add(
         "logs/error.log",
-        format=json_formatter,
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
         level="ERROR",
         rotation="10 MB",
         retention="30 days",
         compression="zip",
+        serialize=False,
     )
 
 
@@ -198,10 +180,11 @@ async def trading_loop():
     #     model=config.gemini_model,
     #     temperature=config.gemini_temperature,
     # )
+    # TEST MODE: Very loose parameters for frequent trading
     signal_generator = RuleBasedSignalGenerator(
-        rsi_oversold=45.0,  # 35 → 45 (more signals)
-        rsi_overbought=55.0,  # 65 → 55 (more signals)
-        volume_threshold=0.3,  # 1.2 → 0.3 (lower volume requirement)
+        rsi_oversold=50.0,  # 45 → 50 (매우 쉬운 LONG 진입)
+        rsi_overbought=50.0,  # 55 → 50 (매우 쉬운 SHORT 진입)
+        volume_threshold=0.0,  # 0.3 → 0.0 (거래량 조건 없음)
     )
 
     executor = TradingExecutor(binance_client=binance, config=config)

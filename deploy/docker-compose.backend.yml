@@ -10,7 +10,7 @@ services:
   # Go Backend API
   backend:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: Dockerfile
     container_name: trading-backend
     ports:
@@ -20,7 +20,7 @@ services:
       - GIN_MODE=release
       - DATABASE_URL=postgresql://trading:${DB_PASSWORD:-devpassword}@postgres:5432/trading
     env_file:
-      - .env
+      - ../.env
     networks:
       - trading_net
     restart: unless-stopped

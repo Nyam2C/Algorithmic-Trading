@@ -7,7 +7,6 @@ import discord
 from discord import app_commands
 from datetime import datetime
 from loguru import logger
-from typing import Optional
 
 
 class TradingBotClient(discord.Client):
@@ -154,7 +153,7 @@ class TradingBotClient(discord.Client):
                 color = 0x00FF00 if side == "LONG" else 0xFF0000
 
                 embed = discord.Embed(
-                    title=f"📍 Current Position",
+                    title="📍 Current Position",
                     color=color
                 )
 
@@ -238,7 +237,7 @@ class TradingBotClient(discord.Client):
 
                 # Build embed
                 embed = discord.Embed(
-                    title=f"📊 Trading Statistics",
+                    title="📊 Trading Statistics",
                     description=f"Last {hours} hours",
                     color=0x00FF00 if stats_data["total_pnl"] > 0 else 0xFF0000
                 )
