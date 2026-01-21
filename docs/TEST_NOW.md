@@ -250,7 +250,12 @@ API 키를 추가한 후:
 vim .env
 
 # 전체 스택 실행
-./scripts/bot.sh dev:all
+./scripts/start.sh
 ```
 
 Happy Testing! 🎉
+
+---
+
+**마지막 업데이트:** 2026-01-21
+**상태:** Phase 2 Testnet 검증 진행 중

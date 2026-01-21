@@ -6,7 +6,7 @@
 
 - Docker & Docker Compose
 - Git
-- (선택) Python 3.11+
+- Python 3.10+
 - (선택) Go 1.21+
 
 ## ⚡ 30초 빠른 시작
@@ -17,12 +17,16 @@ git clone <repository-url>
 cd Algorithmic-Trading
 
 # 2. 전체 환경 설정 (최초 1회)
-./scripts/bot.sh setup
+./scripts/setup.sh
 
-# 3. 원하는 스택 선택 실행
-./scripts/bot.sh dev:all        # 전체 스택
-./scripts/bot.sh dev:monitor    # 봇 + 모니터링
-./scripts/bot.sh dev            # 봇만 (빠름)
+# 3. 서비스 시작
+./scripts/start.sh
+
+# 4. 상태 확인
+./scripts/start.sh --status
+
+# 5. 로그 보기
+./scripts/start.sh --logs
 ```
 
 ---
@@ -32,135 +36,81 @@ cd Algorithmic-Trading
 ### Setup (최초 1회)
 
 ```bash
-./scripts/bot.sh setup
+./scripts/setup.sh
 ```
 
 **자동으로 수행:**
 - ✅ `.env` 파일 생성 (없으면)
 - ✅ Python 의존성 설치 확인
-- ✅ Go 의존성 확인 (백엔드)
 - ✅ Docker 환경 확인
 - ✅ 로그 디렉토리 생성
 
 ---
 
-### 개발 환경 실행
-
-#### 1️⃣ 봇만 실행 (가장 빠름)
+### 서비스 시작
 
 ```bash
-./scripts/bot.sh dev
+./scripts/start.sh
 ```
 
 **시작되는 서비스:**
 - 🤖 Trading Bot
 - 🗄️ PostgreSQL
 
-**시작 시간:** ~10초
-**메모리:** ~500MB
-
 ---
 
-#### 2️⃣ 봇 + 모니터링
+### 서비스 관리
 
 ```bash
-./scripts/bot.sh dev:monitor
-```
+# 서비스 시작
+./scripts/start.sh
 
-**시작되는 서비스:**
-- 🤖 Trading Bot
-- 🗄️ PostgreSQL
-- 📊 Grafana (http://localhost:3000)
-- 📝 Loki
-- 🚀 Promtail
+# 서비스 중지
+./scripts/start.sh --stop
 
-**시작 시간:** ~20초
-**메모리:** ~1.5GB
-
-**Grafana 접속:**
-- URL: http://localhost:3000
-- ID: admin
-- PW: admin123
-
----
-
-#### 3️⃣ 봇 + Go API 백엔드
-
-```bash
-./scripts/bot.sh dev:backend
-```
-
-**시작되는 서비스:**
-- 🤖 Trading Bot
-- 🗄️ PostgreSQL
-- ⚡ Go API Server (http://localhost:8080)
-
-**시작 시간:** ~15초
-**메모리:** ~800MB
-
-**API 확인:**
-```bash
-curl http://localhost:8080/api/health
-```
-
----
-
-#### 4️⃣ 전체 스택 (All-in-One)
-
-```bash
-./scripts/bot.sh dev:all
-```
-
-**시작되는 서비스:**
-- 🤖 Trading Bot
-- 🗄️ PostgreSQL
-- ⚡ Go API Server
-- 📊 Grafana
-- 📝 Loki
-- 🚀 Promtail
-
-**시작 시간:** ~30초
-**메모리:** ~2GB
-
-**접속 정보:**
-- Backend API: http://localhost:8080/api/health
-- Grafana: http://localhost:3000 (admin/admin123)
-- PostgreSQL: localhost:5432
-
----
-
-### 중지 및 관리
-
-```bash
-# 전체 중지
-./scripts/bot.sh dev:down
-
-# 전체 로그 확인
-./scripts/bot.sh dev:logs
-
-# 봇 로그만 확인
-docker logs -f trading-bot
+# 로그 보기
+./scripts/start.sh --logs
 
 # 상태 확인
-./scripts/bot.sh status
-
-# 임시 파일 정리
-./scripts/bot.sh clean
+./scripts/start.sh --status
 ```
+
+---
+
+### 테스트 실행
+
+```bash
+# 빠른 테스트
+./scripts/test.sh
+
+# 커버리지 포함
+./scripts/test.sh --coverage
+
+# CI 환경 (lint + type + coverage)
+./scripts/test.sh --ci
+```
+
+---
+
+### Grafana 접속 (모니터링)
+
+**URL:** http://localhost:3000
+**ID:** admin
+**PW:** admin123
 
 ---
 
 ### 프로덕션 실행
 
 ```bash
-./scripts/bot.sh prod
+# 프로덕션 모드 (.env에서 TESTNET=false 설정 필요)
+./scripts/start.sh
 ```
 
 **주의사항:**
-- ⚠️ TESTNET=false (실제 거래)
-- ⚠️ 실행 전 확인 프롬프트
-- ⚠️ restart: always 적용
-- ⚠️ 리소스 제한 적용
+- ⚠️ BINANCE_TESTNET=false (실제 거래)
+- ⚠️ 실전 API 키 필요
+- ⚠️ 충분한 Testnet 검증 후 전환
 
 ---
 
@@ -225,11 +175,11 @@ Grafana/Loki 컨테이너가 시작되면 자동으로:
 ### 시나리오 1: AI 신호 로직 개발
 
 ```bash
-# 빠른 시작 (10초)
-./scripts/bot.sh dev
+# 서비스 시작
+./scripts/start.sh
 
 # 코드 수정
-vim src/ai/gemini_ai.py
+vim src/ai/gemini.py
 
 # 재시작
 docker restart trading-bot
@@ -243,8 +193,8 @@ docker logs -f trading-bot
 ### 시나리오 2: 모니터링 대시보드 확인
 
 ```bash
-# 모니터링 포함 시작
-./scripts/bot.sh dev:monitor
+# 서비스 시작
+./scripts/start.sh
 
 # Grafana 접속
 open http://localhost:3000
@@ -257,37 +207,17 @@ open http://localhost:3000
 
 ---
 
-### 시나리오 3: Go API 개발
+### 시나리오 3: 테스트 실행
 
 ```bash
-# 백엔드 포함 시작
-./scripts/bot.sh dev:backend
-
-# API 테스트
-curl http://localhost:8080/api/health
-curl http://localhost:8080/api/v1/bot/status
-
-# Go 코드 수정
-vim backend/cmd/api/main.go
-
-# 재빌드 & 재시작
-docker compose -f docker-compose.yml \
-  -f docker-compose.backend.yml up -d --build backend
-```
-
----
-
-### 시나리오 4: 통합 테스트
-
-```bash
-# 전체 스택 시작
-./scripts/bot.sh dev:all
-
 # 테스트 실행
-./scripts/bot.sh test
+./scripts/test.sh
+
+# 커버리지 포함
+./scripts/test.sh --coverage
 
 # 로그 확인
-./scripts/bot.sh dev:logs
+./scripts/start.sh --logs
 ```
 
 ---
@@ -319,7 +249,7 @@ docker info
 ```bash
 # .env 파일 재생성
 rm .env
-./scripts/bot.sh setup
+./scripts/setup.sh
 
 # 필수 변수 확인
 cat .env
@@ -343,9 +273,15 @@ lsof -i :8080  # Backend API
 이제 원-커맨드로 전체 환경을 관리할 수 있습니다.
 
 ```bash
-./scripts/bot.sh setup      # 최초 1회
-./scripts/bot.sh dev:all    # 전체 시작
-./scripts/bot.sh dev:down   # 전체 중지
+./scripts/setup.sh          # 최초 1회
+./scripts/start.sh          # 서비스 시작
+./scripts/start.sh --stop   # 서비스 중지
+./scripts/test.sh           # 테스트 실행
 ```
 
 Happy Trading! 🚀
+
+---
+
+**마지막 업데이트:** 2026-01-21
+**상태:** Phase 2 Testnet 검증 진행 중

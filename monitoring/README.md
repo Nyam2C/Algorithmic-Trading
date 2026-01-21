@@ -20,11 +20,11 @@ Grafana + Loki + Promtail 기반 로그 모니터링 시스템
 ### 1. 모니터링 스택 시작
 
 ```bash
-# 올인원 CLI (권장)
-./scripts/bot.sh monitoring start
+# 서비스 시작 (모니터링 포함)
+./scripts/start.sh
 
 # 또는 직접 실행
-docker compose -f monitoring/docker-compose.yml up -d
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.monitoring.yml up -d
 ```
 
 ### 2. Grafana 접속
@@ -217,31 +217,31 @@ monitoring/
 ### 시작
 
 ```bash
-# 모니터링 스택 시작
-./scripts/bot.sh monitoring start
+# 서비스 시작
+./scripts/start.sh
 
 # 또는
-docker compose -f monitoring/docker-compose.yml up -d
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.monitoring.yml up -d
 ```
 
 ### 중지
 
 ```bash
-# 모니터링 스택 중지
-./scripts/bot.sh monitoring stop
+# 서비스 중지
+./scripts/start.sh --stop
 
 # 또는
-docker compose -f monitoring/docker-compose.yml down
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.monitoring.yml down
 ```
 
 ### 재시작
 
 ```bash
-# 모니터링 스택 재시작
-./scripts/bot.sh monitoring restart
+# 서비스 재시작
+./scripts/start.sh --stop && ./scripts/start.sh
 
 # 또는
-docker compose -f monitoring/docker-compose.yml restart
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.monitoring.yml restart
 ```
 
 ### 로그 확인

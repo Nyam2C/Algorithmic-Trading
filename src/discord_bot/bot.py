@@ -291,13 +291,14 @@ class DashboardView(discord.ui.View):
 class TradingBotClient(discord.Client):
     """Discord 트레이딩 봇 클라이언트"""
 
-    def __init__(self, bot_state: dict, trade_db=None):
+    def __init__(self, bot_state: dict, trade_db=None, binance_client=None):
         """
         Initialize Discord bot client
 
         Args:
             bot_state: Shared state dictionary with trading bot
             trade_db: TradeHistoryDB instance (optional)
+            binance_client: BinanceTestnetClient instance (optional)
         """
         intents = discord.Intents.default()
         intents.message_content = True
@@ -306,6 +307,7 @@ class TradingBotClient(discord.Client):
         self.tree = app_commands.CommandTree(self)
         self.bot_state = bot_state
         self.trade_db = trade_db
+        self.binance_client = binance_client
         self.setup_commands()
 
     # =========================================================================
@@ -673,6 +675,101 @@ class TradingBotClient(discord.Client):
 
         return embed
 
+    async def _get_account_embed(self) -> discord.Embed:
+        """계정 전체 포지션 임베드 생성"""
+        if not self.binance_client:
+            embed = discord.Embed(
+                title="❌ Binance 클라이언트 연결 안 됨",
+                description="Binance API를 사용할 수 없습니다",
+                color=0xFF0000
+            )
+            return embed
+
+        try:
+            # 잔고 조회
+            balance = await self.binance_client.get_account_balance()
+
+            # 전체 포지션 조회
+            positions = await self.binance_client.get_all_positions()
+
+            # 총 미실현 손익 계산
+            total_unrealized_pnl = sum(p["unrealized_pnl"] for p in positions)
+
+            # 임베드 생성
+            embed = discord.Embed(
+                title="💼 계정 현황",
+                color=0x00BFFF
+            )
+
+            # 잔고 정보
+            embed.add_field(
+                name="💰 USDT 잔고",
+                value=f"${balance['balance']:,.2f}",
+                inline=True
+            )
+            embed.add_field(
+                name="💵 사용 가능",
+                value=f"${balance['available']:,.2f}",
+                inline=True
+            )
+            embed.add_field(
+                name="📊 열린 포지션",
+                value=f"{len(positions)}개",
+                inline=True
+            )
+
+            # 총 미실현 손익
+            pnl_emoji = "💰" if total_unrealized_pnl >= 0 else "📉"
+            embed.add_field(
+                name=f"{pnl_emoji} 총 미실현 손익",
+                value=f"${total_unrealized_pnl:+,.2f}",
+                inline=False
+            )
+
+            # 각 포지션 표시
+            if positions:
+                embed.add_field(
+                    name="─" * 20,
+                    value="**📍 열린 포지션 목록**",
+                    inline=False
+                )
+
+                for i, pos in enumerate(positions, 1):
+                    side = pos["side"]
+                    emoji = "🟢" if side == "LONG" else "🔴"
+                    pnl_emoji = "💰" if pos["unrealized_pnl"] >= 0 else "📉"
+
+                    value = (
+                        f"{emoji} **{side}** {pos['leverage']}x\n"
+                        f"진입: ${pos['entry_price']:,.2f} → 현재: ${pos['current_price']:,.2f}\n"
+                        f"수량: {pos['quantity']:.4f}\n"
+                        f"{pnl_emoji} 손익: ${pos['unrealized_pnl']:+,.2f} ({pos['pnl_pct']:+.2f}%)\n"
+                        f"청산가: ${pos['liquidation_price']:,.2f}"
+                    )
+
+                    embed.add_field(
+                        name=f"{i}. {pos['symbol']}",
+                        value=value,
+                        inline=True
+                    )
+            else:
+                embed.add_field(
+                    name="📍 포지션",
+                    value="열린 포지션이 없습니다",
+                    inline=False
+                )
+
+            return embed
+
+        except Exception as e:
+            logger.error(f"계정 조회 에러: {e}")
+            embed = discord.Embed(
+                title="❌ 계정 조회 실패",
+                description=f"오류: {str(e)}",
+                color=0xFF0000
+            )
+            return embed
+
     # =========================================================================
     # Slash Commands (한글 + 영어)
     # =========================================================================
@@ -791,6 +888,20 @@ class TradingBotClient(discord.Client):
         async def emergency_english(interaction: discord.Interaction):
             """Emergency command (English)"""
             await self._emergency_command(interaction)
+
+        # =====================================================================
+        # /계정 (Account) - 신규
+        # =====================================================================
+
+        @self.tree.command(name="계정", description="💼 계정 전체 포지션 및 잔고 조회")
+        async def account_korean(interaction: discord.Interaction):
+            """계정 조회 (한글)"""
+            await self._account_command(interaction)
+
+        @self.tree.command(name="account", description="💼 View all account positions and balance")
+        async def account_english(interaction: discord.Interaction):
+            """Account command (English)"""
+            await self._account_command(interaction)
 
         # =====================================================================
         # /핑 (Ping)
@@ -1121,6 +1232,22 @@ class TradingBotClient(discord.Client):
                 ephemeral=True
             )
 
+    async def _account_command(self, interaction: discord.Interaction):
+        """계정 조회 명령어 구현"""
+        await interaction.response.defer()
+
+        try:
+            embed = await self._get_account_embed()
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Discord 명령어 /계정 실행: {interaction.user}")
+
+        except Exception as e:
+            logger.error(f"/계정 명령어 에러: {e}")
+            await interaction.followup.send(
+                f"❌ 계정 조회 오류: {str(e)}",
+                ephemeral=True
+            )
+
     # =========================================================================
     # Event Handlers
     # =========================================================================
@@ -1146,7 +1273,7 @@ class TradingBotClient(discord.Client):
         )
 
 
-async def start_discord_bot(token: str, bot_state: dict, trade_db=None):
+async def start_discord_bot(token: str, bot_state: dict, trade_db=None, binance_client=None):
     """
     Start Discord bot
 
@@ -1154,8 +1281,13 @@ async def start_discord_bot(token: str, bot_state: dict, trade_db=None):
         token: Discord bot token
         bot_state: Shared state dictionary with trading bot
         trade_db: TradeHistoryDB instance (optional)
+        binance_client: BinanceTestnetClient instance (optional)
     """
-    client = TradingBotClient(bot_state=bot_state, trade_db=trade_db)
+    client = TradingBotClient(
+        bot_state=bot_state,
+        trade_db=trade_db,
+        binance_client=binance_client
+    )
 
     try:
         await client.start(token)

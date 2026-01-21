@@ -347,6 +347,63 @@ class BinanceTestnetClient:
             logger.error(f"Failed to get position for {symbol}: {e}")
             raise
 
+    async def get_all_positions(self) -> list:
+        """
+        계정 내 모든 열린 포지션 조회
+
+        Returns:
+            열린 포지션 리스트 (포지션이 없으면 빈 리스트)
+        """
+        try:
+            positions = self.client.futures_position_information()
+            open_positions = []
+
+            for pos in positions:
+                position_amt = float(pos["positionAmt"])
+                if position_amt != 0:
+                    # 현재가 조회
+                    try:
+                        current_price = float(
+                            self.client.futures_symbol_ticker(symbol=pos["symbol"])["price"]
+                        )
+                    except Exception:
+                        current_price = float(pos["markPrice"])
+
+                    entry_price = float(pos["entryPrice"])
+                    unrealized_pnl = float(pos["unRealizedProfit"])
+                    leverage = int(pos.get("leverage", 1))
+                    side = "LONG" if position_amt > 0 else "SHORT"
+
+                    # PnL % 계산
+                    if entry_price > 0:
+                        if side == "LONG":
+                            pnl_pct = ((current_price - entry_price) / entry_price) * 100 * leverage
+                        else:
+                            pnl_pct = ((entry_price - current_price) / entry_price) * 100 * leverage
+                    else:
+                        pnl_pct = 0
+
+                    position_info = {
+                        "symbol": pos["symbol"],
+                        "side": side,
+                        "quantity": abs(position_amt),
+                        "entry_price": entry_price,
+                        "current_price": current_price,
+                        "unrealized_pnl": unrealized_pnl,
+                        "pnl_pct": pnl_pct,
+                        "leverage": leverage,
+                        "margin_type": pos.get("marginType", "cross"),
+                        "liquidation_price": float(pos.get("liquidationPrice", 0)),
+                    }
+                    open_positions.append(position_info)
+
+            logger.debug(f"열린 포지션 수: {len(open_positions)}")
+            return open_positions
+
+        except Exception as e:
+            logger.error(f"전체 포지션 조회 실패: {e}")
+            return []
+
     @async_retry(
         max_attempts=3,
         delay=1.0,

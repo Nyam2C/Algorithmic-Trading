@@ -9,10 +9,7 @@ Complete environment setup guide for High-Win Survival System.
 ### Option 1: One-Click Setup (Recommended)
 
 ```bash
-# Python script (cross-platform)
-./scripts/bot.sh setup
-
-# Or Bash script (Linux/Mac/WSL)
+# Bash script (Linux/Mac/WSL)
 ./scripts/setup.sh
 ```
 
@@ -34,7 +31,7 @@ Follow the detailed steps below for manual configuration.
 
 ### Required
 
-- **Python 3.11+**
+- **Python 3.10+**
 - **Docker & Docker Compose** (for containerized deployment)
 - **Git** (for version control)
 
@@ -51,51 +48,44 @@ The setup script supports multiple modes:
 ### 1. Full Setup (Development + Docker)
 
 ```bash
-# Interactive
-./scripts/bot.sh setup
-# Select option 1
-
-# Non-interactive
-./scripts/bot.sh setup --all
+# Setup script
+./scripts/setup.sh
 ```
 
 **Includes:**
 - Python dependencies installation
 - `.env` file creation
 - Docker environment setup
-- Git initialization
-- Test execution
+- Log directories creation
 
-### 2. Development Only
-
-```bash
-# Interactive
-./scripts/bot.sh setup
-# Select option 2
-
-# Non-interactive
-./scripts/bot.sh setup --dev
-```
-
-**Includes:**
-- Python dependencies installation
-- `.env` file creation
-- Test execution
-
-### 3. Docker Only
+### 2. Start Services
 
 ```bash
-# Interactive
-./scripts/bot.sh setup
-# Select option 3
+# Start all services
+./scripts/start.sh
 
-# Non-interactive
-./scripts/bot.sh setup --docker
+# Check status
+./scripts/start.sh --status
+
+# View logs
+./scripts/start.sh --logs
+
+# Stop services
+./scripts/start.sh --stop
 ```
 
-**Includes:**
-- Docker image build
-- Docker Compose setup
+### 3. Run Tests
+
+```bash
+# Quick test
+./scripts/test.sh
+
+# With coverage
+./scripts/test.sh --coverage
+
+# CI mode (lint + type + coverage)
+./scripts/test.sh --ci
+```
 
 ---
 
@@ -179,14 +169,16 @@ DATABASE_URL=postgresql://postgres:postgres@db:5432/trading
 
 ### Initialize Database
 
-After running the main setup, initialize the database:
+After running the main setup, the database initializes automatically:
 
 ```bash
-# Using Docker
-docker compose up -d db
-./d./scripts/setup.sh
+# Start services (includes DB auto-initialization)
+./scripts/start.sh
 
-# Or manually with psql
+# Or manually with Docker
+docker compose -f deploy/docker-compose.yml up -d postgres
+
+# Manual psql initialization
 psql -U postgres -f db/init.sql
 ```
 
@@ -209,10 +201,10 @@ The database includes tables for:
 
 ```bash
 # Docker
-docker compose exec db psql -U postgres -d trading
+docker exec -it trading-db psql -U trading -d trading
 
 # Local
-psql -h localhost -p 5432 -U postgres -d trading
+psql -h localhost -p 5432 -U trading -d trading
 ```
 
 ---
@@ -275,30 +267,28 @@ docker images | grep trading-bot
 ### Docker Deployment (Recommended)
 
 ```bash
-# One-click start
-./scripts/bot.sh docker
-
-# Or manually
-docker compose up -d
+# Start services
+./scripts/start.sh
 
 # View logs
-docker compose logs -f bot
+./scripts/start.sh --logs
+
+# Check status
+./scripts/start.sh --status
 
 # Stop
-docker compose down
+./scripts/start.sh --stop
 ```
 
 ### Local Execution
 
 ```bash
-# One-click start
-./scripts/bot.sh run
-
-# Or manually
+# Run directly with Python
 python -m src.main
 
-# With custom .env
-python -m src.main --config /path/to/.env
+# Or using Docker Compose
+docker compose -f deploy/docker-compose.yml up -d
+docker compose -f deploy/docker-compose.yml logs -f trading-bot
 ```
 
 ---
@@ -358,7 +348,7 @@ Algorithmic-Trading/
 ### Python Version Error
 
 ```
-Error: Python 3.11+ required
+Error: Python 3.10+ required
 ```
 
 **Solution:**
@@ -366,13 +356,13 @@ Error: Python 3.11+ required
 # Check version
 python3 --version
 
-# Install Python 3.11+
+# Install Python 3.10+
 # Ubuntu/Debian
 sudo apt update
-sudo apt install python3.11
+sudo apt install python3.10
 
 # macOS
-brew install python@3.11
+brew install python@3.10
 ```
 
 ### Docker Not Running
@@ -456,7 +446,7 @@ chmod +x setup.sh
 chmod +x run.sh
 chmod +x start-docker.sh
 chmod +x run-tests.sh
-chmod +x d./scripts/setup.sh
+chmod +x ./scripts/*.sh
 ```
 
 ---
@@ -466,23 +456,19 @@ chmod +x d./scripts/setup.sh
 ### Custom Python Version
 
 ```bash
-# Use specific Python version
-python3.11 setup.py
-
-# Or with virtual environment
-python3.11 -m venv venv
+# Use specific Python version with virtual environment
+python3.10 -m venv venv
 source venv/bin/activate
-./scripts/bot.sh setup
+pip install -r requirements.txt
+./scripts/setup.sh
 ```
 
 ### Skip Tests During Setup
 
 ```bash
-# Python
-./scripts/bot.sh setup --all --skip-tests
-
-# Bash
-./scripts/setup.sh --all --skip-tests
+# Setup then run tests separately
+./scripts/setup.sh
+./scripts/test.sh
 ```
 
 ### Automated Setup (CI/CD)
@@ -495,7 +481,8 @@ export GEMINI_API_KEY="your_key"
 export DISCORD_WEBHOOK_URL="your_webhook"
 
 # Run setup
-./scripts/setup.sh --all --skip-tests
+./scripts/setup.sh
+./scripts/test.sh --ci
 ```
 
 ---
@@ -511,24 +498,22 @@ After successful setup:
 
 2. **Run Tests**
    ```bash
-   ./scripts/run-tests.sh
+   ./scripts/test.sh
    ```
 
 3. **Start Bot**
    ```bash
-   ./scripts/bot.sh docker
-   # or
-   ./scripts/bot.sh run
+   ./scripts/start.sh
    ```
 
 4. **Monitor**
    ```bash
    # Logs
-   docker compose logs -f bot
+   ./scripts/start.sh --logs
    tail -f logs/bot.log
 
-   # Discord notifications
-   # Check your Discord channel
+   # Grafana Dashboard
+   # http://localhost:3000 (admin/admin123)
    ```
 
 5. **Review Documentation**
@@ -597,5 +582,10 @@ If you encounter issues:
 - Setup scripts: ✅
 - Database schema: ✅
 - Documentation: ✅
-- Test suite: ✅ (64 tests)
+- Test suite: ✅ (64+ tests)
 - Docker environment: ✅
+
+---
+
+**마지막 업데이트:** 2026-01-21
+**상태:** Phase 2 Testnet 검증 진행 중
