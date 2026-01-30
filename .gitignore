@@ -4,6 +4,9 @@
 
 # Claude AI context (private)
 .claude/
+CLAUDE.md
+mcp.json
+.mcp.json
 
 # Environment variables (API keys)
 .env

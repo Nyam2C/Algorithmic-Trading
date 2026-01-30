@@ -10,6 +10,7 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    target-branch: "dev"
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
@@ -21,6 +22,7 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    target-branch: "dev"
     open-pull-requests-limit: 3
     labels:
       - "dependencies"
@@ -32,6 +34,7 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    target-branch: "dev"
     open-pull-requests-limit: 3
     labels:
       - "dependencies"

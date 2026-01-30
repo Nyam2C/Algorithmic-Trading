@@ -11,10 +11,10 @@ Algorithmic Trading 프로젝트의 모든 문서는 이 폴더에서 관리됩�
 #### 1️⃣ [QUICKSTART.md](QUICKSTART.md) ⭐
 **30초 빠른 시작 가이드 (원-커맨드)**
 
-- `./scripts/bot.sh setup` 한 번으로 전체 환경 설정
-- `./scripts/bot.sh dev:all` 한 번으로 전체 스택 실행
+- `./scripts/setup.sh` 한 번으로 전체 환경 설정
+- `./scripts/start.sh` 한 번으로 서비스 시작
 - Docker Compose 계층화 설명
-- 사용 시나리오별 예시 (개발/모니터링/백엔드/프로덕션)
+- 사용 시나리오별 예시 (개발/모니터링/프로덕션)
 
 **대상:** 빠르게 시작하고 싶은 모든 사용자
 
@@ -124,12 +124,13 @@ Algorithmic Trading 프로젝트의 모든 문서는 이 폴더에서 관리됩�
 
 ## 🔍 문서별 주요 내용
 
-### QUICKSTART.md (원-커맨드) ⭐ NEW
+### QUICKSTART.md (원-커맨드) ⭐
 ```
-- 30초 빠른 시작: ./scripts/bot.sh setup
-- 개발 환경 선택: dev / dev:monitor / dev:backend / dev:all
+- 30초 빠른 시작: ./scripts/setup.sh
+- 서비스 시작: ./scripts/start.sh
+- 테스트 실행: ./scripts/test.sh
 - Docker Compose 계층화 설명
-- 사용 시나리오 (AI 개발, 모니터링, Go API, 통합 테스트)
+- 사용 시나리오 (개발, 모니터링, 통합 테스트)
 - 자동 초기화 (DB + 모니터링)
 ```
 
@@ -227,6 +228,6 @@ docs/
 
 ---
 
-**문서 버전:** 2.0 (원-커맨드 지원)
-**마지막 업데이트:** 2026-01-16
-**상태:** Sprint 1 완료 + Docker Compose 계층화 완료
+**문서 버전:** 2.1
+**마지막 업데이트:** 2026-01-21
+**상태:** Phase 1 완료 (100%) + Phase 2 Testnet 검증 진행 중 (75%)

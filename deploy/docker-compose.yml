@@ -17,7 +17,7 @@ services:
       POSTGRES_DB: trading
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ../db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
       - "5432:5432"
     healthcheck:
@@ -30,14 +30,14 @@ services:
 
   # Trading Bot
   trading-bot:
-    build: .
+    build: ..
     container_name: trading-bot
     env_file:
-      - .env
+      - ../.env
     environment:
       - DATABASE_URL=postgresql://trading:${DB_PASSWORD:-devpassword}@postgres:5432/trading
     volumes:
-      - ./logs:/app/logs
+      - ../logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
