@@ -2,9 +2,8 @@
 Tests for TradeHistoryDB
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch, MagicMock
 from datetime import datetime, timedelta
-import asyncpg
 
 from src.storage.trade_history import TradeHistoryDB
 
@@ -417,3 +416,116 @@ class TestCleanupOldTrades:
         deleted = await db.cleanup_old_trades(days=7)
 
         assert deleted == 10
+
+
+class TestBotIdSupport:
+    """bot_id 지원 테스트"""
+
+    @pytest.fixture
+    def db_with_pool(self):
+        db = TradeHistoryDB("postgresql://test:test@localhost:5432/test")
+        mock_conn = AsyncMock()
+        mock_conn.fetchval.return_value = "123e4567-e89b-12d3-a456-426614174000"
+
+        mock_pool = MagicMock()
+        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+        db.pool = mock_pool
+        return db, mock_conn
+
+    @pytest.mark.asyncio
+    async def test_add_entry_with_bot_id(self, db_with_pool):
+        """bot_id와 함께 거래 진입 기록"""
+        db, mock_conn = db_with_pool
+
+        trade_id = await db.add_entry(
+            entry_time=datetime.now(),
+            entry_price=105000.0,
+            side="LONG",
+            quantity=0.01,
+            leverage=15,
+            symbol="BTCUSDT",
+            bot_id="bot-123e4567-e89b-12d3-a456-426614174000"
+        )
+
+        assert trade_id == "123e4567-e89b-12d3-a456-426614174000"
+        # SQL에 bot_id가 포함되었는지 확인
+        call_args = mock_conn.fetchval.call_args
+        assert call_args is not None
+
+    @pytest.mark.asyncio
+    async def test_add_entry_without_bot_id(self, db_with_pool):
+        """bot_id 없이 거래 진입 (하위 호환성)"""
+        db, mock_conn = db_with_pool
+
+        trade_id = await db.add_entry(
+            entry_time=datetime.now(),
+            entry_price=105000.0,
+            side="LONG",
+            quantity=0.01,
+            leverage=15,
+            symbol="BTCUSDT"
+        )
+
+        assert trade_id == "123e4567-e89b-12d3-a456-426614174000"
+
+    @pytest.mark.asyncio
+    async def test_get_recent_trades_with_bot_id_filter(self, db_with_pool):
+        """bot_id로 필터링하여 최근 거래 조회"""
+        db, mock_conn = db_with_pool
+
+        mock_rows = [
+            {
+                "id": "uuid1",
+                "entry_time": datetime.now() - timedelta(hours=2),
+                "entry_price": 105000.0,
+                "exit_time": datetime.now() - timedelta(hours=1),
+                "exit_price": 105500.0,
+                "side": "LONG",
+                "quantity": 0.01,
+                "leverage": 15,
+                "exit_reason": "TAKE_PROFIT",
+                "pnl": 7.5,
+                "pnl_pct": 0.48,
+                "duration_minutes": 60,
+                "symbol": "BTCUSDT",
+                "status": "CLOSED",
+                "bot_id": "bot-uuid"
+            }
+        ]
+        mock_conn.fetch.return_value = mock_rows
+
+        trades = await db.get_recent_trades(limit=10, bot_id="bot-uuid")
+
+        assert len(trades) == 1
+        mock_conn.fetch.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_statistics_with_bot_id_filter(self, db_with_pool):
+        """bot_id로 필터링하여 통계 조회"""
+        db, mock_conn = db_with_pool
+        mock_conn.fetchval.side_effect = [5, 3, 75.0, 1.5, -0.8, 3]
+
+        stats = await db.get_statistics(hours=24, bot_id="bot-uuid")
+
+        assert stats["total_trades"] == 5
+
+    @pytest.mark.asyncio
+    async def test_get_open_trade_with_bot_id_filter(self, db_with_pool):
+        """bot_id로 필터링하여 열린 거래 조회"""
+        db, mock_conn = db_with_pool
+
+        mock_conn.fetchrow.return_value = {
+            "id": "uuid1",
+            "entry_time": datetime.now(),
+            "entry_price": 105000.0,
+            "side": "LONG",
+            "quantity": 0.01,
+            "leverage": 15,
+            "symbol": "BTCUSDT",
+            "bot_id": "bot-uuid"
+        }
+
+        trade = await db.get_open_trade(bot_id="bot-uuid")
+
+        assert trade is not None
+        mock_conn.fetchrow.assert_called_once()

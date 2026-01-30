@@ -3,7 +3,7 @@ Tests for retry decorators
 """
 import pytest
 import asyncio
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import patch
 import time
 
 from src.utils.retry import async_retry, sync_retry

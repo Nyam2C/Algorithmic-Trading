@@ -3,7 +3,6 @@ Tests for GeminiSignalGenerator
 """
 import pytest
 from unittest.mock import Mock, patch, AsyncMock, MagicMock
-from pathlib import Path
 
 from src.ai.gemini import GeminiSignalGenerator
 
@@ -132,7 +131,7 @@ class TestGetSignal:
     @pytest.fixture
     def generator(self):
         """테스트용 Generator"""
-        with patch("src.ai.gemini.genai.Client") as mock_client:
+        with patch("src.ai.gemini.genai.Client"):
             with patch.object(GeminiSignalGenerator, "_load_prompt") as mock_load:
                 mock_load.side_effect = ["System", "Analysis {{current_price}}"]
                 gen = GeminiSignalGenerator(api_key="test_key")
@@ -254,7 +253,7 @@ class TestGetSignalSync:
 
     @pytest.fixture
     def generator(self):
-        with patch("src.ai.gemini.genai.Client") as mock_client:
+        with patch("src.ai.gemini.genai.Client"):
             with patch.object(GeminiSignalGenerator, "_load_prompt") as mock_load:
                 mock_load.side_effect = ["System", "Analysis {{current_price}}"]
                 gen = GeminiSignalGenerator(api_key="test_key")

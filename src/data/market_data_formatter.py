@@ -53,7 +53,6 @@ class CompactMarketData:
         lines = []
 
         # 1줄: 가격 정보
-        price_k = f"{self.price // 1000}k" if self.price >= 1000 else str(self.price)
         high_k = f"{self.high_24h // 1000}k"
         low_k = f"{self.low_24h // 1000}k"
         lines.append(

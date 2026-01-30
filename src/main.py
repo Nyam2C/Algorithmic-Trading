@@ -180,11 +180,11 @@ async def trading_loop():
     #     model=config.gemini_model,
     #     temperature=config.gemini_temperature,
     # )
-    # TEST MODE: Very loose parameters for frequent trading
+    # PRODUCTION MODE: Standard parameters for reliable signal generation
     signal_generator = RuleBasedSignalGenerator(
-        rsi_oversold=50.0,  # 45 → 50 (매우 쉬운 LONG 진입)
-        rsi_overbought=50.0,  # 55 → 50 (매우 쉬운 SHORT 진입)
-        volume_threshold=0.0,  # 0.3 → 0.0 (거래량 조건 없음)
+        rsi_oversold=35.0,      # RSI 35 이하에서 LONG 신호
+        rsi_overbought=65.0,    # RSI 65 이상에서 SHORT 신호
+        volume_threshold=1.2,   # 평균 대비 1.2배 이상 거래량 필요
     )
 
     executor = TradingExecutor(binance_client=binance, config=config)
@@ -306,7 +306,7 @@ async def trading_loop():
             # Update bot state with position info
             bot_state["position"] = current_position
 
-            if has_position:
+            if has_position and current_position is not None:
                 logger.info(
                     f"Current position: {current_position['side']} "
                     f"{abs(current_position['position_amt'])} @ "
@@ -315,7 +315,6 @@ async def trading_loop():
 
                 # Check Timecut first
                 if executor.current_position and executor.check_timecut(executor.current_position):
-                    exit_reason = "TIMECUT"
                     logger.info("Exit condition met: TIMECUT")
 
                     # Close position
@@ -375,9 +374,9 @@ async def trading_loop():
                     continue  # Skip TP/SL check and signal execution
 
                 # Check TP/SL
-                exit_reason = await executor.check_tp_sl(current_position, current_price)
-                if exit_reason:
-                    logger.info(f"Exit condition met: {exit_reason}")
+                tp_sl_reason = await executor.check_tp_sl(current_position, current_price)
+                if tp_sl_reason:
+                    logger.info(f"Exit condition met: {tp_sl_reason}")
 
                     # Close position
                     order = await executor.close_position()
@@ -398,7 +397,7 @@ async def trading_loop():
                                 trade_id=executor.current_position["trade_id"],
                                 exit_time=datetime.now(),
                                 exit_price=current_price,
-                                exit_reason=exit_reason,
+                                exit_reason=tp_sl_reason,
                                 pnl=pnl_usd,
                                 pnl_pct=pnl_pct,
                                 duration_minutes=duration
@@ -407,9 +406,9 @@ async def trading_loop():
                         # Send Discord notification
                         await send_discord_embed(
                             webhook_url=config.discord_webhook_url,
-                            title=f"{'✅' if exit_reason == 'TP' else '❌'} Position Closed - {exit_reason}",
+                            title=f"{'✅' if tp_sl_reason == 'TP' else '❌'} Position Closed - {tp_sl_reason}",
                             description=f"**{current_position['side']}** position closed",
-                            color=0x00FF00 if exit_reason == "TP" else 0xFF0000,
+                            color=0x00FF00 if tp_sl_reason == "TP" else 0xFF0000,
                             fields=[
                                 {
                                     "name": "Entry Price",

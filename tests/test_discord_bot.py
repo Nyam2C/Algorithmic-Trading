@@ -2,9 +2,8 @@
 Tests for Discord Bot
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timedelta
-import discord
 
 from src.discord_bot.bot import (
     TradingBotClient,

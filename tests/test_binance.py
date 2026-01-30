@@ -2,9 +2,8 @@
 Tests for BinanceTestnetClient
 """
 import pytest
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from unittest.mock import Mock, patch
 import pandas as pd
-from binance.exceptions import BinanceAPIException
 
 from src.exchange.binance import BinanceTestnetClient
 
@@ -54,7 +53,7 @@ class TestGetCurrentPrice:
     @pytest.fixture
     def client(self):
         """테스트용 클라이언트"""
-        with patch("src.exchange.binance.Client") as mock:
+        with patch("src.exchange.binance.Client"):
             client = BinanceTestnetClient("key", "secret", testnet=True)
             client.client = Mock()
             yield client
@@ -85,7 +84,7 @@ class TestGetKlines:
     @pytest.fixture
     def client(self):
         """테스트용 클라이언트"""
-        with patch("src.exchange.binance.Client") as mock:
+        with patch("src.exchange.binance.Client"):
             client = BinanceTestnetClient("key", "secret", testnet=True)
             client.client = Mock()
             yield client
