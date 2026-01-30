@@ -1,0 +1,241 @@
+{
+  "name": "Telegram Bot Control",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"]
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-credentials",
+          "name": "Telegram API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 텔레그램 명령 파싱\nconst message = $input.first().json.message;\nconst text = message.text || '';\nconst chatId = message.chat.id;\n\n// 명령 파싱\nconst parts = text.trim().split(/\\s+/);\nconst cmd = parts[0].toLowerCase();\nconst botName = parts[1] || null;\n\nlet command = null;\nlet isValid = true;\n\nswitch (cmd) {\n  case '/start':\n    command = 'start';\n    break;\n  case '/stop':\n    command = 'stop';\n    break;\n  case '/pause':\n    command = 'pause';\n    break;\n  case '/resume':\n    command = 'resume';\n    break;\n  case '/emergency':\n    command = 'emergency_close';\n    break;\n  case '/status':\n    command = 'status';\n    break;\n  default:\n    isValid = false;\n}\n\nreturn {\n  isValid,\n  command,\n  botName,\n  chatId,\n  originalMessage: text\n};"
+      },
+      "id": "parse-command",
+      "name": "Parse Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.isValid}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-valid",
+      "name": "Is Valid Command?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.command}}",
+              "value2": "status"
+            }
+          ]
+        }
+      },
+      "id": "check-status",
+      "name": "Is Status Command?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [850, 250]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.TRADING_BOT_API_URL}}/api/bots",
+        "options": {}
+      },
+      "id": "get-status",
+      "name": "Get Bot Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1050, 150]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.TRADING_BOT_API_URL}}/api/n8n/command",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"bot_name\": {{$json.botName ? '\"' + $json.botName + '\"' : null}},\n  \"command\": \"{{$json.command}}\"\n}",
+        "options": {}
+      },
+      "id": "send-command",
+      "name": "Send Command",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1050, 350]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$('Parse Command').item.json.chatId}}",
+        "text": "={{$json.data ? '📊 봇 상태\\n\\n전체: ' + $json.data.total_bots + '개\\n실행 중: ' + $json.data.running_bots + '개\\n일시정지: ' + $json.data.paused_bots + '개' : '❌ 상태 조회 실패'}}"
+      },
+      "id": "send-status-response",
+      "name": "Send Status Response",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1250, 150],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-credentials",
+          "name": "Telegram API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{$('Parse Command').item.json.chatId}}",
+        "text": "={{$json.success ? '✅ 명령 실행 완료: ' + $json.message : '❌ 명령 실행 실패: ' + $json.message}}"
+      },
+      "id": "send-command-response",
+      "name": "Send Command Response",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1250, 350],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-credentials",
+          "name": "Telegram API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chatId}}",
+        "text": "❌ 알 수 없는 명령입니다.\\n\\n사용 가능한 명령:\\n/start [bot_name] - 봇 시작\\n/stop [bot_name] - 봇 정지\\n/pause [bot_name] - 일시정지\\n/resume [bot_name] - 재개\\n/status - 상태 조회\\n/emergency - 긴급 청산"
+      },
+      "id": "send-help",
+      "name": "Send Help",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [850, 450],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-credentials",
+          "name": "Telegram API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Command": {
+      "main": [
+        [
+          {
+            "node": "Is Valid Command?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Valid Command?": {
+      "main": [
+        [
+          {
+            "node": "Is Status Command?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Help",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Status Command?": {
+      "main": [
+        [
+          {
+            "node": "Get Bot Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Bot Status": {
+      "main": [
+        [
+          {
+            "node": "Send Status Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Command": {
+      "main": [
+        [
+          {
+            "node": "Send Command Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "versionId": "1"
+}

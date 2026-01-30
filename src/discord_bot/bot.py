@@ -1,13 +1,21 @@
 """
 Discord Bot for Trading Bot Remote Control
 
-한글 지원 + 인터랙티브 버튼 UI
+한글 지원 + 인터랙티브 버튼 UI + 멀티봇 지원
+
+Phase 3 업데이트:
+- MultiBotManager 주입 지원
+- 멀티봇 제어 슬래시 명령 추가
+- 봇별 상태 조회 및 제어
 """
 import discord
 from discord import app_commands
 from datetime import datetime
 from loguru import logger
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.bot_manager import MultiBotManager
 
 
 # =============================================================================
@@ -289,9 +297,20 @@ class DashboardView(discord.ui.View):
 # =============================================================================
 
 class TradingBotClient(discord.Client):
-    """Discord 트레이딩 봇 클라이언트"""
+    """Discord 트레이딩 봇 클라이언트
 
-    def __init__(self, bot_state: dict, trade_db=None, binance_client=None):
+    단일 봇 모드와 멀티봇 모드를 모두 지원합니다.
+    - 단일 봇 모드: bot_state dict를 사용
+    - 멀티봇 모드: MultiBotManager를 사용
+    """
+
+    def __init__(
+        self,
+        bot_state: dict,
+        trade_db=None,
+        binance_client=None,
+        bot_manager: Optional["MultiBotManager"] = None,
+    ):
         """
         Initialize Discord bot client
 
@@ -299,6 +318,7 @@ class TradingBotClient(discord.Client):
             bot_state: Shared state dictionary with trading bot
             trade_db: TradeHistoryDB instance (optional)
             binance_client: BinanceTestnetClient instance (optional)
+            bot_manager: MultiBotManager instance (optional, for multi-bot mode)
         """
         intents = discord.Intents.default()
         intents.message_content = True
@@ -308,7 +328,12 @@ class TradingBotClient(discord.Client):
         self.bot_state = bot_state
         self.trade_db = trade_db
         self.binance_client = binance_client
+        self.bot_manager = bot_manager
         self.setup_commands()
+
+        # 멀티봇 모드인 경우 추가 명령 등록
+        if self.bot_manager is not None:
+            self.setup_multibot_commands()
 
     # =========================================================================
     # Helper Methods (재사용 가능한 임베드 생성)
@@ -920,6 +945,155 @@ class TradingBotClient(discord.Client):
             logger.info(f"Discord command /ping executed by {interaction.user}")
 
     # =========================================================================
+    # Multi-Bot Commands (Phase 3)
+    # =========================================================================
+
+    def setup_multibot_commands(self):
+        """멀티봇 슬래시 명령어 등록"""
+
+        # =====================================================================
+        # /봇목록 (Bot List)
+        # =====================================================================
+
+        @self.tree.command(name="봇목록", description="📋 등록된 봇 목록 조회")
+        async def bot_list_korean(interaction: discord.Interaction):
+            """봇 목록 조회 (한글)"""
+            await self._bot_list_command(interaction)
+
+        @self.tree.command(name="bots", description="📋 List all registered bots")
+        async def bot_list_english(interaction: discord.Interaction):
+            """Bot list command (English)"""
+            await self._bot_list_command(interaction)
+
+        # =====================================================================
+        # /봇상태 (Bot Status)
+        # =====================================================================
+
+        @self.tree.command(name="봇상태", description="📊 특정 봇 상태 조회")
+        async def bot_status_korean(
+            interaction: discord.Interaction,
+            bot_name: str,
+        ):
+            """봇 상태 조회 (한글)"""
+            await self._bot_status_command(interaction, bot_name)
+
+        @self.tree.command(name="bot-status", description="📊 Get specific bot status")
+        async def bot_status_english(
+            interaction: discord.Interaction,
+            bot_name: str,
+        ):
+            """Bot status command (English)"""
+            await self._bot_status_command(interaction, bot_name)
+
+        # =====================================================================
+        # /봇시작 (Bot Start)
+        # =====================================================================
+
+        @self.tree.command(name="봇시작", description="▶️ 특정 봇 시작")
+        async def bot_start_korean(
+            interaction: discord.Interaction,
+            bot_name: str,
+        ):
+            """봇 시작 (한글)"""
+            await self._bot_start_command(interaction, bot_name)
+
+        @self.tree.command(name="bot-start", description="▶️ Start specific bot")
+        async def bot_start_english(
+            interaction: discord.Interaction,
+            bot_name: str,
+        ):
+            """Bot start command (English)"""
+            await self._bot_start_command(interaction, bot_name)
+
+        # =====================================================================
+        # /봇정지 (Bot Stop)
+        # =====================================================================
+
+        @self.tree.command(name="봇정지", description="⏹️ 특정 봇 정지")
+        async def bot_stop_korean(
+            interaction: discord.Interaction,
+            bot_name: str,
+        ):
+            """봇 정지 (한글)"""
+            await self._bot_stop_command(interaction, bot_name)
+
+        @self.tree.command(name="bot-stop", description="⏹️ Stop specific bot")
+        async def bot_stop_english(
+            interaction: discord.Interaction,
+            bot_name: str,
+        ):
+            """Bot stop command (English)"""
+            await self._bot_stop_command(interaction, bot_name)
+
+        # =====================================================================
+        # /봇일시정지 (Bot Pause)
+        # =====================================================================
+
+        @self.tree.command(name="봇일시정지", description="⏸️ 특정 봇 일시정지")
+        async def bot_pause_korean(
+            interaction: discord.Interaction,
+            bot_name: str,
+        ):
+            """봇 일시정지 (한글)"""
+            await self._bot_pause_command(interaction, bot_name)
+
+        @self.tree.command(name="bot-pause", description="⏸️ Pause specific bot")
+        async def bot_pause_english(
+            interaction: discord.Interaction,
+            bot_name: str,
+        ):
+            """Bot pause command (English)"""
+            await self._bot_pause_command(interaction, bot_name)
+
+        # =====================================================================
+        # /봇재개 (Bot Resume)
+        # =====================================================================
+
+        @self.tree.command(name="봇재개", description="▶️ 일시정지된 봇 재개")
+        async def bot_resume_korean(
+            interaction: discord.Interaction,
+            bot_name: str,
+        ):
+            """봇 재개 (한글)"""
+            await self._bot_resume_command(interaction, bot_name)
+
+        @self.tree.command(name="bot-resume", description="▶️ Resume paused bot")
+        async def bot_resume_english(
+            interaction: discord.Interaction,
+            bot_name: str,
+        ):
+            """Bot resume command (English)"""
+            await self._bot_resume_command(interaction, bot_name)
+
+        # =====================================================================
+        # /전체시작 (Start All)
+        # =====================================================================
+
+        @self.tree.command(name="전체시작", description="▶️ 모든 봇 시작")
+        async def start_all_korean(interaction: discord.Interaction):
+            """전체 봇 시작 (한글)"""
+            await self._start_all_command(interaction)
+
+        @self.tree.command(name="start-all", description="▶️ Start all bots")
+        async def start_all_english(interaction: discord.Interaction):
+            """Start all command (English)"""
+            await self._start_all_command(interaction)
+
+        # =====================================================================
+        # /전체정지 (Stop All)
+        # =====================================================================
+
+        @self.tree.command(name="전체정지", description="⏹️ 모든 봇 정지")
+        async def stop_all_korean(interaction: discord.Interaction):
+            """전체 봇 정지 (한글)"""
+            await self._stop_all_command(interaction)
+
+        @self.tree.command(name="stop-all", description="⏹️ Stop all bots")
+        async def stop_all_english(interaction: discord.Interaction):
+            """Stop all command (English)"""
+            await self._stop_all_command(interaction)
+
+    # =========================================================================
     # Command Implementations (헬퍼로 분리)
     # =========================================================================
 
@@ -1249,6 +1423,364 @@ class TradingBotClient(discord.Client):
             )
 
     # =========================================================================
+    # Multi-Bot Command Implementations (Phase 3)
+    # =========================================================================
+
+    async def _bot_list_command(self, interaction: discord.Interaction):
+        """봇 목록 조회 명령어 구현"""
+        await interaction.response.defer()
+
+        try:
+            if not self.bot_manager:
+                await interaction.followup.send(
+                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
+                    ephemeral=True
+                )
+                return
+
+            summary = self.bot_manager.get_summary()
+
+            embed = discord.Embed(
+                title="📋 봇 목록",
+                description=f"총 {summary['total_bots']}개 봇 등록됨",
+                color=0x00BFFF
+            )
+
+            embed.add_field(
+                name="📊 요약",
+                value=f"🟢 실행 중: {summary['running_bots']}개\n"
+                      f"⏸️ 일시정지: {summary['paused_bots']}개",
+                inline=False
+            )
+
+            if summary['bots']:
+                for bot_info in summary['bots']:
+                    status_emoji = "🟢" if bot_info['is_running'] and not bot_info['is_paused'] else \
+                                  "⏸️" if bot_info['is_paused'] else "🔴"
+                    embed.add_field(
+                        name=f"{status_emoji} {bot_info['name']}",
+                        value=f"심볼: {bot_info['symbol']}\n"
+                              f"위험도: {bot_info['risk_level']}",
+                        inline=True
+                    )
+            else:
+                embed.add_field(
+                    name="ℹ️ 정보",
+                    value="등록된 봇이 없습니다.",
+                    inline=False
+                )
+
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Discord 명령어 /봇목록 실행: {interaction.user}")
+
+        except Exception as e:
+            logger.error(f"/봇목록 명령어 에러: {e}")
+            await interaction.followup.send(
+                f"❌ 봇 목록 조회 오류: {str(e)}",
+                ephemeral=True
+            )
+
+    async def _bot_status_command(self, interaction: discord.Interaction, bot_name: str):
+        """봇 상태 조회 명령어 구현"""
+        await interaction.response.defer()
+
+        try:
+            if not self.bot_manager:
+                await interaction.followup.send(
+                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
+                    ephemeral=True
+                )
+                return
+
+            bot = self.bot_manager.get_bot(bot_name)
+            if not bot:
+                await interaction.followup.send(
+                    f"❌ 봇 '{bot_name}'을(를) 찾을 수 없습니다.",
+                    ephemeral=True
+                )
+                return
+
+            state = bot.get_state()
+
+            # 상태 색상 결정
+            if state['is_running'] and not state['is_paused']:
+                color = 0x00FF00
+                status_str = "🟢 실행 중"
+            elif state['is_paused']:
+                color = 0xFFFF00
+                status_str = "⏸️ 일시정지"
+            else:
+                color = 0xFF0000
+                status_str = "🔴 중지됨"
+
+            embed = discord.Embed(
+                title=f"📊 {bot_name} 상태",
+                color=color
+            )
+
+            embed.add_field(name="⚡ 상태", value=status_str, inline=True)
+            embed.add_field(name="💰 심볼", value=state['symbol'], inline=True)
+            embed.add_field(name="⚠️ 위험도", value=state['risk_level'], inline=True)
+            embed.add_field(name="📈 레버리지", value=f"{state['leverage']}x", inline=True)
+            embed.add_field(name="💵 현재가", value=f"${state['current_price']:,.2f}", inline=True)
+            embed.add_field(name="🔄 루프", value=str(state['loop_count']), inline=True)
+
+            # 포지션 정보
+            position = state.get('position')
+            if position and position.get('side'):
+                side_emoji = "🟢" if position['side'] == "LONG" else "🔴"
+                embed.add_field(
+                    name=f"{side_emoji} 포지션",
+                    value=f"{position['side']} @ ${position.get('entry_price', 0):,.2f}",
+                    inline=False
+                )
+
+            # 마지막 시그널
+            embed.add_field(
+                name="🔄 마지막 시그널",
+                value=state.get('last_signal', 'WAIT'),
+                inline=True
+            )
+
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Discord 명령어 /봇상태 {bot_name} 실행: {interaction.user}")
+
+        except Exception as e:
+            logger.error(f"/봇상태 명령어 에러: {e}")
+            await interaction.followup.send(
+                f"❌ 봇 상태 조회 오류: {str(e)}",
+                ephemeral=True
+            )
+
+    async def _bot_start_command(self, interaction: discord.Interaction, bot_name: str):
+        """봇 시작 명령어 구현"""
+        await interaction.response.defer()
+
+        try:
+            if not self.bot_manager:
+                await interaction.followup.send(
+                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
+                    ephemeral=True
+                )
+                return
+
+            await self.bot_manager.start_bot(bot_name)
+
+            embed = discord.Embed(
+                title="▶️ 봇 시작",
+                description=f"봇 **{bot_name}**이(가) 시작되었습니다.",
+                color=0x00FF00
+            )
+            embed.add_field(
+                name="👤 시작한 사용자",
+                value=str(interaction.user),
+                inline=True
+            )
+
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Discord 명령어 /봇시작 {bot_name} 실행: {interaction.user}")
+
+        except ValueError as e:
+            await interaction.followup.send(f"❌ {str(e)}", ephemeral=True)
+        except Exception as e:
+            logger.error(f"/봇시작 명령어 에러: {e}")
+            await interaction.followup.send(
+                f"❌ 봇 시작 오류: {str(e)}",
+                ephemeral=True
+            )
+
+    async def _bot_stop_command(self, interaction: discord.Interaction, bot_name: str):
+        """봇 정지 명령어 구현"""
+        await interaction.response.defer()
+
+        try:
+            if not self.bot_manager:
+                await interaction.followup.send(
+                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
+                    ephemeral=True
+                )
+                return
+
+            await self.bot_manager.stop_bot(bot_name)
+
+            embed = discord.Embed(
+                title="⏹️ 봇 정지",
+                description=f"봇 **{bot_name}**이(가) 정지되었습니다.",
+                color=0xFF0000
+            )
+            embed.add_field(
+                name="👤 정지한 사용자",
+                value=str(interaction.user),
+                inline=True
+            )
+
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Discord 명령어 /봇정지 {bot_name} 실행: {interaction.user}")
+
+        except ValueError as e:
+            await interaction.followup.send(f"❌ {str(e)}", ephemeral=True)
+        except Exception as e:
+            logger.error(f"/봇정지 명령어 에러: {e}")
+            await interaction.followup.send(
+                f"❌ 봇 정지 오류: {str(e)}",
+                ephemeral=True
+            )
+
+    async def _bot_pause_command(self, interaction: discord.Interaction, bot_name: str):
+        """봇 일시정지 명령어 구현"""
+        await interaction.response.defer()
+
+        try:
+            if not self.bot_manager:
+                await interaction.followup.send(
+                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
+                    ephemeral=True
+                )
+                return
+
+            self.bot_manager.pause_bot(bot_name)
+
+            embed = discord.Embed(
+                title="⏸️ 봇 일시정지",
+                description=f"봇 **{bot_name}**이(가) 일시정지되었습니다.",
+                color=0xFFFF00
+            )
+            embed.add_field(
+                name="ℹ️ 안내",
+                value="새 포지션 진입이 중지됩니다.\n기존 포지션은 계속 관리됩니다.",
+                inline=False
+            )
+            embed.add_field(
+                name="👤 일시정지한 사용자",
+                value=str(interaction.user),
+                inline=True
+            )
+
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Discord 명령어 /봇일시정지 {bot_name} 실행: {interaction.user}")
+
+        except ValueError as e:
+            await interaction.followup.send(f"❌ {str(e)}", ephemeral=True)
+        except Exception as e:
+            logger.error(f"/봇일시정지 명령어 에러: {e}")
+            await interaction.followup.send(
+                f"❌ 봇 일시정지 오류: {str(e)}",
+                ephemeral=True
+            )
+
+    async def _bot_resume_command(self, interaction: discord.Interaction, bot_name: str):
+        """봇 재개 명령어 구현"""
+        await interaction.response.defer()
+
+        try:
+            if not self.bot_manager:
+                await interaction.followup.send(
+                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
+                    ephemeral=True
+                )
+                return
+
+            self.bot_manager.resume_bot(bot_name)
+
+            embed = discord.Embed(
+                title="▶️ 봇 재개",
+                description=f"봇 **{bot_name}**이(가) 재개되었습니다.",
+                color=0x00FF00
+            )
+            embed.add_field(
+                name="ℹ️ 안내",
+                value="정상 거래가 재개됩니다.",
+                inline=False
+            )
+            embed.add_field(
+                name="👤 재개한 사용자",
+                value=str(interaction.user),
+                inline=True
+            )
+
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Discord 명령어 /봇재개 {bot_name} 실행: {interaction.user}")
+
+        except ValueError as e:
+            await interaction.followup.send(f"❌ {str(e)}", ephemeral=True)
+        except Exception as e:
+            logger.error(f"/봇재개 명령어 에러: {e}")
+            await interaction.followup.send(
+                f"❌ 봇 재개 오류: {str(e)}",
+                ephemeral=True
+            )
+
+    async def _start_all_command(self, interaction: discord.Interaction):
+        """전체 봇 시작 명령어 구현"""
+        await interaction.response.defer()
+
+        try:
+            if not self.bot_manager:
+                await interaction.followup.send(
+                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
+                    ephemeral=True
+                )
+                return
+
+            await self.bot_manager.start_all()
+
+            embed = discord.Embed(
+                title="▶️ 전체 봇 시작",
+                description=f"모든 봇({self.bot_manager.bot_count}개)이 시작되었습니다.",
+                color=0x00FF00
+            )
+            embed.add_field(
+                name="👤 시작한 사용자",
+                value=str(interaction.user),
+                inline=True
+            )
+
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Discord 명령어 /전체시작 실행: {interaction.user}")
+
+        except Exception as e:
+            logger.error(f"/전체시작 명령어 에러: {e}")
+            await interaction.followup.send(
+                f"❌ 전체 시작 오류: {str(e)}",
+                ephemeral=True
+            )
+
+    async def _stop_all_command(self, interaction: discord.Interaction):
+        """전체 봇 정지 명령어 구현"""
+        await interaction.response.defer()
+
+        try:
+            if not self.bot_manager:
+                await interaction.followup.send(
+                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
+                    ephemeral=True
+                )
+                return
+
+            await self.bot_manager.stop_all()
+
+            embed = discord.Embed(
+                title="⏹️ 전체 봇 정지",
+                description=f"모든 봇({self.bot_manager.bot_count}개)이 정지되었습니다.",
+                color=0xFF0000
+            )
+            embed.add_field(
+                name="👤 정지한 사용자",
+                value=str(interaction.user),
+                inline=True
+            )
+
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Discord 명령어 /전체정지 실행: {interaction.user}")
+
+        except Exception as e:
+            logger.error(f"/전체정지 명령어 에러: {e}")
+            await interaction.followup.send(
+                f"❌ 전체 정지 오류: {str(e)}",
+                ephemeral=True
+            )
+
+    # =========================================================================
     # Event Handlers
     # =========================================================================
 
@@ -1273,7 +1805,13 @@ class TradingBotClient(discord.Client):
         )
 
 
-async def start_discord_bot(token: str, bot_state: dict, trade_db=None, binance_client=None):
+async def start_discord_bot(
+    token: str,
+    bot_state: dict,
+    trade_db=None,
+    binance_client=None,
+    bot_manager: Optional["MultiBotManager"] = None,
+):
     """
     Start Discord bot
 
@@ -1282,11 +1820,13 @@ async def start_discord_bot(token: str, bot_state: dict, trade_db=None, binance_
         bot_state: Shared state dictionary with trading bot
         trade_db: TradeHistoryDB instance (optional)
         binance_client: BinanceTestnetClient instance (optional)
+        bot_manager: MultiBotManager instance (optional, for multi-bot mode)
     """
     client = TradingBotClient(
         bot_state=bot_state,
         trade_db=trade_db,
-        binance_client=binance_client
+        binance_client=binance_client,
+        bot_manager=bot_manager,
     )
 
     try:

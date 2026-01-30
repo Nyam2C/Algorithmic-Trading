@@ -42,3 +42,9 @@ pytest-asyncio>=0.21.0  # 비동기 테스트
 pytest-mock>=3.12.0     # Mock 유틸리티
 pytest-cov>=4.1.0       # 코드 커버리지
 httpx>=0.25.0           # FastAPI 테스트 클라이언트
+
+# ===========================================
+# API Server (Sprint 3.2)
+# ===========================================
+fastapi>=0.109.0        # REST API 프레임워크
+uvicorn[standard]>=0.27.0  # ASGI 서버
