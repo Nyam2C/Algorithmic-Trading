@@ -1,14 +1,14 @@
-# 📚 Documentation Index
+# Documentation Index
 
 Algorithmic Trading 프로젝트의 모든 문서는 이 폴더에서 관리됩니다.
 
 ---
 
-## 🚀 빠른 시작
+## 빠른 시작
 
 ### 처음 사용하는 경우 (추천 순서)
 
-#### 1️⃣ [QUICKSTART.md](QUICKSTART.md) ⭐
+#### 1. [QUICKSTART.md](QUICKSTART.md)
 **30초 빠른 시작 가이드 (원-커맨드)**
 
 - `./scripts/setup.sh` 한 번으로 전체 환경 설정
@@ -20,7 +20,7 @@ Algorithmic Trading 프로젝트의 모든 문서는 이 폴더에서 관리됩�
 
 ---
 
-#### 2️⃣ [TEST_NOW.md](TEST_NOW.md) ⭐
+#### 2. [TEST_NOW.md](TEST_NOW.md)
 **API 키 없이 지금 바로 테스트**
 
 - 구조 검증: `./scripts/test-structure.sh`
@@ -100,31 +100,54 @@ Algorithmic Trading 프로젝트의 모든 문서는 이 폴더에서 관리됩�
 
 ---
 
-## 📖 문서 읽는 순서
+## 문서 읽는 순서
 
-### 🆕 처음 시작하는 경우 (원-커맨드 방식)
-1. **[QUICKSTART.md](QUICKSTART.md)** - 30초 빠른 시작 ⭐
-2. **[TEST_NOW.md](TEST_NOW.md)** - API 키 없이 테스트 ⭐
+### 처음 시작하는 경우 (원-커맨드 방식)
+1. **[QUICKSTART.md](QUICKSTART.md)** - 30초 빠른 시작
+2. **[TEST_NOW.md](TEST_NOW.md)** - API 키 없이 테스트
 3. **[../README.md](../README.md)** - 프로젝트 개요
 
-### 📦 상세 설정이 필요한 경우
+### 상세 설정이 필요한 경우
 1. **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - 환경 설정
 2. **[TEST_GUIDE.md](TEST_GUIDE.md)** - 테스트 방법
 
-### 💻 개발하는 경우
+### 개발하는 경우
 1. **[TEST_GUIDE.md](TEST_GUIDE.md)** - 테스트 방법
 2. **[../.claude/DEVELOPMENT_PLAN.md](../.claude/DEVELOPMENT_PLAN.md)** - 개발 계획
 3. **[../.claude/IMPLEMENTATION_PLAN.md](../.claude/IMPLEMENTATION_PLAN.md)** - 구현 가이드
 
-### 📊 전략 이해하는 경우
+### 전략 이해하는 경우
 1. **[../.claude/TRADING_PLAN.md](../.claude/TRADING_PLAN.md)** - 트레이딩 전략
 2. **[../.claude/PROMPT_ENGINEERING.md](../.claude/PROMPT_ENGINEERING.md)** - AI 프롬프트
 
 ---
 
-## 🔍 문서별 주요 내용
+## 현재 개발 상태
 
-### QUICKSTART.md (원-커맨드) ⭐
+| Phase | 설명 | 진행률 |
+|-------|------|--------|
+| **Phase 1** | 단일 봇 완성 (BTC) | 100% |
+| **Phase 2** | Testnet 검증 | 85% |
+| **Phase 3** | 멀티봇 배포 | 85% |
+| Phase 4 | AI 메모리 시스템 | 계획 중 |
+
+### Phase 3 주요 완료 항목
+- MultiBotManager 구현
+- REST API 서버 (FastAPI)
+- Discord 멀티봇 명령어 (10개)
+- 데이터베이스 마이그레이션 (001, 002)
+- n8n 워크플로우 자동화
+
+### Phase 3 남은 작업
+- 프로덕션 환경 테스트
+- 모니터링 대시보드 확장
+- 문서화 완료
+
+---
+
+## 문서별 주요 내용
+
+### QUICKSTART.md (원-커맨드)
 ```
 - 30초 빠른 시작: ./scripts/setup.sh
 - 서비스 시작: ./scripts/start.sh
@@ -134,7 +157,7 @@ Algorithmic Trading 프로젝트의 모든 문서는 이 폴더에서 관리됩�
 - 자동 초기화 (DB + 모니터링)
 ```
 
-### TEST_NOW.md (API 키 불필요) ⭐ NEW
+### TEST_NOW.md (API 키 불필요)
 ```
 - 구조 검증: ./scripts/test-structure.sh (10초)
 - 실행 테스트: ./scripts/test-quick.sh (1분)
@@ -165,7 +188,7 @@ Algorithmic Trading 프로젝트의 모든 문서는 이 폴더에서 관리됩�
 
 ---
 
-## 🛠️ 문서 유지보수
+## 문서 유지보수
 
 ### 문서 업데이트가 필요한 경우
 - 새로운 기능 추가 시
@@ -182,20 +205,17 @@ Algorithmic Trading 프로젝트의 모든 문서는 이 폴더에서 관리됩�
 
 ---
 
-## 📝 추가 예정 문서
+## 추가 예정 문서
 
-### Sprint 2+
+### Phase 4+
 - **API_REFERENCE.md** - FastAPI 엔드포인트 문서
 - **DEPLOYMENT.md** - 프로덕션 배포 가이드
 - **BACKUP.md** - 백업 및 복구 가이드
 - **SECURITY.md** - 보안 설정 가이드
 
-### Sprint 1 완료 ✅
-- **[../monitoring/README.md](../monitoring/README.md)** - 모니터링 시스템 가이드
-
 ---
 
-## 🔗 외부 참조
+## 외부 참조
 
 ### 공식 문서
 - [Python](https://docs.python.org/3/)
@@ -215,19 +235,19 @@ Algorithmic Trading 프로젝트의 모든 문서는 이 폴더에서 관리됩�
 
 ---
 
-## 📂 문서 구조
+## 문서 구조
 
 ```
 docs/
 ├── README.md              # 이 파일 (문서 인덱스)
-├── QUICKSTART.md          # 원-커맨드 빠른 시작 ⭐ NEW
-├── TEST_NOW.md            # API 키 없이 테스트 ⭐ NEW
+├── QUICKSTART.md          # 원-커맨드 빠른 시작
+├── TEST_NOW.md            # API 키 없이 테스트
 ├── SETUP_GUIDE.md         # 상세 설정 가이드
 └── TEST_GUIDE.md          # 테스트 가이드
 ```
 
 ---
 
-**문서 버전:** 2.1
-**마지막 업데이트:** 2026-01-21
-**상태:** Phase 1 완료 (100%) + Phase 2 Testnet 검증 진행 중 (75%)
+**문서 버전:** 2.2
+**마지막 업데이트:** 2026-01-31
+**상태:** Phase 3 멀티봇 배포 진행 중 (85%)

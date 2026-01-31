@@ -8,11 +8,14 @@ PostgreSQL 데이터베이스 스키마 및 설정 파일
 
 ```
 db/
-├── init.sql           # 데이터베이스 스키마 (테이블, 인덱스, 트리거)
-├── setup.sh           # 데이터베이스 자동 초기화 스크립트
-├── data/              # 데이터 파일 (gitignored)
-├── backups/           # 백업 파일 (gitignored)
-└── README.md          # 이 파일
+├── init.sql              # 데이터베이스 스키마 (테이블, 인덱스, 트리거)
+├── setup.sh              # 데이터베이스 자동 초기화 스크립트
+├── migrations/           # 마이그레이션 파일
+│   ├── 001_multi_bot.sql       # 멀티봇 지원
+│   └── 002_analytics_views.sql # AI 메모리 분석 함수
+├── data/                 # 데이터 파일 (gitignored)
+├── backups/              # 백업 파일 (gitignored)
+└── README.md             # 이 파일
 ```
 
 ---
@@ -49,12 +52,13 @@ psql -U postgres -f db/init.sql
 
 ## 📊 데이터베이스 스키마
 
-### 현재 테이블 (Sprint 1)
+### 현재 테이블
 
 #### 1. `trades` - 거래 내역
 ```sql
 CREATE TABLE trades (
     id UUID PRIMARY KEY,
+    bot_id UUID REFERENCES bot_configs(id),  -- Phase 3 추가
     symbol VARCHAR(20) NOT NULL,
     side VARCHAR(10) CHECK (side IN ('LONG', 'SHORT')),
     entry_price DECIMAL(20, 8),
@@ -77,6 +81,7 @@ CREATE TABLE trades (
 ```sql
 CREATE TABLE ai_signals (
     id UUID PRIMARY KEY,
+    bot_id UUID REFERENCES bot_configs(id),  -- Phase 3 추가
     symbol VARCHAR(20) NOT NULL,
     signal VARCHAR(10) CHECK (signal IN ('LONG', 'SHORT', 'WAIT')),
     confidence DECIMAL(5, 2),
@@ -112,6 +117,7 @@ CREATE TABLE market_data (
 ```sql
 CREATE TABLE bot_status (
     id SERIAL PRIMARY KEY,
+    bot_id UUID REFERENCES bot_configs(id),  -- Phase 3 추가
     bot_name VARCHAR(50) UNIQUE,
     is_running BOOLEAN,
     current_position VARCHAR(10),
@@ -127,57 +133,124 @@ CREATE TABLE bot_status (
 
 **용도:** 봇의 현재 상태, 통계, 헬스체크
 
----
-
-### 미래 테이블 (Sprint 2+ Backend)
-
-#### 5. `users` - 사용자 관리
-```sql
-CREATE TABLE users (
-    id UUID PRIMARY KEY,
-    email VARCHAR(255) UNIQUE,
-    username VARCHAR(50) UNIQUE,
-    password_hash VARCHAR(255),
-    role VARCHAR(20) CHECK (role IN ('admin', 'user', 'viewer')),
-    api_key VARCHAR(100) UNIQUE,
-    is_active BOOLEAN,
-    ...
-);
-```
-
-**용도:** 웹 인터페이스 사용자 인증 및 관리
-
-#### 6. `bot_configs` - 봇 설정
+#### 5. `bot_configs` - 봇 설정 (Phase 3)
 ```sql
 CREATE TABLE bot_configs (
     id UUID PRIMARY KEY,
-    user_id UUID REFERENCES users(id),
-    bot_name VARCHAR(50),
+    bot_name VARCHAR(50) UNIQUE,
     symbol VARCHAR(20),
     leverage INT,
     position_size_pct, take_profit_pct, stop_loss_pct,
+    risk_level VARCHAR(20) CHECK (risk_level IN ('low', 'medium', 'high')),
+    rsi_oversold, rsi_overbought, volume_threshold,
     is_active BOOLEAN,
+    is_testnet BOOLEAN,
+    description TEXT,
     ...
 );
 ```
 
-**용도:** 사용자별 멀티 봇 설정 관리
+**용도:** 멀티봇 설정 및 위험도 관리
 
-#### 7. `notifications` - 알림
+---
+
+## 🔄 Migrations
+
+### 마이그레이션 파일
+
+| 파일 | 설명 |
+|------|------|
+| `001_multi_bot.sql` | Phase 3 멀티봇 지원 스키마 확장 |
+| `002_analytics_views.sql` | Phase 4 AI 메모리 분석용 뷰 및 함수 |
+
+### 마이그레이션 실행
+
+```bash
+# Docker 사용 시
+docker compose exec db psql -U trading -d trading -f /docker-entrypoint-initdb.d/migrations/001_multi_bot.sql
+docker compose exec db psql -U trading -d trading -f /docker-entrypoint-initdb.d/migrations/002_analytics_views.sql
+
+# 로컬 PostgreSQL
+psql -U postgres -d trading -f db/migrations/001_multi_bot.sql
+psql -U postgres -d trading -f db/migrations/002_analytics_views.sql
+```
+
+### 001_multi_bot.sql
+
+**주요 변경:**
+- `bot_configs` 테이블 확장 (risk_level, RSI 파라미터 등)
+- `trades`, `ai_signals`, `bot_status`에 `bot_id` 컬럼 추가
+- 위험도별 기본 설정 뷰 (`bot_configs_with_defaults`)
+- 봇별 거래 통계 뷰 (`bot_trading_stats`)
+- 예시 봇 설정 삽입 (btc-conservative, eth-balanced, sol-aggressive)
+
+### 002_analytics_views.sql
+
+**주요 변경:**
+- `trades_with_signals` 뷰 (거래 + AI 신호 조인)
+- 6개 분석 함수 추가 (아래 참조)
+- 성능 최적화 인덱스
+
+---
+
+## 📈 분석 함수 (Phase 4)
+
+`002_analytics_views.sql`에서 제공하는 분석 함수:
+
+### 1. `get_rsi_performance()`
+RSI 구간별 거래 성과 분석
+
 ```sql
-CREATE TABLE notifications (
-    id UUID PRIMARY KEY,
-    user_id UUID REFERENCES users(id),
-    title VARCHAR(255),
-    message TEXT,
-    notification_type VARCHAR(20),
-    is_read BOOLEAN,
-    send_discord, send_email, send_telegram,
-    ...
-);
+SELECT * FROM get_rsi_performance(NULL, 7);
+-- 결과: rsi_zone, side, total_trades, win_rate, avg_pnl, ...
 ```
 
-**용도:** 멀티 채널 알림 시스템
+RSI 구간:
+- `oversold`: RSI < 30
+- `low`: 30 ≤ RSI < 40
+- `neutral`: 40 ≤ RSI < 60
+- `high`: 60 ≤ RSI < 70
+- `overbought`: RSI ≥ 70
+
+### 2. `get_hourly_performance()`
+시간대별 거래 성과 분석
+
+```sql
+SELECT * FROM get_hourly_performance(NULL, 7);
+-- 결과: hour_of_day, side, total_trades, win_rate, avg_pnl, ...
+```
+
+### 3. `get_current_streak()`
+현재 연승/연패 계산
+
+```sql
+SELECT * FROM get_current_streak(NULL);
+-- 결과: streak_type (WIN/LOSS), streak_count, last_trade_time
+```
+
+### 4. `get_trading_summary()`
+종합 거래 통계
+
+```sql
+SELECT * FROM get_trading_summary(NULL, 7);
+-- 결과: total_trades, win_rate, profit_factor, long_win_rate, short_win_rate, ...
+```
+
+### 5. `get_exit_reason_stats()`
+청산 사유별 통계
+
+```sql
+SELECT * FROM get_exit_reason_stats(NULL, 7);
+-- 결과: exit_reason (TP/SL/TIMECUT), side, total_trades, win_rate, ...
+```
+
+### 6. `trades_with_signals` 뷰
+거래와 AI 신호를 조인한 분석용 뷰
+
+```sql
+SELECT * FROM trades_with_signals WHERE bot_id = 'xxx';
+-- 결과: 거래 정보 + AI 신호 정보 + 계산된 필드 (is_winner, rsi_zone, ...)
+```
 
 ---
 
@@ -218,41 +291,13 @@ LEFT JOIN trades t ON s.trade_id = t.id
 GROUP BY s.signal;
 ```
 
-### 봇 상태 확인
+### 봇별 통계 (Phase 3)
 ```sql
--- 현재 봇 상태
-SELECT * FROM bot_status WHERE bot_name = 'high-win-bot';
+-- 봇별 거래 통계
+SELECT * FROM bot_trading_stats;
 
--- 가동 시간 및 성과
-SELECT
-    bot_name,
-    is_running,
-    total_trades,
-    winning_trades,
-    ROUND(100.0 * winning_trades / NULLIF(total_trades, 0), 2) AS win_rate,
-    total_pnl,
-    uptime_seconds / 3600 AS uptime_hours
-FROM bot_status;
-```
-
----
-
-## 🔄 마이그레이션 (향후)
-
-Sprint 2에서 Alembic 도입 예정:
-
-```bash
-# Alembic 초기화
-alembic init alembic
-
-# 마이그레이션 생성
-alembic revision --autogenerate -m "Add backend tables"
-
-# 마이그레이션 적용
-alembic upgrade head
-
-# 롤백
-alembic downgrade -1
+-- 특정 봇 상태
+SELECT * FROM bot_status WHERE bot_name = 'btc-conservative';
 ```
 
 ---
@@ -291,37 +336,15 @@ psql -U postgres -d trading -f db/backups/backup_XXXXXX.sql
 CREATE INDEX idx_trades_symbol ON trades(symbol);
 CREATE INDEX idx_trades_entry_time ON trades(entry_time DESC);
 CREATE INDEX idx_trades_status ON trades(status);
+CREATE INDEX idx_trades_bot_id ON trades(bot_id);
 
 -- 신호 조회 최적화
 CREATE INDEX idx_signals_timestamp ON ai_signals(timestamp DESC);
 CREATE INDEX idx_signals_trade_id ON ai_signals(trade_id);
+CREATE INDEX idx_ai_signals_bot_id ON ai_signals(bot_id);
 
 -- 시장 데이터 조회 최적화
 CREATE INDEX idx_market_data_symbol_timestamp ON market_data(symbol, timestamp DESC);
-```
-
----
-
-## 🧹 유지보수
-
-### 테이블 정리
-```sql
--- 오래된 시장 데이터 삭제 (30일 이상)
-DELETE FROM market_data
-WHERE timestamp < NOW() - INTERVAL '30 days';
-
--- 오래된 알림 삭제 (읽음 + 90일 이상)
-DELETE FROM notifications
-WHERE is_read = TRUE
-  AND created_at < NOW() - INTERVAL '90 days';
-```
-
-### 통계 업데이트
-```sql
--- PostgreSQL 통계 갱신
-ANALYZE trades;
-ANALYZE ai_signals;
-ANALYZE market_data;
 ```
 
 ---
@@ -356,5 +379,5 @@ postgresql://postgres:postgres@localhost:5432/trading
 
 ---
 
-**스키마 버전:** 1.0 (Sprint 1)
-**마지막 업데이트:** 2026-01-16
+**스키마 버전:** 2.0 (Phase 3 멀티봇 + Phase 4 Analytics)
+**마지막 업데이트:** 2026-01-31

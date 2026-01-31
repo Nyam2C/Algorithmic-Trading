@@ -1,6 +1,6 @@
 # Scripts
 
-실행 및 관리 스크립트 (4개)
+실행 및 관리 스크립트
 
 ---
 
@@ -8,8 +8,8 @@
 
 | 스크립트 | 용도 |
 |----------|------|
-| `setup.sh` | 전체 환경 설정 |
-| `start.sh` | Docker 서비스 시작/관리 |
+| `setup.sh` | 전체 환경 설정 (최초 1회) |
+| `start.sh` | Docker 전체 스택 시작/관리 |
 | `stop.sh` | Docker 서비스 종료 |
 | `test.sh` | CI 테스트 |
 
@@ -32,7 +32,7 @@
 
 ---
 
-## 2. start.sh - 서비스 시작/관리
+## 2. start.sh - 전체 스택 시작/관리
 
 **Docker 전체 스택 실행/관리**
 
@@ -53,17 +53,38 @@
 ./scripts/start.sh --help
 ```
 
-**실행되는 서비스:**
-- Trading Bot (Python)
-- PostgreSQL
-- FastAPI REST API
-- Grafana + Loki (모니터링)
+### Docker Compose 구성
 
-**접속 정보:**
-- Grafana: http://localhost:3000 (admin/admin123)
-- API: http://localhost:8000/health
-- API Docs: http://localhost:8000/docs (개발 모드)
-- Database: localhost:5432
+`start.sh`는 다음 5개의 Docker Compose 파일을 조합하여 실행합니다:
+
+| 파일 | 설명 |
+|------|------|
+| `deploy/docker-compose.yml` | 기본 서비스 (PostgreSQL, Trading Bot) |
+| `deploy/docker-compose.dev.yml` | 개발 환경 설정 (포트, 볼륨) |
+| `deploy/docker-compose.api.yml` | FastAPI REST API 서버 |
+| `deploy/docker-compose.n8n.yml` | n8n 워크플로우 자동화 |
+| `deploy/docker-compose.monitoring.yml` | Grafana + Loki + Promtail |
+
+### 서비스 접속 정보
+
+| 서비스 | URL | 설명 |
+|--------|-----|------|
+| **n8n** | http://localhost:5678 | 워크플로우 자동화 |
+| **Grafana** | http://localhost:3000 | 로그 모니터링 (admin/admin123) |
+| **API** | http://localhost:8000/health | REST API 헬스체크 |
+| **API Docs** | http://localhost:8000/docs | Swagger UI (개발 모드) |
+| **Database** | localhost:5432 | PostgreSQL |
+| **Loki** | http://localhost:3100 | 로그 저장소 (내부) |
+
+### 실행되는 서비스
+
+1. **PostgreSQL** - 거래 데이터 저장
+2. **Trading Bot** - 트레이딩 봇 (Python)
+3. **FastAPI** - REST API 서버
+4. **n8n** - 워크플로우 자동화
+5. **Grafana** - 대시보드 및 시각화
+6. **Loki** - 로그 저장소
+7. **Promtail** - 로그 수집 에이전트
 
 ---
 
@@ -126,6 +147,32 @@
 
 ---
 
+## 서비스 접속 후 할 일
+
+### n8n 초기 설정
+1. http://localhost:5678 접속
+2. 계정 생성 (이메일, 비밀번호)
+3. 워크플로우 임포트 또는 생성
+
+### Grafana 대시보드 확인
+1. http://localhost:3000 접속 (admin/admin123)
+2. 좌측 Dashboards → Trading Overview 선택
+3. 로그 스트리밍 확인
+
+### API 테스트
+```bash
+# 헬스체크
+curl http://localhost:8000/health
+
+# 봇 목록 조회
+curl http://localhost:8000/api/bots
+
+# Swagger UI에서 테스트
+# http://localhost:8000/docs
+```
+
+---
+
 ## 트러블슈팅
 
 ### 실행 권한 에러
@@ -142,6 +189,18 @@ docker info
 sudo systemctl restart docker
 ```
 
+### 포트 충돌
+```bash
+# 사용 중인 포트 확인
+lsof -i :5678   # n8n
+lsof -i :3000   # Grafana
+lsof -i :8000   # API
+lsof -i :5432   # PostgreSQL
+
+# 프로세스 종료
+kill -9 <PID>
+```
+
 ### .env 에러
 ```bash
 # .env 파일 확인
@@ -151,12 +210,22 @@ cat .env
 cp .env.example .env
 ```
 
+### n8n 연결 실패
+```bash
+# n8n 컨테이너 로그 확인
+docker logs trading-n8n
+
+# n8n 재시작
+docker restart trading-n8n
+```
+
 ---
 
 ## 관련 문서
 
 - [../docs/SETUP_GUIDE.md](../docs/SETUP_GUIDE.md) - 상세 설정 가이드
 - [../docs/TEST_GUIDE.md](../docs/TEST_GUIDE.md) - 테스트 가이드
+- [../monitoring/README.md](../monitoring/README.md) - 모니터링 가이드
 
 ---
 

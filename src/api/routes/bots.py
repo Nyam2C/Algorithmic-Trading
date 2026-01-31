@@ -295,3 +295,40 @@ async def emergency_close(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         )
+
+
+# =============================================================================
+# POST - 전체 제어
+# =============================================================================
+
+
+@router.post("/start-all", response_model=APIResponse[dict[str, Any]])
+async def start_all_bots(
+    service: BotService = Depends(get_bot_service),
+) -> dict[str, Any]:
+    """전체 봇 시작
+
+    등록된 모든 봇을 시작합니다.
+    """
+    started = await service.start_all()
+    return {
+        "success": True,
+        "data": {"started": started},
+        "message": f"{started} bots started",
+    }
+
+
+@router.post("/stop-all", response_model=APIResponse[dict[str, Any]])
+async def stop_all_bots(
+    service: BotService = Depends(get_bot_service),
+) -> dict[str, Any]:
+    """전체 봇 정지
+
+    실행 중인 모든 봇을 정지합니다.
+    """
+    stopped = await service.stop_all()
+    return {
+        "success": True,
+        "data": {"stopped": stopped},
+        "message": f"{stopped} bots stopped",
+    }

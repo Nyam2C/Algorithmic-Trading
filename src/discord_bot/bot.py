@@ -8,11 +8,14 @@ Phase 3 업데이트:
 - 멀티봇 제어 슬래시 명령 추가
 - 봇별 상태 조회 및 제어
 """
+import os
 import discord
 from discord import app_commands
 from datetime import datetime
 from loguru import logger
 from typing import Optional, Dict, Any, TYPE_CHECKING
+
+import aiohttp
 
 if TYPE_CHECKING:
     from src.bot_manager import MultiBotManager
@@ -329,11 +332,11 @@ class TradingBotClient(discord.Client):
         self.trade_db = trade_db
         self.binance_client = binance_client
         self.bot_manager = bot_manager
+        self._api_url = os.getenv("TRADING_BOT_API_URL", "http://localhost:8000")
         self.setup_commands()
 
-        # 멀티봇 모드인 경우 추가 명령 등록
-        if self.bot_manager is not None:
-            self.setup_multibot_commands()
+        # 멀티봇 명령어 항상 등록 (REST API를 통해 동작)
+        self.setup_multibot_commands()
 
     # =========================================================================
     # Helper Methods (재사용 가능한 임베드 생성)
@@ -1423,44 +1426,83 @@ class TradingBotClient(discord.Client):
             )
 
     # =========================================================================
+    # REST API Helper (Phase 3)
+    # =========================================================================
+
+    async def _call_bot_api(
+        self,
+        method: str,
+        endpoint: str,
+        json_data: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """REST API 호출 헬퍼
+
+        Args:
+            method: HTTP 메서드 (GET, POST, PUT, DELETE)
+            endpoint: API 엔드포인트 (예: /api/bots)
+            json_data: 요청 본문 (선택)
+
+        Returns:
+            API 응답 JSON
+
+        Raises:
+            Exception: API 호출 실패 시
+        """
+        url = f"{self._api_url}{endpoint}"
+        timeout = aiohttp.ClientTimeout(total=10)
+
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.request(method, url, json=json_data) as resp:
+                    if resp.status >= 400:
+                        error_text = await resp.text()
+                        raise Exception(f"API 오류 ({resp.status}): {error_text}")
+                    return await resp.json()
+        except aiohttp.ClientError as e:
+            logger.error(f"API 호출 실패: {method} {url} - {e}")
+            raise Exception(f"API 서버 연결 실패: {str(e)}")
+
+    # =========================================================================
     # Multi-Bot Command Implementations (Phase 3)
     # =========================================================================
 
     async def _bot_list_command(self, interaction: discord.Interaction):
-        """봇 목록 조회 명령어 구현"""
+        """봇 목록 조회 명령어 구현 (REST API 사용)"""
         await interaction.response.defer()
 
         try:
-            if not self.bot_manager:
-                await interaction.followup.send(
-                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
-                    ephemeral=True
-                )
-                return
+            # REST API를 통해 봇 목록 조회
+            result = await self._call_bot_api("GET", "/api/bots")
+            data = result.get("data", result)
 
-            summary = self.bot_manager.get_summary()
+            total_bots = data.get("total_bots", 0)
+            running_bots = data.get("running_bots", 0)
+            paused_bots = data.get("paused_bots", 0)
+            bots = data.get("bots", [])
 
             embed = discord.Embed(
                 title="📋 봇 목록",
-                description=f"총 {summary['total_bots']}개 봇 등록됨",
+                description=f"총 {total_bots}개 봇 등록됨",
                 color=0x00BFFF
             )
 
             embed.add_field(
                 name="📊 요약",
-                value=f"🟢 실행 중: {summary['running_bots']}개\n"
-                      f"⏸️ 일시정지: {summary['paused_bots']}개",
+                value=f"🟢 실행 중: {running_bots}개\n"
+                      f"⏸️ 일시정지: {paused_bots}개",
                 inline=False
             )
 
-            if summary['bots']:
-                for bot_info in summary['bots']:
-                    status_emoji = "🟢" if bot_info['is_running'] and not bot_info['is_paused'] else \
-                                  "⏸️" if bot_info['is_paused'] else "🔴"
+            if bots:
+                for bot_info in bots:
+                    is_running = bot_info.get('is_running', False)
+                    is_paused = bot_info.get('is_paused', False)
+                    status_emoji = "🟢" if is_running and not is_paused else \
+                                  "⏸️" if is_paused else "🔴"
                     embed.add_field(
-                        name=f"{status_emoji} {bot_info['name']}",
-                        value=f"심볼: {bot_info['symbol']}\n"
-                              f"위험도: {bot_info['risk_level']}",
+                        name=f"{status_emoji} {bot_info.get('name', 'unknown')}",
+                        value=f"심볼: {bot_info.get('symbol', 'N/A')}\n"
+                              f"위험도: {bot_info.get('risk_level', 'N/A')}",
                         inline=True
                     )
             else:
@@ -1481,32 +1523,23 @@ class TradingBotClient(discord.Client):
             )
 
     async def _bot_status_command(self, interaction: discord.Interaction, bot_name: str):
-        """봇 상태 조회 명령어 구현"""
+        """봇 상태 조회 명령어 구현 (REST API 사용)"""
         await interaction.response.defer()
 
         try:
-            if not self.bot_manager:
-                await interaction.followup.send(
-                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
-                    ephemeral=True
-                )
-                return
+            # REST API를 통해 봇 상태 조회
+            result = await self._call_bot_api("GET", f"/api/bots/{bot_name}")
+            data = result.get("data", result)
 
-            bot = self.bot_manager.get_bot(bot_name)
-            if not bot:
-                await interaction.followup.send(
-                    f"❌ 봇 '{bot_name}'을(를) 찾을 수 없습니다.",
-                    ephemeral=True
-                )
-                return
-
-            state = bot.get_state()
+            state = data.get("state", data)
+            is_running = state.get('is_running', False)
+            is_paused = state.get('is_paused', False)
 
             # 상태 색상 결정
-            if state['is_running'] and not state['is_paused']:
+            if is_running and not is_paused:
                 color = 0x00FF00
                 status_str = "🟢 실행 중"
-            elif state['is_paused']:
+            elif is_paused:
                 color = 0xFFFF00
                 status_str = "⏸️ 일시정지"
             else:
@@ -1519,11 +1552,11 @@ class TradingBotClient(discord.Client):
             )
 
             embed.add_field(name="⚡ 상태", value=status_str, inline=True)
-            embed.add_field(name="💰 심볼", value=state['symbol'], inline=True)
-            embed.add_field(name="⚠️ 위험도", value=state['risk_level'], inline=True)
-            embed.add_field(name="📈 레버리지", value=f"{state['leverage']}x", inline=True)
-            embed.add_field(name="💵 현재가", value=f"${state['current_price']:,.2f}", inline=True)
-            embed.add_field(name="🔄 루프", value=str(state['loop_count']), inline=True)
+            embed.add_field(name="💰 심볼", value=state.get('symbol', 'N/A'), inline=True)
+            embed.add_field(name="⚠️ 위험도", value=state.get('risk_level', 'N/A'), inline=True)
+            embed.add_field(name="📈 레버리지", value=f"{state.get('leverage', 0)}x", inline=True)
+            embed.add_field(name="💵 현재가", value=f"${state.get('current_price', 0):,.2f}", inline=True)
+            embed.add_field(name="🔄 루프", value=str(state.get('loop_count', 0)), inline=True)
 
             # 포지션 정보
             position = state.get('position')
@@ -1553,18 +1586,12 @@ class TradingBotClient(discord.Client):
             )
 
     async def _bot_start_command(self, interaction: discord.Interaction, bot_name: str):
-        """봇 시작 명령어 구현"""
+        """봇 시작 명령어 구현 (REST API 사용)"""
         await interaction.response.defer()
 
         try:
-            if not self.bot_manager:
-                await interaction.followup.send(
-                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
-                    ephemeral=True
-                )
-                return
-
-            await self.bot_manager.start_bot(bot_name)
+            # REST API를 통해 봇 시작
+            await self._call_bot_api("POST", f"/api/bots/{bot_name}/start")
 
             embed = discord.Embed(
                 title="▶️ 봇 시작",
@@ -1580,8 +1607,6 @@ class TradingBotClient(discord.Client):
             await interaction.followup.send(embed=embed)
             logger.info(f"Discord 명령어 /봇시작 {bot_name} 실행: {interaction.user}")
 
-        except ValueError as e:
-            await interaction.followup.send(f"❌ {str(e)}", ephemeral=True)
         except Exception as e:
             logger.error(f"/봇시작 명령어 에러: {e}")
             await interaction.followup.send(
@@ -1590,18 +1615,12 @@ class TradingBotClient(discord.Client):
             )
 
     async def _bot_stop_command(self, interaction: discord.Interaction, bot_name: str):
-        """봇 정지 명령어 구현"""
+        """봇 정지 명령어 구현 (REST API 사용)"""
         await interaction.response.defer()
 
         try:
-            if not self.bot_manager:
-                await interaction.followup.send(
-                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
-                    ephemeral=True
-                )
-                return
-
-            await self.bot_manager.stop_bot(bot_name)
+            # REST API를 통해 봇 정지
+            await self._call_bot_api("POST", f"/api/bots/{bot_name}/stop")
 
             embed = discord.Embed(
                 title="⏹️ 봇 정지",
@@ -1617,8 +1636,6 @@ class TradingBotClient(discord.Client):
             await interaction.followup.send(embed=embed)
             logger.info(f"Discord 명령어 /봇정지 {bot_name} 실행: {interaction.user}")
 
-        except ValueError as e:
-            await interaction.followup.send(f"❌ {str(e)}", ephemeral=True)
         except Exception as e:
             logger.error(f"/봇정지 명령어 에러: {e}")
             await interaction.followup.send(
@@ -1627,18 +1644,12 @@ class TradingBotClient(discord.Client):
             )
 
     async def _bot_pause_command(self, interaction: discord.Interaction, bot_name: str):
-        """봇 일시정지 명령어 구현"""
+        """봇 일시정지 명령어 구현 (REST API 사용)"""
         await interaction.response.defer()
 
         try:
-            if not self.bot_manager:
-                await interaction.followup.send(
-                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
-                    ephemeral=True
-                )
-                return
-
-            self.bot_manager.pause_bot(bot_name)
+            # REST API를 통해 봇 일시정지
+            await self._call_bot_api("POST", f"/api/bots/{bot_name}/pause")
 
             embed = discord.Embed(
                 title="⏸️ 봇 일시정지",
@@ -1659,8 +1670,6 @@ class TradingBotClient(discord.Client):
             await interaction.followup.send(embed=embed)
             logger.info(f"Discord 명령어 /봇일시정지 {bot_name} 실행: {interaction.user}")
 
-        except ValueError as e:
-            await interaction.followup.send(f"❌ {str(e)}", ephemeral=True)
         except Exception as e:
             logger.error(f"/봇일시정지 명령어 에러: {e}")
             await interaction.followup.send(
@@ -1669,18 +1678,12 @@ class TradingBotClient(discord.Client):
             )
 
     async def _bot_resume_command(self, interaction: discord.Interaction, bot_name: str):
-        """봇 재개 명령어 구현"""
+        """봇 재개 명령어 구현 (REST API 사용)"""
         await interaction.response.defer()
 
         try:
-            if not self.bot_manager:
-                await interaction.followup.send(
-                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
-                    ephemeral=True
-                )
-                return
-
-            self.bot_manager.resume_bot(bot_name)
+            # REST API를 통해 봇 재개
+            await self._call_bot_api("POST", f"/api/bots/{bot_name}/resume")
 
             embed = discord.Embed(
                 title="▶️ 봇 재개",
@@ -1701,8 +1704,6 @@ class TradingBotClient(discord.Client):
             await interaction.followup.send(embed=embed)
             logger.info(f"Discord 명령어 /봇재개 {bot_name} 실행: {interaction.user}")
 
-        except ValueError as e:
-            await interaction.followup.send(f"❌ {str(e)}", ephemeral=True)
         except Exception as e:
             logger.error(f"/봇재개 명령어 에러: {e}")
             await interaction.followup.send(
@@ -1711,22 +1712,18 @@ class TradingBotClient(discord.Client):
             )
 
     async def _start_all_command(self, interaction: discord.Interaction):
-        """전체 봇 시작 명령어 구현"""
+        """전체 봇 시작 명령어 구현 (REST API 사용)"""
         await interaction.response.defer()
 
         try:
-            if not self.bot_manager:
-                await interaction.followup.send(
-                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
-                    ephemeral=True
-                )
-                return
-
-            await self.bot_manager.start_all()
+            # REST API를 통해 전체 봇 시작
+            result = await self._call_bot_api("POST", "/api/bots/start-all")
+            data = result.get("data", result)
+            started_count = data.get("started", 0)
 
             embed = discord.Embed(
                 title="▶️ 전체 봇 시작",
-                description=f"모든 봇({self.bot_manager.bot_count}개)이 시작되었습니다.",
+                description=f"모든 봇({started_count}개)이 시작되었습니다.",
                 color=0x00FF00
             )
             embed.add_field(
@@ -1746,22 +1743,18 @@ class TradingBotClient(discord.Client):
             )
 
     async def _stop_all_command(self, interaction: discord.Interaction):
-        """전체 봇 정지 명령어 구현"""
+        """전체 봇 정지 명령어 구현 (REST API 사용)"""
         await interaction.response.defer()
 
         try:
-            if not self.bot_manager:
-                await interaction.followup.send(
-                    "❌ 멀티봇 모드가 활성화되지 않았습니다.",
-                    ephemeral=True
-                )
-                return
-
-            await self.bot_manager.stop_all()
+            # REST API를 통해 전체 봇 정지
+            result = await self._call_bot_api("POST", "/api/bots/stop-all")
+            data = result.get("data", result)
+            stopped_count = data.get("stopped", 0)
 
             embed = discord.Embed(
                 title="⏹️ 전체 봇 정지",
-                description=f"모든 봇({self.bot_manager.bot_count}개)이 정지되었습니다.",
+                description=f"모든 봇({stopped_count}개)이 정지되었습니다.",
                 color=0xFF0000
             )
             embed.add_field(

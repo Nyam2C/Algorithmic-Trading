@@ -317,3 +317,29 @@ class BotService:
 
         bot.request_emergency_close()
         logger.warning(f"긴급 청산 요청됨: {bot_name}")
+
+    # =========================================================================
+    # 전체 제어
+    # =========================================================================
+
+    async def start_all(self) -> int:
+        """전체 봇 시작
+
+        Returns:
+            시작된 봇 수
+        """
+        await self.manager.start_all()
+        started = self.manager.running_count
+        logger.info(f"전체 봇 시작됨: {started}개")
+        return started
+
+    async def stop_all(self) -> int:
+        """전체 봇 정지
+
+        Returns:
+            정지된 봇 수
+        """
+        count = self.manager.running_count
+        await self.manager.stop_all()
+        logger.info(f"전체 봇 정지됨: {count}개")
+        return count
