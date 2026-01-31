@@ -1,0 +1,54 @@
+# ===========================================
+# n8n Workflow Automation Configuration
+# ===========================================
+# n8n 워크플로우 자동화 서버
+# 사용: docker-compose -f docker-compose.yml -f docker-compose.n8n.yml up
+
+version: '3.8'
+
+services:
+  # n8n Workflow Automation
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: trading-n8n
+    ports:
+      - "5678:5678"
+    environment:
+      # 기본 설정
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=production
+      # 웹훅 URL (외부 접근용, 필요시 수정)
+      - WEBHOOK_URL=http://localhost:5678
+      # Trading Bot API 연결
+      - TRADING_BOT_API_URL=http://trading-api:8000
+      # Discord 채널 ID (환경변수에서 가져옴)
+      - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID:-}
+      # 타임존
+      - GENERIC_TIMEZONE=Asia/Seoul
+      - TZ=Asia/Seoul
+      # 실행 설정
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true
+    volumes:
+      - n8n_data:/home/node/.n8n
+      # 워크플로우 템플릿 (읽기 전용)
+      - ../workflows:/home/node/workflows:ro
+    networks:
+      - trading_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  n8n_data:
