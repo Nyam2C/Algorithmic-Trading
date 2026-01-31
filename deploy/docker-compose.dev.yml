@@ -25,3 +25,17 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # FastAPI REST API (개발 설정)
+  api:
+    restart: "no"  # 개발 시 수동 재시작
+    volumes:
+      - ../src:/app/src:ro  # 소스 코드 마운트 (읽기 전용)
+    environment:
+      - API_DEBUG=true  # /docs, /redoc 활성화
+      - LOG_LEVEL=DEBUG
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

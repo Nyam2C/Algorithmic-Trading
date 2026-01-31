@@ -9,12 +9,12 @@ class TestRuleBasedSignalGeneratorInit:
     """RuleBasedSignalGenerator 초기화 테스트"""
 
     def test_init_default_params(self):
-        """기본 파라미터로 초기화"""
+        """기본 파라미터로 초기화 (테스트용 완화된 조건)"""
         generator = RuleBasedSignalGenerator()
 
-        assert generator.rsi_oversold == 35.0
-        assert generator.rsi_overbought == 65.0
-        assert generator.volume_threshold == 1.2
+        assert generator.rsi_oversold == 45.0
+        assert generator.rsi_overbought == 55.0
+        assert generator.volume_threshold == 0.5
 
     def test_init_custom_params(self):
         """커스텀 파라미터로 초기화"""
@@ -53,14 +53,14 @@ class TestGetSignalLong:
         """RSI가 정확히 임계값일 때"""
         market_data = {
             "current_price": 105000.0,
-            "rsi": 35.0,           # == 35 (not oversold)
+            "rsi": 45.0,           # == 45 (not oversold)
             "ma_7": 104000.0,
             "volume_ratio": 1.5,
         }
 
         signal = generator.get_signal(market_data)
 
-        # RSI가 35.0이면 oversold 조건 불충족
+        # RSI가 45.0이면 oversold 조건 불충족
         assert signal == "WAIT"
 
     def test_long_signal_price_below_ma(self, generator):
@@ -82,7 +82,7 @@ class TestGetSignalLong:
             "current_price": 105000.0,
             "rsi": 30.0,
             "ma_7": 104000.0,
-            "volume_ratio": 1.0,   # < 1.2 (low volume)
+            "volume_ratio": 0.3,   # < 0.5 (low volume)
         }
 
         signal = generator.get_signal(market_data)
@@ -114,14 +114,14 @@ class TestGetSignalShort:
         """RSI가 정확히 임계값일 때"""
         market_data = {
             "current_price": 103000.0,
-            "rsi": 65.0,           # == 65 (not overbought)
+            "rsi": 55.0,           # == 55 (not overbought)
             "ma_7": 104000.0,
             "volume_ratio": 1.5,
         }
 
         signal = generator.get_signal(market_data)
 
-        # RSI가 65.0이면 overbought 조건 불충족
+        # RSI가 55.0이면 overbought 조건 불충족
         assert signal == "WAIT"
 
     def test_short_signal_price_above_ma(self, generator):
@@ -143,7 +143,7 @@ class TestGetSignalShort:
             "current_price": 103000.0,
             "rsi": 70.0,
             "ma_7": 104000.0,
-            "volume_ratio": 1.0,   # < 1.2 (low volume)
+            "volume_ratio": 0.3,   # < 0.5 (low volume)
         }
 
         signal = generator.get_signal(market_data)
@@ -243,8 +243,8 @@ class TestGetSignalDefaultValues:
 
         signal = generator.get_signal(market_data)
 
-        # volume_ratio=1.0 (기본값) < 1.2
-        assert signal == "WAIT"
+        # volume_ratio=1.0 (기본값) > 0.5이므로 LONG 조건 충족
+        assert signal == "LONG"
 
 
 class TestGetSignalEdgeCases:

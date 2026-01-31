@@ -12,17 +12,17 @@ class RuleBasedSignalGenerator:
     """
     Rule-based trading signal generator using technical indicators
 
-    Strategy:
-    - LONG: RSI < 35 (oversold) AND price > MA_7 (uptrend) AND volume > avg
-    - SHORT: RSI > 65 (overbought) AND price < MA_7 (downtrend) AND volume > avg
+    Strategy (relaxed for testing):
+    - LONG: RSI < 45 (oversold) AND price > MA_7 (uptrend) AND volume > 0.5x
+    - SHORT: RSI > 55 (overbought) AND price < MA_7 (downtrend) AND volume > 0.5x
     - WAIT: Otherwise
     """
 
     def __init__(
         self,
-        rsi_oversold: float = 35.0,
-        rsi_overbought: float = 65.0,
-        volume_threshold: float = 1.2,
+        rsi_oversold: float = 45.0,
+        rsi_overbought: float = 55.0,
+        volume_threshold: float = 0.5,
     ):
         """
         Initialize rule-based signal generator

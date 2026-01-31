@@ -1,6 +1,6 @@
 # High-Win Survival System
 
-**Phase 2: Testnet 검증 진행 중**
+**Phase 3: 멀티봇 배포 진행 중**
 
 Binance Testnet + Gemini AI 기반 비트코인 선물 자동매매 시스템
 
@@ -10,9 +10,10 @@ Binance Testnet + Gemini AI 기반 비트코인 선물 자동매매 시스템
 
 - **목표**: 높은 승률 기반의 초단기 비트코인 선물 자동매매
 - **철학**: 승률 우선, 노이즈 회피, 기계적 실행
-- **현재 단계**: Phase 2 - Testnet 검증 (75% 완료)
+- **현재 단계**: Phase 3 - 멀티봇 배포 (85% 완료)
   - Phase 1: 단일 봇 완성 ✅ 100%
-  - Phase 2: Testnet 검증 🔄 75%
+  - Phase 2: Testnet 검증 🔄 85%
+  - Phase 3: 멀티봇 배포 🔄 85%
 
 ---
 
@@ -42,6 +43,7 @@ Binance Testnet + Gemini AI 기반 비트코인 선물 자동매매 시스템
 |----------|------|
 | `./scripts/setup.sh` | 전체 환경 설정 (최초 1회) |
 | `./scripts/start.sh` | Docker 서비스 관리 |
+| `./scripts/stop.sh` | Docker 서비스 중지 |
 | `./scripts/test.sh` | CI 테스트 |
 
 ```bash
@@ -139,7 +141,7 @@ Algorithmic-Trading/
 │   │   └── signals.py            # 신호 파싱
 │   └── trading/
 │       └── executor.py           # 주문 실행
-├── tests/                        # 테스트 (64개, 94% 커버리지)
+├── tests/                        # 테스트 (355개, 65% 커버리지)
 │   ├── conftest.py               # Pytest 설정
 │   ├── test_config.py
 │   ├── test_indicators.py
@@ -148,7 +150,7 @@ Algorithmic-Trading/
 ├── deploy/                       # 🐳 Docker 배포
 │   ├── docker-compose.yml        # 기본 설정
 │   ├── docker-compose.dev.yml    # 개발 환경
-│   ├── docker-compose.backend.yml # Go 백엔드
+│   ├── docker-compose.api.yml    # FastAPI REST API
 │   └── docker-compose.monitoring.yml # 모니터링
 ├── docs/                         # 📚 문서
 │   ├── README.md                 # 문서 목록
@@ -162,6 +164,7 @@ Algorithmic-Trading/
 ├── scripts/                      # 🔧 실행 스크립트
 │   ├── setup.sh                  # 환경 설정 (최초 1회)
 │   ├── start.sh                  # Docker 서비스 관리
+│   ├── stop.sh                   # Docker 서비스 중지
 │   └── test.sh                   # CI 테스트
 ├── .claude/                      # 개발 계획 문서
 ├── requirements.txt              # Python 의존성
@@ -282,7 +285,7 @@ Discord 봇을 설정하면 채팅으로 봇을 원격 제어할 수 있습니�
 
 ### 테스트 실행
 
-**전체 테스트 스위트 (64개 테스트)**
+**전체 테스트 스위트 (355개 테스트)**
 
 ```bash
 # 빠른 테스트
@@ -300,7 +303,7 @@ xdg-open htmlcov/index.html  # Linux
 start htmlcov/index.html  # Windows
 ```
 
-**테스트 커버리지**: 94%+ (src/ 모듈)
+**테스트 커버리지**: 65%+ (src/ 모듈)
 
 자세한 테스트 가이드: [TEST_GUIDE.md](docs/TEST_GUIDE.md)
 
@@ -401,7 +404,7 @@ PW: admin123
 - [x] ✅ src/main.py - 메인 루프 통합
 - [x] ✅ scripts/start.sh - 서비스 관리 스크립트
 - [x] ✅ scripts/setup.sh - 환경 설정 스크립트
-- [x] ✅ tests/ - 테스트 스위트 (64개 테스트, 94% 커버리지)
+- [x] ✅ tests/ - 테스트 스위트 (355개 테스트, 65% 커버리지)
 - [x] ✅ db/init.sql - 데이터베이스 스키마
 - [x] ✅ SETUP_GUIDE.md - 환경 설정 가이드
 - [x] ✅ TEST_GUIDE.md - 테스트 가이드
@@ -429,15 +432,14 @@ Sprint 1이 완료되면 다음 기능을 추가합니다:
 - [ ] **DB 거래 기록** - PostgreSQL에 거래 내역 저장
 - [ ] **24시간 무인 운영** - 안정화 및 에러 핸들링 강화
 
-### Go 백엔드 API (초고성능)
-- [ ] **기본 API** - 헬스체크, 봇 상태, 포지션 조회
+### FastAPI REST API
+- [x] **기본 API** - 헬스체크, 봇 CRUD, 포지션 조회
+- [x] **n8n Webhook 통합** - 자동화 워크플로우 연동
 - [ ] **거래 히스토리** - 거래 내역 및 통계 API
 - [ ] **WebSocket** - 실시간 가격/신호/포지션 스트리밍
-- [ ] **DB 연동** - PostgreSQL + pgx (네이티브 드라이버)
-- [ ] **성능**: < 1ms 응답, 10만+ 동시 연결
 
-**기술 스택**: Go 1.21+ | Gin | pgx | WebSocket
-**문서**: [backend/README.md](backend/README.md)
+**기술 스택**: Python 3.10+ | FastAPI | Pydantic
+**문서**: [src/api/README.md](src/api/README.md)
 
 ---
 
@@ -482,6 +484,6 @@ Sprint 1이 완료되면 다음 기능을 추가합니다:
 
 ---
 
-**마지막 업데이트**: 2026-01-20
-**현재 버전**: Sprint 1 MVP
+**마지막 업데이트**: 2026-01-31
+**현재 버전**: Phase 3 MVP
 **라이선스**: Private

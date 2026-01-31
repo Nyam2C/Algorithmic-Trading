@@ -1,6 +1,6 @@
 # Scripts
 
-실행 및 관리 스크립트 (3개)
+실행 및 관리 스크립트 (4개)
 
 ---
 
@@ -9,7 +9,8 @@
 | 스크립트 | 용도 |
 |----------|------|
 | `setup.sh` | 전체 환경 설정 |
-| `start.sh` | Docker 서비스 관리 |
+| `start.sh` | Docker 서비스 시작/관리 |
+| `stop.sh` | Docker 서비스 종료 |
 | `test.sh` | CI 테스트 |
 
 ---
@@ -31,7 +32,7 @@
 
 ---
 
-## 2. start.sh - 서비스 관리
+## 2. start.sh - 서비스 시작/관리
 
 **Docker 전체 스택 실행/관리**
 
@@ -53,19 +54,38 @@
 ```
 
 **실행되는 서비스:**
-- Trading Bot
+- Trading Bot (Python)
 - PostgreSQL
-- Go Backend API
-- Grafana + Loki + Promtail (모니터링)
+- FastAPI REST API
+- Grafana + Loki (모니터링)
 
 **접속 정보:**
 - Grafana: http://localhost:3000 (admin/admin123)
-- Backend: http://localhost:8080/api/health
+- API: http://localhost:8000/health
+- API Docs: http://localhost:8000/docs (개발 모드)
 - Database: localhost:5432
 
 ---
 
-## 3. test.sh - 테스트
+## 3. stop.sh - 서비스 종료
+
+**Docker 전체 스택 종료**
+
+```bash
+# 서비스만 종료 (데이터 유지)
+./scripts/stop.sh
+
+# 볼륨까지 삭제 (DB 데이터 포함)
+./scripts/stop.sh --volumes
+./scripts/stop.sh -v
+
+# 도움말
+./scripts/stop.sh --help
+```
+
+---
+
+## 4. test.sh - 테스트
 
 **pytest 기반 테스트**
 
@@ -99,6 +119,9 @@
 
 # 4. 로그 보기
 ./scripts/start.sh --logs
+
+# 5. 서비스 종료
+./scripts/stop.sh
 ```
 
 ---
@@ -137,4 +160,4 @@ cp .env.example .env
 
 ---
 
-**마지막 업데이트:** 2026-01-20
+**마지막 업데이트:** 2026-01-31
