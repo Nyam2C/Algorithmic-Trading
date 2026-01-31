@@ -2,17 +2,20 @@
 FastAPI 의존성 주입 모듈
 
 MultiBotManager 및 기타 의존성을 주입합니다.
+Phase 4: TradeHistoryAnalyzer 의존성 추가
 """
 from typing import Optional, Union
 
 from src.bot_manager import MultiBotManager
 from src.api.config import APIConfig
 from src.storage.redis_state import RedisStateManager, DummyRedisStateManager
+from src.analytics.trade_analyzer import TradeHistoryAnalyzer
 
 # 전역 상태 (앱 시작 시 설정됨)
 _bot_manager: Optional[MultiBotManager] = None
 _api_config: Optional[APIConfig] = None
 _redis_state_manager: Optional[Union[RedisStateManager, DummyRedisStateManager]] = None
+_trade_analyzer: Optional[TradeHistoryAnalyzer] = None
 
 
 def set_bot_manager(manager: MultiBotManager) -> None:
@@ -105,3 +108,27 @@ async def check_redis_health() -> bool:
         return await _redis_state_manager.ping()
     except Exception:
         return False
+
+
+# =============================================================================
+# Phase 4: TradeHistoryAnalyzer 의존성
+# =============================================================================
+
+
+def set_trade_analyzer(analyzer: TradeHistoryAnalyzer) -> None:
+    """TradeHistoryAnalyzer 인스턴스 설정
+
+    Args:
+        analyzer: TradeHistoryAnalyzer 인스턴스
+    """
+    global _trade_analyzer
+    _trade_analyzer = analyzer
+
+
+def get_trade_analyzer() -> Optional[TradeHistoryAnalyzer]:
+    """TradeHistoryAnalyzer 인스턴스 반환
+
+    Returns:
+        TradeHistoryAnalyzer 인스턴스 또는 None
+    """
+    return _trade_analyzer

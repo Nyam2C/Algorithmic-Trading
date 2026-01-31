@@ -16,6 +16,7 @@ from src.api.dependencies import set_bot_manager, set_api_config
 from src.api.routes.health import router as health_router
 from src.api.routes.bots import router as bots_router
 from src.api.routes.n8n import router as n8n_router
+from src.api.routes.analytics import router as analytics_router
 
 
 def create_app(
@@ -98,6 +99,7 @@ def create_app(
     app.include_router(health_router)
     app.include_router(bots_router, prefix="/api")
     app.include_router(n8n_router, prefix="/api")
+    app.include_router(analytics_router, prefix="/api")  # Phase 4: Analytics API
 
     # 시작/종료 이벤트
     @app.on_event("startup")

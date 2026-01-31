@@ -3,6 +3,10 @@
 
 각 봇의 트레이딩 루프 로직을 캡슐화한 BotInstance 클래스.
 기존 main.py의 trading_loop 로직을 분리하여 멀티봇 실행 지원.
+
+Phase 4: AI 메모리 시스템 통합
+- EnhancedGeminiSignalGenerator 지원
+- 과거 거래 분석 기반 시그널 생성
 """
 import asyncio
 from datetime import datetime
@@ -13,10 +17,13 @@ from src.bot_config import BotConfig
 from src.exchange.binance import BinanceTestnetClient
 from src.data.indicators import analyze_market
 from src.ai.rule_based import RuleBasedSignalGenerator
+from src.ai.enhanced_gemini import EnhancedGeminiSignalGenerator
 from src.ai.signals import validate_signal, should_enter_trade
 from src.trading.executor import TradingExecutor
 from src.storage.trade_history import TradeHistoryDB
 from src.storage.redis_state import RedisStateManager, DummyRedisStateManager
+from src.analytics.trade_analyzer import TradeHistoryAnalyzer
+from src.analytics.memory_context import AIMemoryContextBuilder
 
 
 # 콜백 타입 정의
@@ -58,6 +65,9 @@ class BotInstance:
         binance_client: Optional[BinanceTestnetClient] = None,
         trade_db: Optional[TradeHistoryDB] = None,
         redis_state_manager: Optional[Union[RedisStateManager, DummyRedisStateManager]] = None,
+        # Phase 4: AI 메모리 시스템
+        enhanced_gemini: Optional[EnhancedGeminiSignalGenerator] = None,
+        use_memory_signals: bool = False,
         # 콜백 함수
         on_signal_callback: Optional[OnSignalCallback] = None,
         on_trade_callback: Optional[OnTradeCallback] = None,
@@ -69,13 +79,15 @@ class BotInstance:
             config: 봇 설정
             binance_api_key: Binance API 키
             binance_secret_key: Binance Secret 키
-            gemini_api_key: Gemini API 키 (미사용, 향후 확장용)
+            gemini_api_key: Gemini API 키 (Phase 4: AI 메모리 시스템)
             discord_webhook_url: Discord 웹훅 URL
             database_url: PostgreSQL 데이터베이스 URL
             loop_interval_seconds: 루프 간격 (초)
             binance_client: Binance 클라이언트 (의존성 주입용)
             trade_db: 거래 기록 DB (의존성 주입용)
             redis_state_manager: Redis 상태 관리자 (의존성 주입용)
+            enhanced_gemini: 메모리 기반 Gemini 시그널 생성기 (Phase 4)
+            use_memory_signals: 메모리 기반 시그널 사용 여부 (Phase 4)
             on_signal_callback: 시그널 발생 시 콜백
             on_trade_callback: 거래 발생 시 콜백
             on_error_callback: 에러 발생 시 콜백
@@ -115,6 +127,11 @@ class BotInstance:
             volume_threshold=config.volume_threshold,
         )
 
+        # Phase 4: AI 메모리 시스템
+        self._enhanced_gemini = enhanced_gemini
+        self._use_memory_signals = use_memory_signals
+        self._memory_context_builder: Optional[AIMemoryContextBuilder] = None
+
         # 콜백
         self._on_signal_callback = on_signal_callback
         self._on_trade_callback = on_trade_callback
@@ -122,7 +139,9 @@ class BotInstance:
 
         # 로거 바인딩
         self._log = logger.bind(bot_name=config.bot_name, symbol=config.symbol)
-        self._log.info("봇 인스턴스 초기화 완료")
+        self._log.info(
+            f"봇 인스턴스 초기화 완료 (memory_signals={use_memory_signals})"
+        )
 
     # =========================================================================
     # Properties
@@ -172,6 +191,8 @@ class BotInstance:
             "last_signal_time": self._last_signal_time,
             "position": self._current_position,
             "leverage": self.config.get_effective_leverage(),
+            # Phase 4: AI 메모리 시스템
+            "memory_signals_enabled": self.memory_signals_enabled,
         }
 
     def pause(self) -> None:
@@ -188,6 +209,46 @@ class BotInstance:
         """긴급 포지션 청산 요청"""
         self._emergency_close = True
         self._log.warning("긴급 청산 요청됨")
+
+    # =========================================================================
+    # Phase 4: AI 메모리 시스템
+    # =========================================================================
+
+    @property
+    def memory_signals_enabled(self) -> bool:
+        """메모리 기반 시그널 활성화 여부"""
+        return self._use_memory_signals and self._enhanced_gemini is not None
+
+    def enable_memory_signals(self) -> bool:
+        """메모리 기반 시그널 활성화
+
+        Returns:
+            활성화 성공 여부
+        """
+        if self._enhanced_gemini is None:
+            self._log.warning("EnhancedGemini가 설정되지 않음")
+            return False
+
+        self._use_memory_signals = True
+        self._log.info("메모리 기반 시그널 활성화됨")
+        return True
+
+    def disable_memory_signals(self) -> None:
+        """메모리 기반 시그널 비활성화"""
+        self._use_memory_signals = False
+        self._log.info("메모리 기반 시그널 비활성화됨")
+
+    def set_enhanced_gemini(
+        self,
+        gemini: EnhancedGeminiSignalGenerator,
+    ) -> None:
+        """EnhancedGeminiSignalGenerator 설정
+
+        Args:
+            gemini: EnhancedGeminiSignalGenerator 인스턴스
+        """
+        self._enhanced_gemini = gemini
+        self._log.info("EnhancedGemini 설정 완료")
 
     # =========================================================================
     # Redis 상태 관리
@@ -299,6 +360,28 @@ class BotInstance:
             except Exception as e:
                 self._log.error(f"거래 기록 DB 연결 실패: {e}")
 
+        # Phase 4: AI 메모리 시스템 초기화
+        if self._use_memory_signals and self._trade_db:
+            try:
+                analyzer = TradeHistoryAnalyzer(self._trade_db)
+                self._memory_context_builder = AIMemoryContextBuilder(analyzer)
+
+                # EnhancedGemini 생성 (주입되지 않은 경우)
+                if self._enhanced_gemini is None and self._gemini_api_key:
+                    self._enhanced_gemini = EnhancedGeminiSignalGenerator(
+                        api_key=self._gemini_api_key,
+                        context_builder=self._memory_context_builder,
+                    )
+                    self._log.info("AI 메모리 시스템 초기화 완료")
+                elif self._enhanced_gemini and self._memory_context_builder:
+                    self._enhanced_gemini.set_context_builder(
+                        self._memory_context_builder
+                    )
+                    self._log.info("AI 메모리 컨텍스트 빌더 연결 완료")
+            except Exception as e:
+                self._log.error(f"AI 메모리 시스템 초기화 실패: {e}")
+                self._use_memory_signals = False
+
         # Redis 상태 복구
         if self._redis_state_manager:
             restored = await self._restore_state_from_redis()
@@ -362,7 +445,7 @@ class BotInstance:
     # =========================================================================
 
     def _generate_signal(self, market_data: dict[str, Any]) -> str:
-        """시그널 생성
+        """시그널 생성 (규칙 기반)
 
         Args:
             market_data: 시장 데이터
@@ -381,6 +464,45 @@ class BotInstance:
         self._last_signal_time = datetime.now()
 
         return signal
+
+    async def _generate_signal_with_memory(self, market_data: dict[str, Any]) -> str:
+        """메모리 기반 시그널 생성 (Phase 4)
+
+        과거 거래 분석 결과를 AI 프롬프트에 주입하여 시그널 생성
+
+        Args:
+            market_data: 시장 데이터
+
+        Returns:
+            시그널 ("LONG", "SHORT", "WAIT")
+        """
+        if not self._enhanced_gemini or not self._use_memory_signals:
+            # Fallback to rule-based signal
+            return self._generate_signal(market_data)
+
+        try:
+            indicators = market_data.get("indicators", {})
+            signal = await self._enhanced_gemini.get_signal_with_memory(
+                market_data=indicators,
+                bot_id=str(self.config.bot_id),
+            )
+
+            if not validate_signal(signal):
+                self._log.warning(
+                    f"유효하지 않은 AI 시그널 '{signal}', 규칙 기반으로 대체"
+                )
+                return self._generate_signal(market_data)
+
+            self._last_signal = signal
+            self._last_signal_time = datetime.now()
+            self._log.info(f"메모리 기반 AI 시그널: {signal}")
+
+            return signal
+
+        except Exception as e:
+            self._log.error(f"메모리 시그널 생성 실패: {e}")
+            # Fallback to rule-based signal
+            return self._generate_signal(market_data)
 
     # =========================================================================
     # 포지션 관리
@@ -531,9 +653,13 @@ class BotInstance:
         market_data = await self._fetch_market_data()
         current_price = market_data["current_price"]
 
-        # 2. 시그널 생성
-        signal = self._generate_signal(market_data)
-        self._log.info(f"시그널: {signal} @ ${current_price:,.2f}")
+        # 2. 시그널 생성 (Phase 4: 메모리 기반 또는 규칙 기반)
+        if self._use_memory_signals and self._enhanced_gemini:
+            signal = await self._generate_signal_with_memory(market_data)
+            self._log.info(f"메모리 시그널: {signal} @ ${current_price:,.2f}")
+        else:
+            signal = self._generate_signal(market_data)
+            self._log.info(f"시그널: {signal} @ ${current_price:,.2f}")
 
         # 콜백 호출
         await self._notify_signal(signal, current_price)
