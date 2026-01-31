@@ -1,0 +1,435 @@
+{
+  "name": "Signal Intelligence Engine",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "signal-intelligence",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "signal-intelligence"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.TRADING_BOT_API_URL}}/api/bots",
+        "options": {}
+      },
+      "id": "get-bot-status",
+      "name": "Get Bot Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.data?.running_bots || 0}}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "check-bot-running",
+      "name": "Bot Running?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.TRADING_BOT_API_URL}}/api/analytics/patterns?days=7",
+        "options": {}
+      },
+      "id": "get-patterns",
+      "name": "Get Analytics Patterns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [850, 250]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.TRADING_BOT_API_URL}}/api/analytics/recommendations?days=7",
+        "options": {}
+      },
+      "id": "get-recommendations",
+      "name": "Get Recommendations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1050, 250]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Signal Intelligence Score Calculator\n// 신호 점수 계산 및 실행 결정\n\nconst signal = $('Webhook Trigger').first().json;\nconst patternsResponse = $('Get Analytics Patterns').first().json;\nconst recommendationsResponse = $('Get Recommendations').first().json;\n\nconst patterns = patternsResponse.data || {};\nconst recommendations = recommendationsResponse.data || {};\n\n// 기본 점수 (신호 confidence 기반, 기본값 0.5)\nlet score = (signal.confidence || 0.5) * 50;\n\n// RSI 구간 계산 (ex: RSI 35 -> \"RSI 30-40\")\nconst rsiValue = signal.rsi || 50;\nconst rsiLower = Math.floor(rsiValue / 10) * 10;\nconst rsiUpper = rsiLower + 10;\nconst signalCondition = `RSI ${rsiLower}-${rsiUpper}`;\n\nlet matchesBest = false;\nlet matchesWorst = false;\nlet shouldAvoid = false;\n\n// best_patterns 매칭 체크 (+30점)\nif (patterns.best_patterns && Array.isArray(patterns.best_patterns)) {\n  matchesBest = patterns.best_patterns.some(p => {\n    const sideMatch = p.side?.toUpperCase() === signal.signal?.toUpperCase();\n    const conditionMatch = p.condition?.includes(signalCondition) || \n                           p.condition?.includes(`RSI`);\n    return sideMatch && conditionMatch;\n  });\n}\nif (matchesBest) score += 30;\n\n// worst_patterns 매칭 체크 (-40점)\nif (patterns.worst_patterns && Array.isArray(patterns.worst_patterns)) {\n  matchesWorst = patterns.worst_patterns.some(p => {\n    const sideMatch = p.side?.toUpperCase() === signal.signal?.toUpperCase();\n    const conditionMatch = p.condition?.includes(signalCondition) || \n                           p.condition?.includes(`RSI`);\n    return sideMatch && conditionMatch;\n  });\n}\nif (matchesWorst) score -= 40;\n\n// avoid_conditions 체크 (-20점)\nif (recommendations.avoid_conditions && Array.isArray(recommendations.avoid_conditions)) {\n  shouldAvoid = recommendations.avoid_conditions.some(c => {\n    const signalMatch = c.toUpperCase().includes(signal.signal?.toUpperCase() || '');\n    const conditionMatch = c.includes(signalCondition) || c.includes('RSI');\n    return signalMatch && conditionMatch;\n  });\n}\nif (shouldAvoid) score -= 20;\n\n// 점수 범위 제한 (0-100)\nscore = Math.max(0, Math.min(100, Math.round(score)));\n\n// 결정 로직\nlet decision;\nif (score > 70) {\n  decision = 'EXECUTE';\n} else if (score > 40) {\n  decision = 'ALERT_ONLY';\n} else {\n  decision = 'IGNORE';\n}\n\nreturn {\n  score,\n  decision,\n  signal: signal.signal,\n  symbol: signal.symbol || 'BTCUSDT',\n  source: signal.source || 'unknown',\n  confidence: signal.confidence || 0.5,\n  rsi: rsiValue,\n  strategy: signal.strategy || '',\n  matchesBest,\n  matchesWorst,\n  shouldAvoid,\n  signalCondition,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "calculate-score",
+      "name": "Calculate Signal Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1250, 250]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "value": "EXECUTE",
+              "outputKey": "execute"
+            },
+            {
+              "value": "ALERT_ONLY",
+              "outputKey": "alert"
+            },
+            {
+              "value": "IGNORE",
+              "outputKey": "ignore"
+            }
+          ]
+        },
+        "dataType": "string",
+        "value1": "={{$json.decision}}"
+      },
+      "id": "decision-switch",
+      "name": "Decision Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [1450, 250]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.TRADING_BOT_API_URL}}/api/n8n/signal",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"signal\": \"{{$json.signal}}\",\n  \"source\": \"signal-intelligence\",\n  \"confidence\": {{$json.score / 100}},\n  \"bot_name\": null,\n  \"metadata\": {\n    \"original_source\": \"{{$json.source}}\",\n    \"score\": {{$json.score}},\n    \"strategy\": \"{{$json.strategy}}\",\n    \"rsi\": {{$json.rsi}}\n  }\n}",
+        "options": {}
+      },
+      "id": "send-signal",
+      "name": "Send Signal to Bot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1700, 100]
+    },
+    {
+      "parameters": {
+        "authentication": "botToken",
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$env.DISCORD_CHANNEL_ID}}",
+        "content": "=✅ **신호 실행됨**\n\n📊 **신호 정보**\n• 신호: {{$json.signal}}\n• 심볼: {{$json.symbol}}\n• 소스: {{$json.source}}\n• 전략: {{$json.strategy || 'N/A'}}\n\n🎯 **점수: {{$json.score}}/100**\n• 패턴 매칭: {{$json.matchesBest ? '✅ 고승률 패턴' : $json.matchesWorst ? '⚠️ 저승률 패턴' : '➖ 미확인'}}\n• 회피 조건: {{$json.shouldAvoid ? '⚠️ 해당' : '✅ 해당없음'}}\n\n⏰ {{$json.timestamp}}"
+      },
+      "id": "discord-executed",
+      "name": "Discord: Signal Executed",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1950, 100],
+      "credentials": {
+        "discordBotApi": {
+          "id": "discord-credentials",
+          "name": "Discord Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "botToken",
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$env.DISCORD_CHANNEL_ID}}",
+        "content": "=📊 **신호 검토 필요**\n\n📈 **신호 정보**\n• 신호: {{$json.signal}}\n• 심볼: {{$json.symbol}}\n• 소스: {{$json.source}}\n• 전략: {{$json.strategy || 'N/A'}}\n• RSI: {{$json.rsi}}\n\n🎯 **점수: {{$json.score}}/100** (자동 실행 기준: 70점 이상)\n• 패턴 매칭: {{$json.matchesBest ? '✅ 고승률 패턴' : $json.matchesWorst ? '⚠️ 저승률 패턴' : '➖ 미확인'}}\n• 회피 조건: {{$json.shouldAvoid ? '⚠️ 해당' : '✅ 해당없음'}}\n\n💡 **수동 실행 명령어:**\n`/start btc-bot`\n\n⏰ {{$json.timestamp}}"
+      },
+      "id": "discord-alert",
+      "name": "Discord: Review Needed",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1700, 250],
+      "credentials": {
+        "discordBotApi": {
+          "id": "discord-credentials",
+          "name": "Discord Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "ignored"
+            },
+            {
+              "name": "reason",
+              "value": "=Score {{$json.score}} below threshold (40)"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "log-ignored",
+      "name": "Log Ignored Signal",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [1700, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "botToken",
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$env.DISCORD_CHANNEL_ID}}",
+        "content": "=⚠️ **봇 오프라인**\n\n신호를 받았지만 실행 중인 봇이 없습니다.\n\n📈 **신호 정보**\n• 신호: {{$('Webhook Trigger').first().json.signal}}\n• 심볼: {{$('Webhook Trigger').first().json.symbol || 'BTCUSDT'}}\n• 소스: {{$('Webhook Trigger').first().json.source}}\n\n💡 봇을 시작하려면: `/start btc-bot`"
+      },
+      "id": "discord-bot-offline",
+      "name": "Discord: Bot Offline",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [850, 400],
+      "credentials": {
+        "discordBotApi": {
+          "id": "discord-credentials",
+          "name": "Discord Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"score\": {{$json.score}},\n  \"decision\": \"{{$json.decision}}\",\n  \"message\": \"Signal processed: {{$json.decision}}\"\n}",
+        "options": {}
+      },
+      "id": "response-execute",
+      "name": "Response: Executed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2150, 100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"score\": {{$json.score}},\n  \"decision\": \"{{$json.decision}}\",\n  \"message\": \"Signal sent to Discord for review\"\n}",
+        "options": {}
+      },
+      "id": "response-alert",
+      "name": "Response: Alert Sent",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1950, 250]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"score\": {{$json.score}},\n  \"decision\": \"IGNORE\",\n  \"message\": \"Signal ignored due to low score\"\n}",
+        "options": {}
+      },
+      "id": "response-ignore",
+      "name": "Response: Ignored",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1950, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"decision\": \"BOT_OFFLINE\",\n  \"message\": \"No running bots available\"\n}",
+        "options": {}
+      },
+      "id": "response-offline",
+      "name": "Response: Bot Offline",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1050, 400]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Bot Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Bot Status": {
+      "main": [
+        [
+          {
+            "node": "Bot Running?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bot Running?": {
+      "main": [
+        [
+          {
+            "node": "Get Analytics Patterns",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Discord: Bot Offline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Analytics Patterns": {
+      "main": [
+        [
+          {
+            "node": "Get Recommendations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Recommendations": {
+      "main": [
+        [
+          {
+            "node": "Calculate Signal Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Signal Score": {
+      "main": [
+        [
+          {
+            "node": "Decision Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decision Switch": {
+      "main": [
+        [
+          {
+            "node": "Send Signal to Bot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Discord: Review Needed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Ignored Signal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Signal to Bot": {
+      "main": [
+        [
+          {
+            "node": "Discord: Signal Executed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord: Signal Executed": {
+      "main": [
+        [
+          {
+            "node": "Response: Executed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord: Review Needed": {
+      "main": [
+        [
+          {
+            "node": "Response: Alert Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Ignored Signal": {
+      "main": [
+        [
+          {
+            "node": "Response: Ignored",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord: Bot Offline": {
+      "main": [
+        [
+          {
+            "node": "Response: Bot Offline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "trading",
+      "id": "1"
+    },
+    {
+      "name": "signal-processing",
+      "id": "2"
+    }
+  ],
+  "triggerCount": 0,
+  "versionId": "1"
+}

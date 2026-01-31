@@ -1,0 +1,322 @@
+{
+  "name": "Discord Bot Control",
+  "nodes": [
+    {
+      "parameters": {
+        "resource": "message",
+        "event": "messageCreate"
+      },
+      "id": "discord-trigger",
+      "name": "Discord Trigger",
+      "type": "n8n-nodes-base.discordTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "credentials": {
+        "discordBotApi": {
+          "id": "discord-credentials",
+          "name": "Discord Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Discord 명령 파싱\nconst message = $input.first().json;\nconst content = message.content || '';\nconst channelId = message.channelId;\nconst author = message.author?.username || 'unknown';\n\n// 봇 메시지 무시\nif (message.author?.bot) {\n  return { isValid: false, reason: 'bot_message' };\n}\n\n// 명령 파싱 (/ 또는 ! 접두사)\nconst text = content.trim();\nif (!text.startsWith('/') && !text.startsWith('!')) {\n  return { isValid: false, reason: 'not_command' };\n}\n\nconst parts = text.substring(1).split(/\\s+/);\nconst cmd = parts[0].toLowerCase();\nconst botName = parts[1] || null;\n\nlet command = null;\nlet isValid = true;\n\nswitch (cmd) {\n  case 'start':\n    command = 'start';\n    break;\n  case 'stop':\n    command = 'stop';\n    break;\n  case 'pause':\n    command = 'pause';\n    break;\n  case 'resume':\n    command = 'resume';\n    break;\n  case 'emergency':\n    command = 'emergency_close';\n    break;\n  case 'status':\n    command = 'status';\n    break;\n  case 'help':\n    command = 'help';\n    break;\n  default:\n    isValid = false;\n}\n\nreturn {\n  isValid,\n  command,\n  botName,\n  channelId,\n  author,\n  originalMessage: content\n};"
+      },
+      "id": "parse-command",
+      "name": "Parse Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.isValid}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-valid",
+      "name": "Is Valid Command?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.command}}",
+              "value2": "help"
+            }
+          ]
+        }
+      },
+      "id": "check-help",
+      "name": "Is Help Command?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.command}}",
+              "value2": "status"
+            }
+          ]
+        }
+      },
+      "id": "check-status",
+      "name": "Is Status Command?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1050, 350]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.TRADING_BOT_API_URL}}/api/bots",
+        "options": {}
+      },
+      "id": "get-status",
+      "name": "Get Bot Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1250, 250]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.TRADING_BOT_API_URL}}/api/n8n/command",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"bot_name\": {{$json.botName ? '\"' + $json.botName + '\"' : null}},\n  \"command\": \"{{$json.command}}\"\n}",
+        "options": {}
+      },
+      "id": "send-command",
+      "name": "Send Command",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1250, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 상태 응답 포맷팅\nconst response = $input.first().json;\nconst channelId = $('Parse Command').first().json.channelId;\n\nlet message = '';\nif (response.data) {\n  const d = response.data;\n  message = `📊 **봇 상태**\\n\\n` +\n    `▫️ 전체: ${d.total_bots}개\\n` +\n    `▫️ 실행 중: ${d.running_bots}개\\n` +\n    `▫️ 일시정지: ${d.paused_bots}개`;\n  \n  if (d.bots && d.bots.length > 0) {\n    message += '\\n\\n**봇 목록:**';\n    d.bots.forEach(bot => {\n      const statusEmoji = bot.status === 'running' ? '🟢' : \n                          bot.status === 'paused' ? '🟡' : '🔴';\n      message += `\\n${statusEmoji} ${bot.name}: ${bot.status}`;\n    });\n  }\n} else {\n  message = '❌ 상태 조회 실패';\n}\n\nreturn { channelId, message };"
+      },
+      "id": "format-status",
+      "name": "Format Status Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1450, 250]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 명령 응답 포맷팅\nconst response = $input.first().json;\nconst channelId = $('Parse Command').first().json.channelId;\nconst command = $('Parse Command').first().json.command;\nconst botName = $('Parse Command').first().json.botName;\n\nlet message = '';\nif (response.success) {\n  const cmdName = {\n    'start': '시작',\n    'stop': '정지',\n    'pause': '일시정지',\n    'resume': '재개',\n    'emergency_close': '긴급 청산'\n  }[command] || command;\n  \n  const target = botName ? `**${botName}**` : '모든 봇';\n  message = `✅ ${target} ${cmdName} 완료`;\n  \n  if (response.message) {\n    message += `\\n\\n${response.message}`;\n  }\n} else {\n  message = `❌ 명령 실행 실패\\n\\n${response.message || '알 수 없는 오류'}`;\n}\n\nreturn { channelId, message };"
+      },
+      "id": "format-command",
+      "name": "Format Command Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1450, 450]
+    },
+    {
+      "parameters": {
+        "authentication": "botToken",
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$json.channelId}}",
+        "content": "={{$json.message}}"
+      },
+      "id": "send-status-response",
+      "name": "Send Status Response",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1650, 250],
+      "credentials": {
+        "discordBotApi": {
+          "id": "discord-credentials",
+          "name": "Discord Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "botToken",
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$json.channelId}}",
+        "content": "={{$json.message}}"
+      },
+      "id": "send-command-response",
+      "name": "Send Command Response",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1650, 450],
+      "credentials": {
+        "discordBotApi": {
+          "id": "discord-credentials",
+          "name": "Discord Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "botToken",
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$json.channelId}}",
+        "content": "📖 **Trading Bot 명령어**\n\n**봇 제어:**\n`/start [bot_name]` - 봇 시작\n`/stop [bot_name]` - 봇 정지\n`/pause [bot_name]` - 일시정지\n`/resume [bot_name]` - 재개\n\n**조회 및 기타:**\n`/status` - 상태 조회\n`/emergency` - 긴급 청산\n`/help` - 도움말\n\n💡 `bot_name`을 생략하면 모든 봇에 적용됩니다."
+      },
+      "id": "send-help",
+      "name": "Send Help",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1050, 200],
+      "credentials": {
+        "discordBotApi": {
+          "id": "discord-credentials",
+          "name": "Discord Bot API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Discord Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Command": {
+      "main": [
+        [
+          {
+            "node": "Is Valid Command?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Valid Command?": {
+      "main": [
+        [
+          {
+            "node": "Is Help Command?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Is Help Command?": {
+      "main": [
+        [
+          {
+            "node": "Send Help",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Status Command?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Status Command?": {
+      "main": [
+        [
+          {
+            "node": "Get Bot Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Bot Status": {
+      "main": [
+        [
+          {
+            "node": "Format Status Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Command": {
+      "main": [
+        [
+          {
+            "node": "Format Command Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Status Response": {
+      "main": [
+        [
+          {
+            "node": "Send Status Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Command Response": {
+      "main": [
+        [
+          {
+            "node": "Send Command Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "versionId": "1"
+}
