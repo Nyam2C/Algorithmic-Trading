@@ -1,0 +1,40 @@
+# ===========================================
+# FastAPI REST API Configuration
+# ===========================================
+# FastAPI 기반 REST API 서버
+# 사용: docker-compose -f docker-compose.yml -f docker-compose.api.yml up
+
+version: '3.8'
+
+services:
+  # FastAPI REST API
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile.api
+    container_name: trading-api
+    ports:
+      - "8000:8000"
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_DEBUG=false
+      - DATABASE_URL=postgresql://trading:${DB_PASSWORD:-devpassword}@postgres:5432/trading
+    env_file:
+      - ../.env
+    networks:
+      - trading_net
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

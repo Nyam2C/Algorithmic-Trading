@@ -1,15 +1,11 @@
 # ===========================================
 # High-Win Survival System - Dockerfile
+# Trading Bot (Background Process)
 # ===========================================
 
-FROM python:3.14-slim
+FROM python:3.10-slim
 
 WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
 COPY requirements.txt .
@@ -22,8 +18,7 @@ COPY src/ ./src/
 ENV PYTHONUNBUFFERED=1
 ENV TZ=Asia/Seoul
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+# Trading bot은 웹서버가 아니므로 헬스체크 없음
+# 프로세스 실행 상태로 health 판단
 
 CMD ["python", "-m", "src.main"]

@@ -22,8 +22,8 @@ success() { echo -e "${GREEN}[OK]${NC} $1"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
-# Compose 파일 경로
-COMPOSE_FILES="-f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml -f deploy/docker-compose.backend.yml -f deploy/docker-compose.monitoring.yml"
+# Compose 파일 경로 (FastAPI 기반 API 사용)
+COMPOSE_FILES="-f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml -f deploy/docker-compose.api.yml -f deploy/docker-compose.monitoring.yml"
 
 # -----------------------------------------------------------------------------
 # 명령어 처리
@@ -54,7 +54,8 @@ case "${1:-start}" in
         echo ""
         echo "  서비스 접속:"
         echo "    - Grafana:  http://localhost:3000 (admin/admin123)"
-        echo "    - Backend:  http://localhost:8080/api/health"
+        echo "    - API:      http://localhost:8000/health"
+        echo "    - API Docs: http://localhost:8000/docs (debug 모드)"
         echo "    - DB:       localhost:5432"
         echo ""
         echo "  명령어:"
@@ -93,10 +94,10 @@ case "${1:-start}" in
             echo -e "  Grafana:  ${RED}Stopped${NC}"
         fi
 
-        if curl -s http://localhost:8080/api/health > /dev/null 2>&1; then
-            echo -e "  Backend:  ${GREEN}Running${NC}"
+        if curl -s http://localhost:8000/health > /dev/null 2>&1; then
+            echo -e "  API:      ${GREEN}Running${NC}"
         else
-            echo -e "  Backend:  ${RED}Stopped${NC}"
+            echo -e "  API:      ${RED}Stopped${NC}"
         fi
 
         if docker exec trading-db pg_isready -U trading > /dev/null 2>&1; then
