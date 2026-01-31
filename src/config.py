@@ -22,6 +22,12 @@ class TradingConfig(BaseModel):
     binance_api_key: str
     binance_secret_key: str
 
+    # Redis Configuration
+    redis_url: Optional[str] = Field(default=None)
+    redis_password: Optional[str] = Field(default=None)
+    redis_db: int = Field(default=0, ge=0, le=15)
+    enable_redis_state: bool = Field(default=True)
+
     # Trading Parameters
     symbol: str = Field(default="BTCUSDT")
     leverage: int = Field(default=15, ge=1, le=125)
@@ -44,6 +50,10 @@ class TradingConfig(BaseModel):
 
     # Trading Loop
     loop_interval_seconds: int = Field(default=300, gt=0)  # 5 minutes
+
+    # Logging Configuration
+    enable_json_logging: bool = Field(default=True)
+    log_level: str = Field(default="INFO")
 
     @validator("symbol")
     def validate_symbol(cls, v):
@@ -87,6 +97,14 @@ def load_config() -> TradingConfig:
             database_url=os.getenv("DATABASE_URL"),
             discord_bot_token=os.getenv("DISCORD_BOT_TOKEN"),
             loop_interval_seconds=int(os.getenv("LOOP_INTERVAL_SECONDS", "300")),
+            # Redis Configuration
+            redis_url=os.getenv("REDIS_URL"),
+            redis_password=os.getenv("REDIS_PASSWORD"),
+            redis_db=int(os.getenv("REDIS_DB", "0")),
+            enable_redis_state=os.getenv("ENABLE_REDIS_STATE", "true").lower() == "true",
+            # Logging Configuration
+            enable_json_logging=os.getenv("ENABLE_JSON_LOGGING", "true").lower() == "true",
+            log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         )
 
         logger.info("Configuration loaded successfully")

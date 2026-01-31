@@ -4,11 +4,12 @@
 여러 BotInstance를 생성, 시작, 중지, 모니터링하는 MultiBotManager 클래스.
 """
 import asyncio
-from typing import Optional, Any
+from typing import Optional, Any, Union
 from loguru import logger
 
 from src.bot_config import BotConfig
 from src.bot_instance import BotInstance, OnSignalCallback, OnTradeCallback, OnErrorCallback
+from src.storage.redis_state import RedisStateManager, DummyRedisStateManager
 
 
 class MultiBotManager:
@@ -38,6 +39,7 @@ class MultiBotManager:
         database_url: Optional[str] = None,
         loop_interval_seconds: int = 300,
         configs: Optional[list[BotConfig]] = None,
+        redis_state_manager: Optional[Union[RedisStateManager, DummyRedisStateManager]] = None,
     ) -> None:
         """멀티봇 관리자 초기화
 
@@ -49,6 +51,7 @@ class MultiBotManager:
             database_url: PostgreSQL 데이터베이스 URL
             loop_interval_seconds: 루프 간격 (초)
             configs: 초기 봇 설정 리스트
+            redis_state_manager: Redis 상태 관리자
         """
         self._binance_api_key = binance_api_key
         self._binance_secret_key = binance_secret_key
@@ -56,6 +59,7 @@ class MultiBotManager:
         self._discord_webhook_url = discord_webhook_url
         self._database_url = database_url
         self._loop_interval_seconds = loop_interval_seconds
+        self._redis_state_manager = redis_state_manager
 
         # 봇 인스턴스 저장
         self._bots: dict[str, BotInstance] = {}
@@ -99,6 +103,76 @@ class MultiBotManager:
     def paused_count(self) -> int:
         """일시정지된 봇 수"""
         return sum(1 for bot in self._bots.values() if bot.is_paused)
+
+    @property
+    def redis_state_manager(
+        self,
+    ) -> Optional[Union[RedisStateManager, DummyRedisStateManager]]:
+        """Redis 상태 관리자"""
+        return self._redis_state_manager
+
+    # =========================================================================
+    # Redis 상태 관리
+    # =========================================================================
+
+    def set_redis_state_manager(
+        self, manager: Union[RedisStateManager, DummyRedisStateManager]
+    ) -> None:
+        """Redis 상태 관리자 설정
+
+        Args:
+            manager: Redis 상태 관리자
+        """
+        self._redis_state_manager = manager
+        # 기존 봇에도 적용
+        for bot in self._bots.values():
+            bot.set_redis_state_manager(manager)
+        logger.info("Redis 상태 관리자 설정됨")
+
+    async def restore_bots_from_redis(self) -> list[str]:
+        """Redis에서 등록된 봇 목록 복구
+
+        Returns:
+            복구된 봇 이름 리스트
+        """
+        if self._redis_state_manager is None:
+            logger.warning("Redis 상태 관리자 없음 - 복구 스킵")
+            return []
+
+        try:
+            # 서버 시작 시 running 상태 초기화
+            await self._redis_state_manager.clear_running_bots()
+
+            # 등록된 봇 목록 조회
+            registered_bots = await self._redis_state_manager.get_registered_bots()
+            logger.info(f"Redis에서 {len(registered_bots)}개 봇 발견")
+
+            return registered_bots
+
+        except Exception as e:
+            logger.error(f"Redis 봇 복구 실패: {e}")
+            return []
+
+    async def get_redis_bot_states(self) -> dict[str, dict[str, Any]]:
+        """Redis에 저장된 모든 봇 상태 조회
+
+        Returns:
+            봇 이름 -> 상태 딕셔너리
+        """
+        if self._redis_state_manager is None:
+            return {}
+
+        result = {}
+        try:
+            registered_bots = await self._redis_state_manager.get_registered_bots()
+            for bot_name in registered_bots:
+                state = await self._redis_state_manager.load_bot_state(bot_name)
+                if state:
+                    result[bot_name] = state
+            return result
+        except Exception as e:
+            logger.error(f"Redis 봇 상태 조회 실패: {e}")
+            return {}
 
     # =========================================================================
     # 콜백 설정
@@ -153,6 +227,7 @@ class MultiBotManager:
             discord_webhook_url=self._discord_webhook_url,
             database_url=self._database_url,
             loop_interval_seconds=self._loop_interval_seconds,
+            redis_state_manager=self._redis_state_manager,
             on_signal_callback=self._on_signal_callback,
             on_trade_callback=self._on_trade_callback,
             on_error_callback=self._on_error_callback,

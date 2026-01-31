@@ -3,6 +3,7 @@ High-Win Survival System - Main Entry Point
 Sprint 1: Paper Trading MVP
 """
 import asyncio
+import os
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -24,13 +25,25 @@ from src.ai.signals import (
 from src.trading.executor import TradingExecutor
 from src.discord_bot.bot import start_discord_bot
 from src.storage.trade_history import TradeHistoryDB
+from src.utils.logging import setup_logging_from_env
+from src.storage.redis_state import create_redis_manager, RedisStateManager, DummyRedisStateManager
 
 
 def setup_logging():
     """
     Configure structured JSON logging for Loki/Promtail
+
+    환경변수 ENABLE_JSON_LOGGING=true 시 JSON 로깅,
+    그렇지 않으면 기존 텍스트 로깅을 사용합니다.
     """
-    # Remove default logger
+    enable_json = os.getenv("ENABLE_JSON_LOGGING", "true").lower() == "true"
+
+    if enable_json:
+        # JSON 구조화 로깅 사용
+        setup_logging_from_env()
+        return
+
+    # 기존 텍스트 로깅 (fallback)
     logger.remove()
 
     # Create logs directory
@@ -135,6 +148,26 @@ async def trading_loop():
         "symbol": config.symbol,
         "leverage": config.leverage,
     }
+
+    # Initialize Redis state manager
+    redis_manager: RedisStateManager | DummyRedisStateManager | None = None
+    if config.enable_redis_state and config.redis_url:
+        try:
+            redis_manager = await create_redis_manager(
+                redis_url=config.redis_url,
+                redis_password=config.redis_password,
+                redis_db=config.redis_db,
+                fallback_on_error=True,
+            )
+            if redis_manager.is_connected:
+                logger.info("Redis state manager connected")
+            else:
+                logger.warning("Redis 연결 실패 - 메모리 기반 상태 관리 사용")
+        except Exception as e:
+            logger.error(f"Failed to initialize Redis: {e}")
+            logger.warning("Continuing without Redis state management")
+    else:
+        logger.warning("REDIS_URL not set or disabled - state will not be persisted")
 
     # Initialize PostgreSQL database
     trade_db = None
@@ -521,6 +554,11 @@ async def trading_loop():
 
             # Cleanup
             bot_state["is_running"] = False
+
+            # Disconnect from Redis
+            if redis_manager and redis_manager.is_connected:
+                await redis_manager.disconnect()
+                logger.info("Redis connection closed")
 
             # Disconnect from database
             if trade_db:

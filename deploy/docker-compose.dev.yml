@@ -7,6 +7,9 @@
 version: '3.8'
 
 services:
+  redis:
+    restart: "no"  # 개발 시 수동 재시작
+
   postgres:
     restart: "no"  # 개발 시 수동 재시작
     environment:
@@ -20,6 +23,9 @@ services:
     environment:
       - LOG_LEVEL=DEBUG
       - TESTNET=true
+      - REDIS_URL=redis://redis:6379
+      - ENABLE_JSON_LOGGING=false  # 개발 시 가독성을 위해 비활성화
+      - ENABLE_REDIS_STATE=true
     logging:
       driver: "json-file"
       options:
@@ -34,6 +40,8 @@ services:
     environment:
       - API_DEBUG=true  # /docs, /redoc 활성화
       - LOG_LEVEL=DEBUG
+      - REDIS_URL=redis://redis:6379
+      - ENABLE_JSON_LOGGING=false  # 개발 시 가독성을 위해 비활성화
     logging:
       driver: "json-file"
       options:

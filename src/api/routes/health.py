@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Response, status
 
-from src.api.dependencies import get_bot_manager_optional
+from src.api.dependencies import get_bot_manager_optional, check_redis_health
 
 router = APIRouter(tags=["Health"])
 
@@ -20,14 +20,19 @@ async def health_check() -> dict[str, Any]:
     """Liveness probe
 
     서버가 살아있는지 확인합니다.
-    항상 200 OK를 반환합니다.
+    PostgreSQL, Redis 연결 상태를 포함합니다.
 
     Returns:
         상태 정보
     """
+    redis_healthy = await check_redis_health()
+
     return {
         "status": "healthy",
         "version": API_VERSION,
+        "components": {
+            "redis": redis_healthy,
+        },
     }
 
 
@@ -63,7 +68,12 @@ async def readiness_check(response: Response) -> dict[str, Any]:
             "bots": {"total": total_bots, "running": running_bots},
         }
 
+    redis_healthy = await check_redis_health()
+
     return {
         "status": "ready",
         "bots": {"total": total_bots, "running": running_bots},
+        "components": {
+            "redis": redis_healthy,
+        },
     }

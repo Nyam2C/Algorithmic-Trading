@@ -3,14 +3,16 @@ FastAPI 의존성 주입 모듈
 
 MultiBotManager 및 기타 의존성을 주입합니다.
 """
-from typing import Optional
+from typing import Optional, Union
 
 from src.bot_manager import MultiBotManager
 from src.api.config import APIConfig
+from src.storage.redis_state import RedisStateManager, DummyRedisStateManager
 
 # 전역 상태 (앱 시작 시 설정됨)
 _bot_manager: Optional[MultiBotManager] = None
 _api_config: Optional[APIConfig] = None
+_redis_state_manager: Optional[Union[RedisStateManager, DummyRedisStateManager]] = None
 
 
 def set_bot_manager(manager: MultiBotManager) -> None:
@@ -65,3 +67,41 @@ def get_api_config() -> APIConfig:
     if _api_config is None:
         return APIConfig.from_env()
     return _api_config
+
+
+def set_redis_state_manager(
+    manager: Union[RedisStateManager, DummyRedisStateManager]
+) -> None:
+    """Redis 상태 관리자 설정
+
+    Args:
+        manager: Redis 상태 관리자 인스턴스
+    """
+    global _redis_state_manager
+    _redis_state_manager = manager
+
+
+def get_redis_state_manager() -> Optional[
+    Union[RedisStateManager, DummyRedisStateManager]
+]:
+    """Redis 상태 관리자 반환
+
+    Returns:
+        Redis 상태 관리자 인스턴스 또는 None
+    """
+    return _redis_state_manager
+
+
+async def check_redis_health() -> bool:
+    """Redis 연결 상태 확인
+
+    Returns:
+        연결 성공 여부
+    """
+    if _redis_state_manager is None:
+        return False
+
+    try:
+        return await _redis_state_manager.ping()
+    except Exception:
+        return False

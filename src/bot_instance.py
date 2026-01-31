@@ -6,7 +6,7 @@
 """
 import asyncio
 from datetime import datetime
-from typing import Optional, Callable, Awaitable, Any
+from typing import Optional, Callable, Awaitable, Any, Union
 from loguru import logger
 
 from src.bot_config import BotConfig
@@ -16,6 +16,7 @@ from src.ai.rule_based import RuleBasedSignalGenerator
 from src.ai.signals import validate_signal, should_enter_trade
 from src.trading.executor import TradingExecutor
 from src.storage.trade_history import TradeHistoryDB
+from src.storage.redis_state import RedisStateManager, DummyRedisStateManager
 
 
 # 콜백 타입 정의
@@ -56,6 +57,7 @@ class BotInstance:
         # 의존성 주입 (테스트용)
         binance_client: Optional[BinanceTestnetClient] = None,
         trade_db: Optional[TradeHistoryDB] = None,
+        redis_state_manager: Optional[Union[RedisStateManager, DummyRedisStateManager]] = None,
         # 콜백 함수
         on_signal_callback: Optional[OnSignalCallback] = None,
         on_trade_callback: Optional[OnTradeCallback] = None,
@@ -73,6 +75,7 @@ class BotInstance:
             loop_interval_seconds: 루프 간격 (초)
             binance_client: Binance 클라이언트 (의존성 주입용)
             trade_db: 거래 기록 DB (의존성 주입용)
+            redis_state_manager: Redis 상태 관리자 (의존성 주입용)
             on_signal_callback: 시그널 발생 시 콜백
             on_trade_callback: 거래 발생 시 콜백
             on_error_callback: 에러 발생 시 콜백
@@ -102,6 +105,7 @@ class BotInstance:
         # 의존성
         self._binance_client = binance_client
         self._trade_db = trade_db
+        self._redis_state_manager = redis_state_manager
         self._executor: Optional[TradingExecutor] = None
 
         # 시그널 생성기 (커스텀 RSI 파라미터 적용)
@@ -186,6 +190,77 @@ class BotInstance:
         self._log.warning("긴급 청산 요청됨")
 
     # =========================================================================
+    # Redis 상태 관리
+    # =========================================================================
+
+    async def _sync_state_to_redis(self) -> None:
+        """현재 상태를 Redis에 동기화"""
+        if self._redis_state_manager is None:
+            return
+
+        try:
+            state = self.get_state()
+            await self._redis_state_manager.save_bot_state(self.bot_name, state)
+
+            if self._current_position:
+                await self._redis_state_manager.save_position(
+                    self.bot_name, self._current_position
+                )
+            else:
+                await self._redis_state_manager.delete_position(self.bot_name)
+
+        except Exception as e:
+            self._log.warning(f"Redis 상태 동기화 실패: {e}")
+
+    async def _restore_state_from_redis(self) -> bool:
+        """Redis에서 상태 복구
+
+        Returns:
+            복구 성공 여부
+        """
+        if self._redis_state_manager is None:
+            return False
+
+        try:
+            # 봇 상태 복구
+            saved_state = await self._redis_state_manager.load_bot_state(self.bot_name)
+            if saved_state:
+                self._is_paused = saved_state.get("is_paused", False)
+                self._loop_count = saved_state.get("loop_count", 0)
+                self._last_signal = saved_state.get("last_signal", "WAIT")
+                self._last_signal_time = saved_state.get("last_signal_time")
+                self._log.info(
+                    f"Redis에서 상태 복구: loop_count={self._loop_count}, "
+                    f"is_paused={self._is_paused}"
+                )
+
+            # 포지션 복구
+            saved_position = await self._redis_state_manager.load_position(self.bot_name)
+            if saved_position:
+                self._current_position = saved_position
+                self._log.info(
+                    f"Redis에서 포지션 복구: {saved_position.get('side')} @ "
+                    f"${saved_position.get('entry_price', 0):,.2f}"
+                )
+                return True
+
+            return bool(saved_state)
+
+        except Exception as e:
+            self._log.warning(f"Redis 상태 복구 실패: {e}")
+            return False
+
+    def set_redis_state_manager(
+        self, manager: Union[RedisStateManager, DummyRedisStateManager]
+    ) -> None:
+        """Redis 상태 관리자 설정
+
+        Args:
+            manager: Redis 상태 관리자
+        """
+        self._redis_state_manager = manager
+
+    # =========================================================================
     # 초기화
     # =========================================================================
 
@@ -224,10 +299,25 @@ class BotInstance:
             except Exception as e:
                 self._log.error(f"거래 기록 DB 연결 실패: {e}")
 
+        # Redis 상태 복구
+        if self._redis_state_manager:
+            restored = await self._restore_state_from_redis()
+            if restored:
+                self._log.info("이전 상태 복구 완료")
+            # 봇 실행 상태 등록
+            await self._redis_state_manager.register_bot(self.bot_name)
+            await self._redis_state_manager.set_bot_running(self.bot_name)
+
         self._log.info("봇 초기화 완료")
 
     async def _cleanup(self) -> None:
         """봇 정리 (연결 해제)"""
+        # Redis 상태 업데이트
+        if self._redis_state_manager:
+            await self._sync_state_to_redis()
+            await self._redis_state_manager.set_bot_stopped(self.bot_name)
+            self._log.info("Redis 상태 업데이트 완료")
+
         if self._trade_db:
             await self._trade_db.disconnect()
             self._log.info("거래 기록 DB 연결 해제")
@@ -501,6 +591,9 @@ class BotInstance:
         while self._is_running:
             try:
                 await self._execute_single_loop()
+
+                # Redis 상태 동기화
+                await self._sync_state_to_redis()
 
             except Exception as e:
                 self._log.error(f"루프 에러: {e}", exc_info=True)
