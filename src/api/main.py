@@ -139,6 +139,28 @@ def run_server(
     )
 
 
+async def run_embedded_server(
+    app: FastAPI,
+    host: str = "0.0.0.0",
+    port: int = 8000,
+) -> None:
+    """서버를 내장 모드로 비동기 실행
+
+    main.py에서 FastAPI를 내장하여 실행할 때 사용합니다.
+    uvicorn.Server.serve()를 사용하여 non-blocking으로 실행합니다.
+
+    Args:
+        app: FastAPI 앱 인스턴스
+        host: 바인딩 호스트
+        port: 포트 번호
+    """
+    import uvicorn
+
+    config = uvicorn.Config(app, host=host, port=port, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
+
+
 if __name__ == "__main__":
     config = APIConfig.from_env()
     run_server(host=config.host, port=config.port, reload=config.debug)

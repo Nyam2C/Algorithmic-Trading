@@ -55,6 +55,11 @@ class TradingConfig(BaseModel):
     enable_json_logging: bool = Field(default=True)
     log_level: str = Field(default="INFO")
 
+    # API Configuration
+    api_host: str = Field(default="0.0.0.0")
+    api_port: int = Field(default=8000, ge=1, le=65535)
+    api_debug: bool = Field(default=False)
+
     @validator("symbol")
     def validate_symbol(cls, v):
         """Validate symbol format"""
@@ -105,6 +110,10 @@ def load_config() -> TradingConfig:
             # Logging Configuration
             enable_json_logging=os.getenv("ENABLE_JSON_LOGGING", "true").lower() == "true",
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
+            # API Configuration
+            api_host=os.getenv("API_HOST", "0.0.0.0"),
+            api_port=int(os.getenv("API_PORT", "8000")),
+            api_debug=os.getenv("API_DEBUG", "false").lower() == "true",
         )
 
         logger.info("Configuration loaded successfully")
