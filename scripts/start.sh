@@ -22,8 +22,8 @@ success() { echo -e "${GREEN}[OK]${NC} $1"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
-# Compose 파일 경로 (FastAPI 기반 API 사용)
-COMPOSE_FILES="-f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml -f deploy/docker-compose.api.yml -f deploy/docker-compose.n8n.yml -f deploy/docker-compose.monitoring.yml"
+# Compose 파일 경로 (통합: Bot + API 단일 프로세스)
+COMPOSE_FILES="-f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml -f deploy/docker-compose.n8n.yml -f deploy/docker-compose.monitoring.yml"
 
 # -----------------------------------------------------------------------------
 # 명령어 처리

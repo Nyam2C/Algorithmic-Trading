@@ -21,8 +21,8 @@ services:
       - NODE_ENV=production
       # 웹훅 URL (외부 접근용, 필요시 수정)
       - WEBHOOK_URL=http://localhost:5678
-      # Trading Bot API 연결
-      - TRADING_BOT_API_URL=http://trading-api:8000
+      # Trading Bot API 연결 (통합 컨테이너)
+      - TRADING_BOT_API_URL=http://trading-bot:8000
       # Discord 채널 ID (환경변수에서 가져옴)
       - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID:-}
       # 타임존

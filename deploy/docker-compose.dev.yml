@@ -15,6 +15,7 @@ services:
     environment:
       - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
 
+  # 통합 서비스 (Bot + API + Discord)
   trading-bot:
     restart: "no"
     volumes:
@@ -26,22 +27,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - ENABLE_JSON_LOGGING=false  # 개발 시 가독성을 위해 비활성화
       - ENABLE_REDIS_STATE=true
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # FastAPI REST API (개발 설정)
-  api:
-    restart: "no"  # 개발 시 수동 재시작
-    volumes:
-      - ../src:/app/src:ro  # 소스 코드 마운트 (읽기 전용)
-    environment:
       - API_DEBUG=true  # /docs, /redoc 활성화
-      - LOG_LEVEL=DEBUG
-      - REDIS_URL=redis://redis:6379
-      - ENABLE_JSON_LOGGING=false  # 개발 시 가독성을 위해 비활성화
     logging:
       driver: "json-file"
       options:
