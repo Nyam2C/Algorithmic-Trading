@@ -2,9 +2,11 @@
 멀티봇 관리자 모듈
 
 여러 BotInstance를 생성, 시작, 중지, 모니터링하는 MultiBotManager 클래스.
+
+Phase 5.4: 멀티봇 총 노출도 제한
 """
 import asyncio
-from typing import Optional, Any, Union
+from typing import Optional, Any, Union, Tuple
 from loguru import logger
 
 from src.bot_config import BotConfig
@@ -40,6 +42,8 @@ class MultiBotManager:
         loop_interval_seconds: int = 300,
         configs: Optional[list[BotConfig]] = None,
         redis_state_manager: Optional[Union[RedisStateManager, DummyRedisStateManager]] = None,
+        # Phase 5.4: 총 노출도 제한
+        max_total_exposure: float = 0.0,  # 0 = 제한 없음
     ) -> None:
         """멀티봇 관리자 초기화
 
@@ -52,6 +56,7 @@ class MultiBotManager:
             loop_interval_seconds: 루프 간격 (초)
             configs: 초기 봇 설정 리스트
             redis_state_manager: Redis 상태 관리자
+            max_total_exposure: 최대 총 노출도 (USDT). 0이면 제한 없음.
         """
         self._binance_api_key = binance_api_key
         self._binance_secret_key = binance_secret_key
@@ -60,6 +65,9 @@ class MultiBotManager:
         self._database_url = database_url
         self._loop_interval_seconds = loop_interval_seconds
         self._redis_state_manager = redis_state_manager
+
+        # Phase 5.4: 총 노출도 제한
+        self._max_total_exposure = max_total_exposure
 
         # 봇 인스턴스 저장
         self._bots: dict[str, BotInstance] = {}
@@ -78,7 +86,11 @@ class MultiBotManager:
                 if config.is_active:
                     self.add_bot(config)
 
-        logger.info(f"MultiBotManager 초기화 완료: {len(self._bots)}개 봇 등록")
+        logger.info(
+            f"MultiBotManager 초기화 완료: {len(self._bots)}개 봇 등록, "
+            f"max_exposure=${max_total_exposure:,.2f}" if max_total_exposure > 0 else
+            f"MultiBotManager 초기화 완료: {len(self._bots)}개 봇 등록 (노출도 제한 없음)"
+        )
 
     # =========================================================================
     # Properties
@@ -110,6 +122,118 @@ class MultiBotManager:
     ) -> Optional[Union[RedisStateManager, DummyRedisStateManager]]:
         """Redis 상태 관리자"""
         return self._redis_state_manager
+
+    @property
+    def max_total_exposure(self) -> float:
+        """최대 총 노출도 (Phase 5.4)"""
+        return self._max_total_exposure
+
+    def set_max_total_exposure(self, value: float) -> None:
+        """최대 총 노출도 설정 (Phase 5.4)"""
+        self._max_total_exposure = value
+        logger.info(f"최대 총 노출도 설정: ${value:,.2f}")
+
+    # =========================================================================
+    # Phase 5.4: 총 노출도 관리
+    # =========================================================================
+
+    async def get_total_exposure(self) -> float:
+        """모든 봇의 총 포지션 가치 계산
+
+        Returns:
+            총 노출도 (USDT)
+        """
+        total = 0.0
+
+        for bot in self._bots.values():
+            state = bot.get_state()
+            position = state.get("position")
+
+            if position:
+                # 포지션 가치 계산: quantity * entry_price * leverage
+                quantity = abs(position.get("position_amt", 0))
+                entry_price = position.get("entry_price", 0)
+                leverage = state.get("leverage", 1)
+
+                position_value = quantity * entry_price * leverage
+                total += position_value
+
+                logger.debug(
+                    f"[{bot.bot_name}] 포지션 노출도: "
+                    f"{quantity} x ${entry_price:,.2f} x {leverage}x = ${position_value:,.2f}"
+                )
+
+        return total
+
+    async def can_open_position(
+        self, bot_name: str, position_value: float
+    ) -> Tuple[bool, str]:
+        """새 포지션 진입 가능 여부 확인 (Phase 5.4)
+
+        Args:
+            bot_name: 봇 이름
+            position_value: 새 포지션 가치 (USDT)
+
+        Returns:
+            (가능 여부, 사유)
+        """
+        # 노출도 제한이 없으면 항상 허용
+        if self._max_total_exposure <= 0:
+            return True, ""
+
+        current_exposure = await self.get_total_exposure()
+        new_total = current_exposure + position_value
+
+        if new_total > self._max_total_exposure:
+            reason = (
+                f"총 노출도 한도 초과: ${new_total:,.2f} > ${self._max_total_exposure:,.2f} "
+                f"(현재=${current_exposure:,.2f}, 신규=${position_value:,.2f})"
+            )
+            logger.warning(f"[{bot_name}] {reason}")
+            return False, reason
+
+        logger.info(
+            f"[{bot_name}] 포지션 진입 허용: "
+            f"총 노출도 ${new_total:,.2f} / ${self._max_total_exposure:,.2f}"
+        )
+        return True, ""
+
+    def get_exposure_summary(self) -> dict[str, Any]:
+        """노출도 요약 정보 (Phase 5.4)
+
+        Returns:
+            노출도 요약 딕셔너리
+        """
+        import asyncio
+
+        # 비동기 함수를 동기적으로 호출
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # 이미 이벤트 루프가 실행 중이면 현재 캐시된 상태 사용
+            total = 0.0
+            for bot in self._bots.values():
+                state = bot.get_state()
+                position = state.get("position")
+                if position:
+                    quantity = abs(position.get("position_amt", 0))
+                    entry_price = position.get("entry_price", 0)
+                    leverage = state.get("leverage", 1)
+                    total += quantity * entry_price * leverage
+        else:
+            # 이벤트 루프가 없으면 새로 실행
+            total = asyncio.run(self.get_total_exposure())
+
+        return {
+            "current_exposure": total,
+            "max_exposure": self._max_total_exposure,
+            "available_exposure": max(0, self._max_total_exposure - total) if self._max_total_exposure > 0 else float("inf"),
+            "utilization_pct": (total / self._max_total_exposure * 100) if self._max_total_exposure > 0 else 0,
+            "limit_enabled": self._max_total_exposure > 0,
+        }
 
     # =========================================================================
     # Redis 상태 관리
@@ -291,6 +415,8 @@ class MultiBotManager:
             "total_bots": self.bot_count,
             "running_bots": self.running_count,
             "paused_bots": self.paused_count,
+            # Phase 5.4: 노출도 정보
+            "exposure": self.get_exposure_summary(),
             "bots": [
                 {
                     "name": bot.bot_name,

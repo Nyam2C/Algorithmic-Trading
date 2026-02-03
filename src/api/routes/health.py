@@ -2,12 +2,15 @@
 헬스체크 라우트
 
 Kubernetes Liveness/Readiness probe를 위한 엔드포인트입니다.
+Phase 7.2: /metrics 엔드포인트 추가 (Prometheus)
 """
 from typing import Any
 
 from fastapi import APIRouter, Response, status
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from src.api.dependencies import get_bot_manager_optional, check_redis_health
+from src.metrics.prometheus import get_metrics_registry
 
 router = APIRouter(tags=["Health"])
 
@@ -77,3 +80,22 @@ async def readiness_check(response: Response) -> dict[str, Any]:
             "redis": redis_healthy,
         },
     }
+
+
+@router.get("/metrics")
+async def prometheus_metrics() -> Response:
+    """Prometheus 메트릭 엔드포인트
+
+    Phase 7.2: Prometheus 서버가 스크래핑하는 메트릭 엔드포인트입니다.
+    거래 메트릭, API 지연시간, 포지션 PnL 등을 노출합니다.
+
+    Returns:
+        Prometheus 형식의 메트릭 텍스트
+    """
+    registry = get_metrics_registry()
+    metrics_output = generate_latest(registry)
+
+    return Response(
+        content=metrics_output,
+        media_type=CONTENT_TYPE_LATEST,
+    )

@@ -506,3 +506,334 @@ class TestMakerOrderFeature:
 
         # 주문이 생성되지 않아야 함
         assert order is None
+
+
+class TestAtrDynamicTpSl:
+    """Phase 6.1: ATR 기반 동적 TP/SL 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_check_tp_sl_dynamic_long_tp(self, mock_binance_client):
+        """LONG 포지션 ATR TP 도달"""
+        config = TradingConfig(
+            bot_name="test-bot",
+            binance_api_key="test_key",
+            binance_secret_key="test_secret",
+            gemini_api_key="test_gemini",
+            discord_webhook_url="https://test.com",
+            use_atr_tp_sl=True,
+            atr_tp_multiplier=2.0,
+            atr_sl_multiplier=1.0,
+        )
+
+        executor = TradingExecutor(mock_binance_client, config)
+
+        position = {
+            "entry_price": 100000.0,
+            "side": "LONG",
+            "entry_atr": 500.0,  # ATR = 500 USDT
+        }
+        # TP 가격 = 100000 + (500 * 2.0) = 101000
+        current_price = 101100.0  # TP 초과
+
+        result = await executor.check_tp_sl_dynamic(position, current_price)
+
+        assert result == "TP"
+
+    @pytest.mark.asyncio
+    async def test_check_tp_sl_dynamic_long_sl(self, mock_binance_client):
+        """LONG 포지션 ATR SL 도달"""
+        config = TradingConfig(
+            bot_name="test-bot",
+            binance_api_key="test_key",
+            binance_secret_key="test_secret",
+            gemini_api_key="test_gemini",
+            discord_webhook_url="https://test.com",
+            use_atr_tp_sl=True,
+            atr_tp_multiplier=2.0,
+            atr_sl_multiplier=1.0,
+        )
+
+        executor = TradingExecutor(mock_binance_client, config)
+
+        position = {
+            "entry_price": 100000.0,
+            "side": "LONG",
+            "entry_atr": 500.0,  # ATR = 500 USDT
+        }
+        # SL 가격 = 100000 - (500 * 1.0) = 99500
+        current_price = 99400.0  # SL 미달
+
+        result = await executor.check_tp_sl_dynamic(position, current_price)
+
+        assert result == "SL"
+
+    @pytest.mark.asyncio
+    async def test_check_tp_sl_dynamic_short_tp(self, mock_binance_client):
+        """SHORT 포지션 ATR TP 도달"""
+        config = TradingConfig(
+            bot_name="test-bot",
+            binance_api_key="test_key",
+            binance_secret_key="test_secret",
+            gemini_api_key="test_gemini",
+            discord_webhook_url="https://test.com",
+            use_atr_tp_sl=True,
+            atr_tp_multiplier=2.0,
+            atr_sl_multiplier=1.0,
+        )
+
+        executor = TradingExecutor(mock_binance_client, config)
+
+        position = {
+            "entry_price": 100000.0,
+            "side": "SHORT",
+            "entry_atr": 500.0,  # ATR = 500 USDT
+        }
+        # TP 가격 = 100000 - (500 * 2.0) = 99000
+        current_price = 98900.0  # TP 미달 (가격 하락 = SHORT 수익)
+
+        result = await executor.check_tp_sl_dynamic(position, current_price)
+
+        assert result == "TP"
+
+    @pytest.mark.asyncio
+    async def test_check_tp_sl_dynamic_short_sl(self, mock_binance_client):
+        """SHORT 포지션 ATR SL 도달"""
+        config = TradingConfig(
+            bot_name="test-bot",
+            binance_api_key="test_key",
+            binance_secret_key="test_secret",
+            gemini_api_key="test_gemini",
+            discord_webhook_url="https://test.com",
+            use_atr_tp_sl=True,
+            atr_tp_multiplier=2.0,
+            atr_sl_multiplier=1.0,
+        )
+
+        executor = TradingExecutor(mock_binance_client, config)
+
+        position = {
+            "entry_price": 100000.0,
+            "side": "SHORT",
+            "entry_atr": 500.0,  # ATR = 500 USDT
+        }
+        # SL 가격 = 100000 + (500 * 1.0) = 100500
+        current_price = 100600.0  # SL 초과
+
+        result = await executor.check_tp_sl_dynamic(position, current_price)
+
+        assert result == "SL"
+
+    @pytest.mark.asyncio
+    async def test_check_tp_sl_dynamic_no_trigger(self, mock_binance_client):
+        """ATR TP/SL 미달"""
+        config = TradingConfig(
+            bot_name="test-bot",
+            binance_api_key="test_key",
+            binance_secret_key="test_secret",
+            gemini_api_key="test_gemini",
+            discord_webhook_url="https://test.com",
+            use_atr_tp_sl=True,
+            atr_tp_multiplier=2.0,
+            atr_sl_multiplier=1.0,
+        )
+
+        executor = TradingExecutor(mock_binance_client, config)
+
+        position = {
+            "entry_price": 100000.0,
+            "side": "LONG",
+            "entry_atr": 500.0,
+        }
+        # TP = 101000, SL = 99500
+        current_price = 100300.0  # 범위 내
+
+        result = await executor.check_tp_sl_dynamic(position, current_price)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_check_tp_sl_dynamic_fallback_no_atr(self, mock_binance_client, mock_config):
+        """ATR 정보 없으면 기존 로직으로 fallback"""
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        position = {
+            "entry_price": 100000.0,
+            "side": "LONG",
+            # entry_atr 없음
+        }
+        current_price = 100400.0  # +0.4% = TP (기본 설정)
+
+        result = await executor.check_tp_sl_dynamic(position, current_price)
+
+        # 기존 퍼센트 기반 로직 사용
+        assert result == "TP"
+
+    @pytest.mark.asyncio
+    async def test_check_tp_sl_dynamic_disabled(self, mock_binance_client, mock_config):
+        """use_atr_tp_sl=False면 기존 로직 사용"""
+        # mock_config는 use_atr_tp_sl이 기본값 False
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        position = {
+            "entry_price": 100000.0,
+            "side": "LONG",
+            "entry_atr": 500.0,  # ATR 있어도 무시
+        }
+        current_price = 100400.0  # +0.4% = TP
+
+        result = await executor.check_tp_sl_dynamic(position, current_price)
+
+        assert result == "TP"
+
+    @pytest.mark.asyncio
+    async def test_open_position_with_atr(self, mock_binance_client, mock_config):
+        """포지션 오픈 시 ATR 저장"""
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        order = await executor.open_position("LONG", 100000.0, entry_atr=500.0)
+
+        assert order is not None
+        assert executor.current_position["entry_atr"] == 500.0
+
+
+class TestRealBalanceFeature:
+    """Phase 5.1: 실제 잔고 기반 포지션 사이징 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_get_available_balance(self, mock_binance_client, mock_config):
+        """잔고 조회 테스트"""
+        mock_binance_client.get_account_balance = AsyncMock(return_value={
+            "asset": "USDT",
+            "balance": 5000.0,
+            "available": 4500.0,
+            "unrealized_pnl": 100.0
+        })
+
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        balance = await executor._get_available_balance()
+
+        assert balance == 4500.0
+        mock_binance_client.get_account_balance.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_available_balance_caching(self, mock_binance_client, mock_config):
+        """잔고 조회 캐싱 테스트"""
+        mock_binance_client.get_account_balance = AsyncMock(return_value={
+            "asset": "USDT",
+            "balance": 5000.0,
+            "available": 4500.0,
+            "unrealized_pnl": 100.0
+        })
+
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        # 첫 번째 조회
+        balance1 = await executor._get_available_balance()
+
+        # 두 번째 조회 (캐시 사용)
+        balance2 = await executor._get_available_balance()
+
+        assert balance1 == balance2 == 4500.0
+        # 캐싱으로 인해 한 번만 호출되어야 함
+        assert mock_binance_client.get_account_balance.call_count == 1
+
+    def test_calculate_position_size_with_custom_capital(self, executor):
+        """커스텀 자본금으로 포지션 크기 계산"""
+        current_price = 100000.0
+        capital = 5000.0  # 5000 USDT
+
+        quantity = executor._calculate_position_size(current_price, capital)
+
+        # 검증: capital * size_pct * leverage / price
+        # 5000 * 0.05 * 15 / 100000 = 0.0375
+        expected_quantity = round(5000 * 0.05 * 15 / 100000, 3)
+        assert quantity == expected_quantity
+
+    def test_calculate_position_size_backward_compatible(self, executor):
+        """capital 없이 호출 시 기존 동작 유지 (1000 USDT 기본값)"""
+        current_price = 100000.0
+
+        quantity = executor._calculate_position_size(current_price)
+
+        # 기존 동작: 1000 * 0.05 * 15 / 100000 = 0.0075
+        expected_quantity = round(1000 * 0.05 * 15 / 100000, 3)
+        assert quantity == expected_quantity
+
+    @pytest.mark.asyncio
+    async def test_calculate_position_size_with_real_balance(self, mock_binance_client):
+        """use_real_balance=True일 때 실제 잔고 사용"""
+        mock_binance_client.get_account_balance = AsyncMock(return_value={
+            "asset": "USDT",
+            "balance": 10000.0,
+            "available": 8000.0,
+            "unrealized_pnl": 200.0
+        })
+
+        config = TradingConfig(
+            bot_name="test-bot",
+            binance_api_key="test_key",
+            binance_secret_key="test_secret",
+            gemini_api_key="test_gemini",
+            discord_webhook_url="https://test.com",
+            symbol="BTCUSDT",
+            leverage=15,
+            position_size_pct=0.05,
+            use_real_balance=True,  # 실제 잔고 사용
+        )
+
+        executor = TradingExecutor(mock_binance_client, config)
+        current_price = 100000.0
+
+        quantity = await executor._calculate_position_size_with_balance(current_price)
+
+        # 8000 * 0.05 * 15 / 100000 = 0.06
+        expected_quantity = round(8000 * 0.05 * 15 / 100000, 3)
+        assert quantity == expected_quantity
+
+    @pytest.mark.asyncio
+    async def test_calculate_position_size_without_real_balance(self, mock_binance_client, mock_config):
+        """use_real_balance=False일 때 기본값 1000 사용"""
+        # use_real_balance가 False이면 API 호출 안 함
+        mock_binance_client.get_account_balance = AsyncMock()
+
+        executor = TradingExecutor(mock_binance_client, mock_config)
+        current_price = 100000.0
+
+        quantity = await executor._calculate_position_size_with_balance(current_price)
+
+        # 기본값 1000 사용
+        expected_quantity = round(1000 * 0.05 * 15 / 100000, 3)
+        assert quantity == expected_quantity
+
+        # API 호출되지 않아야 함
+        mock_binance_client.get_account_balance.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_calculate_position_size_fallback_on_error(self, mock_binance_client):
+        """잔고 조회 실패 시 기본값으로 fallback"""
+        mock_binance_client.get_account_balance = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+
+        config = TradingConfig(
+            bot_name="test-bot",
+            binance_api_key="test_key",
+            binance_secret_key="test_secret",
+            gemini_api_key="test_gemini",
+            discord_webhook_url="https://test.com",
+            symbol="BTCUSDT",
+            leverage=15,
+            position_size_pct=0.05,
+            use_real_balance=True,  # 실제 잔고 사용 설정
+        )
+
+        executor = TradingExecutor(mock_binance_client, config)
+        current_price = 100000.0
+
+        # 에러 발생 시에도 기본값으로 동작해야 함
+        quantity = await executor._calculate_position_size_with_balance(current_price)
+
+        # 기본값 1000 사용
+        expected_quantity = round(1000 * 0.05 * 15 / 100000, 3)
+        assert quantity == expected_quantity

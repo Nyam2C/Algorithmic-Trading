@@ -56,3 +56,8 @@ uvicorn[standard]>=0.27.0  # ASGI 서버
 # State Management (Sprint 3.4)
 # ===========================================
 redis>=5.0.0            # Redis 상태 관리
+
+# ===========================================
+# Monitoring (Phase 7.2)
+# ===========================================
+prometheus_client>=0.19.0  # Prometheus 메트릭

@@ -20,6 +20,8 @@ from src.ai.rule_based import RuleBasedSignalGenerator
 from src.ai.enhanced_gemini import EnhancedGeminiSignalGenerator
 from src.ai.signals import validate_signal, should_enter_trade
 from src.trading.executor import TradingExecutor
+from src.trading.risk_manager import RiskManager  # Phase 5.2
+from src.data.regime_detector import RegimeDetector, MarketRegime  # Phase 6.2
 from src.storage.trade_history import TradeHistoryDB
 from src.storage.redis_state import RedisStateManager, DummyRedisStateManager
 from src.analytics.trade_analyzer import TradeHistoryAnalyzer
@@ -132,6 +134,19 @@ class BotInstance:
         self._use_memory_signals = use_memory_signals
         self._memory_context_builder: Optional[AIMemoryContextBuilder] = None
 
+        # Phase 5.2: 리스크 매니저
+        self._risk_manager = RiskManager(
+            max_daily_loss_pct=config.max_daily_loss_pct,
+            max_drawdown_pct=config.max_drawdown_pct,
+            max_consecutive_losses=config.max_consecutive_losses,
+            cooldown_minutes=config.cooldown_minutes,
+        )
+        self._risk_halt_notified = False  # 리스크 한도 도달 알림 플래그
+
+        # Phase 6.2: 마켓 레짐 감지기
+        self._regime_detector = RegimeDetector()
+        self._current_regime: MarketRegime = MarketRegime.UNKNOWN
+
         # 콜백
         self._on_signal_callback = on_signal_callback
         self._on_trade_callback = on_trade_callback
@@ -193,6 +208,10 @@ class BotInstance:
             "leverage": self.config.get_effective_leverage(),
             # Phase 4: AI 메모리 시스템
             "memory_signals_enabled": self.memory_signals_enabled,
+            # Phase 5.2: 리스크 상태
+            "risk_stats": self._risk_manager.get_stats(),
+            # Phase 6.2: 마켓 레짐
+            "market_regime": self._current_regime.value,
         }
 
     def pause(self) -> None:
@@ -391,6 +410,19 @@ class BotInstance:
             await self._redis_state_manager.register_bot(self.bot_name)
             await self._redis_state_manager.set_bot_running(self.bot_name)
 
+        # Phase 5.2: 리스크 매니저 일일 통계 초기화
+        try:
+            if self._binance_client:
+                await self._binance_client.connect()
+                balance_info = await self._binance_client.get_account_balance()
+                await self._risk_manager.reset_daily_stats(balance_info["available"])
+                self._log.info(
+                    f"리스크 매니저 초기화: 시작 잔고=${balance_info['available']:,.2f}"
+                )
+        except Exception as e:
+            self._log.warning(f"리스크 매니저 초기화 실패 (기본값 사용): {e}")
+            await self._risk_manager.reset_daily_stats(1000.0)
+
         self._log.info("봇 초기화 완료")
 
     async def _cleanup(self) -> None:
@@ -508,12 +540,15 @@ class BotInstance:
     # 포지션 관리
     # =========================================================================
 
-    async def _open_position(self, signal: str, current_price: float) -> Optional[dict]:
+    async def _open_position(
+        self, signal: str, current_price: float, entry_atr: Optional[float] = None
+    ) -> Optional[dict]:
         """포지션 오픈
 
         Args:
             signal: 시그널 ("LONG" or "SHORT")
             current_price: 현재 가격
+            entry_atr: 진입 시 ATR (Phase 6.1: 동적 TP/SL용)
 
         Returns:
             주문 결과 또는 None
@@ -521,7 +556,7 @@ class BotInstance:
         if self._executor is None:
             raise RuntimeError("Executor not initialized")
 
-        order = await self._executor.open_position(signal, current_price)
+        order = await self._executor.open_position(signal, current_price, entry_atr)
 
         if order:
             self._current_position = self._executor.current_position
@@ -595,6 +630,19 @@ class BotInstance:
                         duration_minutes=duration,
                     )
 
+            # Phase 5.2: 리스크 매니저에 PnL 추적
+            await self._risk_manager.track_trade_pnl(pnl_usd)
+            is_win = pnl_usd >= 0
+            await self._risk_manager.track_trade_result(is_win)
+
+            # 리스크 한도 체크
+            halt, reason = await self._risk_manager.should_halt_trading()
+            if halt and not self._risk_halt_notified:
+                self._log.warning(f"리스크 한도 도달 - 자동 정지: {reason}")
+                self.pause()
+                self._risk_halt_notified = True
+                await self._notify_risk_halt(reason)
+
             self._current_position = None
 
             # 콜백 호출
@@ -640,6 +688,17 @@ class BotInstance:
             except Exception as e:
                 self._log.error(f"에러 콜백 에러: {e}")
 
+    async def _notify_risk_halt(self, reason: str) -> None:
+        """리스크 한도 도달 알림 (Phase 5.2)"""
+        self._log.warning(f"[RISK HALT] {self.bot_name}: {reason}")
+        # 에러 콜백을 통해 알림 (Discord 등에서 처리)
+        if self._on_error_callback:
+            try:
+                error = RuntimeError(f"리스크 한도 도달: {reason}")
+                await self._on_error_callback(self.bot_name, error)
+            except Exception as e:
+                self._log.error(f"리스크 알림 에러: {e}")
+
     # =========================================================================
     # 트레이딩 루프
     # =========================================================================
@@ -660,6 +719,23 @@ class BotInstance:
         else:
             signal = self._generate_signal(market_data)
             self._log.info(f"시그널: {signal} @ ${current_price:,.2f}")
+
+        # Phase 6.2: 마켓 레짐 감지 및 필터링
+        indicators = market_data.get("indicators", {})
+        self._current_regime = self._regime_detector.detect(indicators)
+
+        if self.config.use_regime_filter:
+            original_signal = signal
+            signal = self._regime_detector.filter_signal(
+                signal,
+                self._current_regime,
+                allow_weak_trend=self.config.allow_weak_trend,
+            )
+            if signal != original_signal:
+                self._log.info(
+                    f"레짐 필터링: {original_signal} → {signal} "
+                    f"(레짐={self._current_regime.value})"
+                )
 
         # 콜백 호출
         await self._notify_signal(signal, current_price)
@@ -692,8 +768,8 @@ class BotInstance:
                     await self._close_position(current_price, "TIME_CUT")
                     return
 
-            # TP/SL 체크
-            exit_reason = await self._executor.check_tp_sl(position, current_price)
+            # TP/SL 체크 (Phase 6.1: ATR 기반 동적 TP/SL 지원)
+            exit_reason = await self._executor.check_tp_sl_dynamic(position, current_price)
             if exit_reason:
                 self._log.info(f"종료 조건 충족: {exit_reason}")
                 await self._close_position(current_price, exit_reason)
@@ -704,9 +780,23 @@ class BotInstance:
             self._log.debug("봇 일시정지 중 - 진입 스킵")
             return
 
+        # Phase 5.2/5.3: 리스크 체크 (쿨다운, 일일 손실 한도)
+        should_skip, skip_reason = await self._risk_manager.should_skip_trade()
+        if should_skip:
+            self._log.info(f"리스크 제한으로 진입 스킵: {skip_reason}")
+            return
+
         if should_enter_trade(signal, has_position):
-            self._log.info(f"{signal} 포지션 진입...")
-            await self._open_position(signal, current_price)
+            # Phase 6.1: ATR 값 전달 (동적 TP/SL용)
+            entry_atr = None
+            if self._market_data:
+                indicators = self._market_data
+                entry_atr = indicators.get("atr")
+            self._log.info(
+                f"{signal} 포지션 진입..."
+                + (f" (ATR={entry_atr:.2f})" if entry_atr else "")
+            )
+            await self._open_position(signal, current_price, entry_atr)
 
     async def _run_loop(self) -> None:
         """메인 트레이딩 루프"""
