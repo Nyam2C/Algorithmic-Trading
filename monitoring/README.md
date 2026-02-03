@@ -154,8 +154,8 @@ limits_config:
 **수집 대상:**
 - `logs/bot.log` - 메인 봇 로그
 - `logs/error.log` - 에러 로그
-- `logs/trade.log` - 거래 로그 (Sprint 2+)
-- `logs/ai_signal.log` - AI 신호 로그 (Sprint 2+)
+- `logs/trade.log` - 거래 로그
+- `logs/ai_signal.log` - AI 신호 로그
 
 **레이블:**
 - `job`: 작업 이름 (trading-bot, trading-error 등)
@@ -389,38 +389,36 @@ Grafana만 포트 3000을 외부에 노출합니다.
 ### 데이터
 
 - 로그는 로컬에만 저장 (외부 전송 없음)
-- API 키는 로그에 마스킹 필요 (Sprint 2+)
+- API 키는 로그에 자동 마스킹됨
 - 민감한 정보는 JSON 필드에서 제외
 
 ---
 
-## 📈 확장
+## 📈 Prometheus 메트릭
 
-### Sprint 2+에서 추가 예정
+트레이딩 봇은 Prometheus 메트릭을 `/metrics` 엔드포인트에서 제공합니다.
 
-**메트릭 모니터링 (Prometheus):**
-```yaml
-prometheus:
-  image: prom/prometheus:latest
-  ports:
-    - "9090:9090"
+### 메트릭 접근
+```bash
+curl http://localhost:8000/metrics
 ```
 
-**컨테이너 메트릭 (cAdvisor):**
-```yaml
-cadvisor:
-  image: gcr.io/cadvisor/cadvisor:latest
-  ports:
-    - "8080:8080"
-```
+### 제공되는 메트릭
 
-**알림 (Alertmanager):**
-```yaml
-alertmanager:
-  image: prom/alertmanager:latest
-  ports:
-    - "9093:9093"
-```
+| 메트릭 | 타입 | 설명 |
+|--------|------|------|
+| `trading_trades_total` | Counter | 총 거래 수 (bot_name, side, result 레이블) |
+| `trading_position_pnl_percent` | Gauge | 현재 포지션 PnL % |
+| `trading_trade_duration_seconds` | Histogram | 거래 지속시간 |
+| `trading_api_latency_seconds` | Histogram | API 지연시간 |
+| `trading_signal_confidence` | Gauge | 시그널 신뢰도 |
+
+### Grafana에서 Prometheus 연동
+
+1. Grafana → Configuration → Data Sources
+2. Add data source → Prometheus
+3. URL: `http://localhost:9090` (Prometheus 서버 실행 시)
+4. Save & Test
 
 ---
 
@@ -434,6 +432,5 @@ alertmanager:
 
 ---
 
-**버전**: 1.1
-**최종 업데이트**: 2026-01-31
-**상태**: Phase 3 멀티봇 지원
+**버전**: 2.0
+**최종 업데이트**: 2026-02-03

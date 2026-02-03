@@ -1,6 +1,6 @@
 # Testing Guide
 
-Sprint 1 프로젝트의 테스트 가이드입니다.
+테스트 가이드입니다.
 
 ---
 
@@ -287,7 +287,7 @@ pytest -vv -s  # 모든 print 출력 표시
 
 ## 📈 다음 단계
 
-Sprint 2에서 추가할 테스트:
+추가 예정 테스트:
 - [ ] test_binance.py - Binance API Mock 테스트
 - [ ] test_gemini.py - Gemini AI Mock 테스트
 - [ ] test_integration.py - E2E 통합 테스트

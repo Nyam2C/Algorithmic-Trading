@@ -12,7 +12,8 @@ db/
 ├── setup.sh              # 데이터베이스 자동 초기화 스크립트
 ├── migrations/           # 마이그레이션 파일
 │   ├── 001_multi_bot.sql       # 멀티봇 지원
-│   └── 002_analytics_views.sql # AI 메모리 분석 함수
+│   ├── 002_analytics_views.sql # AI 메모리 분석 함수
+│   └── 003_audit_logs.sql      # 감사 로그
 ├── data/                 # 데이터 파일 (gitignored)
 ├── backups/              # 백업 파일 (gitignored)
 └── README.md             # 이 파일
@@ -58,7 +59,7 @@ psql -U postgres -f db/init.sql
 ```sql
 CREATE TABLE trades (
     id UUID PRIMARY KEY,
-    bot_id UUID REFERENCES bot_configs(id),  -- Phase 3 추가
+    bot_id UUID REFERENCES bot_configs(id),
     symbol VARCHAR(20) NOT NULL,
     side VARCHAR(10) CHECK (side IN ('LONG', 'SHORT')),
     entry_price DECIMAL(20, 8),
@@ -81,7 +82,7 @@ CREATE TABLE trades (
 ```sql
 CREATE TABLE ai_signals (
     id UUID PRIMARY KEY,
-    bot_id UUID REFERENCES bot_configs(id),  -- Phase 3 추가
+    bot_id UUID REFERENCES bot_configs(id),
     symbol VARCHAR(20) NOT NULL,
     signal VARCHAR(10) CHECK (signal IN ('LONG', 'SHORT', 'WAIT')),
     confidence DECIMAL(5, 2),
@@ -116,8 +117,8 @@ CREATE TABLE market_data (
 #### 4. `bot_status` - 봇 상태
 ```sql
 CREATE TABLE bot_status (
-    id SERIAL PRIMARY KEY,
-    bot_id UUID REFERENCES bot_configs(id),  -- Phase 3 추가
+    id UUID PRIMARY KEY,
+    bot_id UUID REFERENCES bot_configs(id),
     bot_name VARCHAR(50) UNIQUE,
     is_running BOOLEAN,
     current_position VARCHAR(10),
@@ -133,7 +134,7 @@ CREATE TABLE bot_status (
 
 **용도:** 봇의 현재 상태, 통계, 헬스체크
 
-#### 5. `bot_configs` - 봇 설정 (Phase 3)
+#### 5. `bot_configs` - 봇 설정
 ```sql
 CREATE TABLE bot_configs (
     id UUID PRIMARY KEY,
@@ -160,8 +161,9 @@ CREATE TABLE bot_configs (
 
 | 파일 | 설명 |
 |------|------|
-| `001_multi_bot.sql` | Phase 3 멀티봇 지원 스키마 확장 |
-| `002_analytics_views.sql` | Phase 4 AI 메모리 분석용 뷰 및 함수 |
+| `001_multi_bot.sql` | 멀티봇 지원 스키마 확장 |
+| `002_analytics_views.sql` | AI 메모리 분석용 뷰 및 함수 |
+| `003_audit_logs.sql` | 감사 로그 테이블 |
 
 ### 마이그레이션 실행
 
@@ -193,7 +195,7 @@ psql -U postgres -d trading -f db/migrations/002_analytics_views.sql
 
 ---
 
-## 📈 분석 함수 (Phase 4)
+## 📈 분석 함수
 
 `002_analytics_views.sql`에서 제공하는 분석 함수:
 
@@ -291,7 +293,7 @@ LEFT JOIN trades t ON s.trade_id = t.id
 GROUP BY s.signal;
 ```
 
-### 봇별 통계 (Phase 3)
+### 봇별 통계
 ```sql
 -- 봇별 거래 통계
 SELECT * FROM bot_trading_stats;
@@ -379,5 +381,5 @@ postgresql://postgres:postgres@localhost:5432/trading
 
 ---
 
-**스키마 버전:** 2.0 (Phase 3 멀티봇 + Phase 4 Analytics)
-**마지막 업데이트:** 2026-01-31
+**스키마 버전:** 3.0
+**마지막 업데이트:** 2026-02-03

@@ -1,19 +1,55 @@
 # High-Win Survival System
 
-**Phase 3: 멀티봇 배포 진행 중**
-
-Binance Testnet + Gemini AI 기반 비트코인 선물 자동매매 시스템
+Binance Futures + Gemini AI 기반 비트코인 선물 자동매매 시스템
 
 ---
 
 ## 🎯 프로젝트 개요
 
-- **목표**: 높은 승률 기반의 초단기 비트코인 선물 자동매매
-- **철학**: 승률 우선, 노이즈 회피, 기계적 실행
-- **현재 단계**: Phase 3 - 멀티봇 배포 (85% 완료)
-  - Phase 1: 단일 봇 완성 ✅ 100%
-  - Phase 2: Testnet 검증 🔄 85%
-  - Phase 3: 멀티봇 배포 🔄 85%
+**High-Win Survival System**은 24시간 무인 운영이 가능한 비트코인 선물 자동매매 봇입니다.
+
+### 핵심 철학
+- **생존 우선**: 수익보다 자본 보존을 우선시합니다
+- **승률 우선**: 불확실한 시장에서는 진입하지 않습니다
+- **기계적 실행**: 감정 없이 규칙대로 매매합니다
+
+### 시스템이 제공하는 것
+
+**1. AI 기반 자동매매**
+- Gemini AI와 기술적 지표(RSI, MA, ATR)를 결합한 매매 시그널 생성
+- 과거 거래 성과를 학습하여 AI 판단에 반영하는 메모리 시스템
+
+**2. 철저한 리스크 관리**
+- 일일 손실 -5% 도달 시 자동 거래 정지
+- 3연패 시 30분 쿨다운으로 감정적 거래 방지
+- 최대 드로다운 10% 모니터링
+
+**3. 시장 상황 인식**
+- 마켓 레짐 감지: 상승/하락/횡보장 구분, 횡보장에서는 진입 회피
+- 다중 타임프레임 분석: 상위 타임프레임과 충돌하는 시그널 필터링
+
+**4. 멀티봇 운영**
+- 여러 봇을 동시에 관리 (BTC, ETH 등 심볼별 또는 전략별)
+- 봇별 위험도 설정 (보수적/중간/공격적)
+- REST API로 봇 생성/삭제/제어
+
+**5. 24/7 원격 제어 (Discord)**
+- 대시보드, 상태, 포지션, 통계 조회
+- 일시정지, 재시작, 긴급청산 원격 명령
+- 거래 진입/청산 실시간 알림
+
+**6. 실시간 모니터링**
+- Prometheus 메트릭 + Grafana 대시보드
+- 거래 수, PnL, API 지연시간 등 시각화
+
+**7. 프로덕션 안전장치**
+- 수동 승인 모드: 프로덕션 전환 시 첫 N거래 수동 확인
+- 메인넷 전환 시 별도 확인 플래그 필수
+- 모든 거래 및 봇 이벤트 감사 로그 기록
+
+**8. 전략 검증**
+- 백테스트 엔진으로 과거 데이터 시뮬레이션
+- 승률, 총손익, 최대 드로다운 등 성과 분석
 
 ---
 
@@ -129,43 +165,57 @@ Algorithmic-Trading/
 ├── src/                          # 소스 코드
 │   ├── config.py                 # 설정 관리
 │   ├── main.py                   # 메인 실행 파일
-│   ├── exchange/
-│   │   └── binance.py            # Binance Testnet 클라이언트
-│   ├── data/
-│   │   └── indicators.py         # 기술적 지표 (RSI, MA, ATR)
-│   ├── ai/
-│   │   ├── prompts/              # AI 프롬프트
-│   │   │   ├── system.txt        # 시스템 프롬프트
-│   │   │   └── analysis.txt      # 분석 프롬프트
+│   ├── bot_config.py             # 멀티봇 설정 모델
+│   ├── bot_instance.py           # 개별 봇 인스턴스
+│   ├── bot_manager.py            # 멀티봇 관리자
+│   ├── api/                      # REST API
+│   │   ├── main.py               # FastAPI 앱 팩토리
+│   │   └── routes/               # API 라우터
+│   ├── analytics/                # 거래 분석
+│   │   ├── trade_analyzer.py     # 거래 이력 분석기
+│   │   └── memory_context.py     # AI 메모리 컨텍스트
+│   ├── ai/                       # AI 신호 생성
 │   │   ├── gemini.py             # Gemini AI 클라이언트
-│   │   └── signals.py            # 신호 파싱
-│   └── trading/
-│       └── executor.py           # 주문 실행
-├── tests/                        # 테스트 (355개, 65% 커버리지)
-│   ├── conftest.py               # Pytest 설정
-│   ├── test_config.py
-│   ├── test_indicators.py
-│   ├── test_signals.py
-│   └── test_executor.py
+│   │   ├── enhanced_gemini.py    # 메모리 주입 Gemini
+│   │   ├── rule_based.py         # 규칙 기반 신호
+│   │   ├── signals.py            # 신호 파싱
+│   │   └── prompts/              # AI 프롬프트
+│   ├── backtest/                 # 백테스트 프레임워크
+│   │   └── engine.py             # 백테스트 엔진
+│   ├── data/                     # 데이터 처리
+│   │   ├── indicators.py         # 기술적 지표 (RSI, MA, ATR)
+│   │   ├── regime_detector.py    # 마켓 레짐 감지
+│   │   └── multi_timeframe.py    # 다중 타임프레임 분석
+│   ├── exchange/                 # 거래소 API
+│   │   └── binance.py            # Binance Testnet 클라이언트
+│   ├── metrics/                  # 모니터링 메트릭
+│   │   └── prometheus.py         # Prometheus 메트릭
+│   ├── storage/                  # 데이터 저장
+│   │   ├── trade_history.py      # PostgreSQL 거래 기록
+│   │   ├── redis_state.py        # Redis 상태 관리
+│   │   └── audit_log.py          # 감사 로그
+│   ├── trading/                  # 주문 실행
+│   │   ├── executor.py           # 주문 실행
+│   │   ├── risk_manager.py       # 리스크 관리
+│   │   └── trade_approval.py     # 수동 승인 시스템
+│   ├── discord_bot/              # Discord 봇
+│   │   └── bot.py                # 원격 제어 UI
+│   └── utils/                    # 유틸리티
+│       ├── retry.py              # 재시도 데코레이터
+│       └── logging.py            # JSON 구조화 로깅
+├── tests/                        # 테스트 (481개, 65% 커버리지)
 ├── deploy/                       # 🐳 Docker 배포
-│   ├── docker-compose.yml        # 기본 설정
+│   ├── docker-compose.yml        # 통합 서비스 (Bot + API)
 │   ├── docker-compose.dev.yml    # 개발 환경
-│   ├── docker-compose.api.yml    # FastAPI REST API
 │   └── docker-compose.monitoring.yml # 모니터링
 ├── docs/                         # 📚 문서
-│   ├── README.md                 # 문서 목록
-│   ├── SETUP_GUIDE.md            # 환경 설정 가이드
-│   ├── TEST_GUIDE.md             # 테스트 가이드
-│   └── QUICK_START.md            # 명령어 치트시트
 ├── db/                           # 🗄️ 데이터베이스
-│   ├── README.md                 # DB 문서
-│   ├── init.sql                  # 스키마 정의
-│   └── setup.sh                  # DB 초기화 스크립트
+│   ├── init.sql                  # 초기 스키마
+│   └── migrations/               # 마이그레이션
+│       ├── 001_multi_bot.sql     # 멀티봇 지원
+│       ├── 002_analytics_views.sql # 분석용 뷰
+│       └── 003_audit_logs.sql    # 감사 로그
 ├── scripts/                      # 🔧 실행 스크립트
-│   ├── setup.sh                  # 환경 설정 (최초 1회)
-│   ├── start.sh                  # Docker 서비스 관리
-│   ├── stop.sh                   # Docker 서비스 중지
-│   └── test.sh                   # CI 테스트
 ├── .claude/                      # 개발 계획 문서
 ├── requirements.txt              # Python 의존성
 ├── .env.example                  # 환경 변수 템플릿
@@ -192,7 +242,7 @@ Algorithmic-Trading/
 - 승률 우선 전략 (불확실하면 WAIT)
 
 ### 4. 주문 실행
-- **진입**: 시장가 주문 (Sprint 1 단순화)
+- **진입**: 시장가 주문
 - **익절/손절**: ±0.4% (15배 레버리지 기준 ±6% ROE)
 - **레버리지**: 15배 (격리 모드)
 - **포지션 크기**: 시드의 5%
@@ -276,7 +326,7 @@ Discord 봇을 설정하면 채팅으로 봇을 원격 제어할 수 있습니�
 | 진입 비중 | 5% | 시드의 5% |
 | 익절 | +0.4% | ROE +6.0% |
 | 손절 | -0.4% | ROE -6.0% |
-| 타임컷 | 2시간 | Sprint 2에서 구현 예정 |
+| 타임컷 | 2시간 | 구현 완료 |
 | 루프 주기 | 5분 | 300초 간격 |
 
 ---
@@ -393,53 +443,19 @@ PW: admin123
 
 ---
 
-## 📝 Sprint 1 완료 체크리스트
+## 🔧 기술 스택
 
-- [x] ✅ src/config.py - 설정 관리
-- [x] ✅ src/exchange/binance.py - Binance Testnet 클라이언트
-- [x] ✅ src/data/indicators.py - 기술적 지표 계산
-- [x] ✅ src/ai/gemini.py - Gemini AI 클라이언트
-- [x] ✅ src/ai/signals.py - 신호 파싱
-- [x] ✅ src/trading/executor.py - 주문 실행
-- [x] ✅ src/main.py - 메인 루프 통합
-- [x] ✅ scripts/start.sh - 서비스 관리 스크립트
-- [x] ✅ scripts/setup.sh - 환경 설정 스크립트
-- [x] ✅ tests/ - 테스트 스위트 (355개 테스트, 65% 커버리지)
-- [x] ✅ db/init.sql - 데이터베이스 스키마
-- [x] ✅ SETUP_GUIDE.md - 환경 설정 가이드
-- [x] ✅ TEST_GUIDE.md - 테스트 가이드
-- [x] ✅ monitoring/ - Grafana + Loki 모니터링 스택
-- [x] ✅ JSON 구조화 로그 - Promtail 연동
-
-### 실행 테스트 체크리스트
-- [ ] Binance Testnet 데이터 수집 확인
-- [ ] Gemini AI 신호 생성 확인 (LONG/SHORT/WAIT)
-- [ ] Testnet 주문 생성 확인
-- [ ] Discord 알림 수신 확인
-- [ ] Grafana 대시보드 확인
-- [ ] 3회 이상 정상 실행 확인
-
----
-
-## 🔜 다음 단계 (Sprint 2)
-
-Sprint 1이 완료되면 다음 기능을 추가합니다:
-
-### 트레이딩 개선
-- [ ] **Maker 지정가 주문** - 수수료 0.02% (vs 시장가 0.05%)
-- [ ] **타임컷 모니터링** - 2시간 후 자동 청산
-- [ ] **조건부 타임컷** - 수익 +0.1% 시 30분 연장
-- [ ] **DB 거래 기록** - PostgreSQL에 거래 내역 저장
-- [ ] **24시간 무인 운영** - 안정화 및 에러 핸들링 강화
-
-### FastAPI REST API
-- [x] **기본 API** - 헬스체크, 봇 CRUD, 포지션 조회
-- [x] **n8n Webhook 통합** - 자동화 워크플로우 연동
-- [ ] **거래 히스토리** - 거래 내역 및 통계 API
-- [ ] **WebSocket** - 실시간 가격/신호/포지션 스트리밍
-
-**기술 스택**: Python 3.10+ | FastAPI | Pydantic
-**문서**: [src/api/README.md](src/api/README.md)
+| 영역 | 기술 |
+|------|------|
+| 언어 | Python 3.10+ |
+| 거래소 | Binance Futures API (Testnet/Mainnet) |
+| AI | Google Gemini 2.0 Flash |
+| DB | PostgreSQL + Redis |
+| API | FastAPI |
+| 모니터링 | Prometheus + Grafana + Loki |
+| 알림/제어 | Discord Bot |
+| 컨테이너 | Docker Compose |
+| 테스트 | pytest (481개 테스트, 65% 커버리지) |
 
 ---
 
@@ -467,7 +483,7 @@ Sprint 1이 완료되면 다음 기능을 추가합니다:
 ## ⚠️ 주의사항
 
 - 현재는 **Binance Testnet** 모드입니다 (실제 자금 없음)
-- Sprint 3에서 실전 전환 예정
+- 메인넷 전환 시 MAINNET_CONFIRMATION 환경변수 필요
 - 실전 전 충분한 Testnet 검증 필수 (50회 이상 거래)
 - API 키는 절대 Git에 커밋하지 마세요 (`.env`는 `.gitignore`에 포함)
 
@@ -484,6 +500,4 @@ Sprint 1이 완료되면 다음 기능을 추가합니다:
 
 ---
 
-**마지막 업데이트**: 2026-01-31
-**현재 버전**: Phase 3 MVP
-**라이선스**: Private
+**마지막 업데이트**: 2026-02-03
