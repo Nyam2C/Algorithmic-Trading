@@ -387,11 +387,11 @@ class TradeHistoryDB:
         async with self.pool.acquire() as conn:
             cutoff_time = datetime.now() - timedelta(days=days)
 
-            deleted = await conn.fetchval("""
-                DELETE FROM trades
-                WHERE exit_time < $1
-                RETURNING COUNT(*)
+            result = await conn.execute("""
+                DELETE FROM trades WHERE exit_time < $1
             """, cutoff_time)
+            # result 형식: "DELETE N" -> N 추출
+            deleted = int(result.split()[-1]) if result else 0
 
             logger.info(f"오래된 거래 정리: {deleted}건 삭제 ({days}일 이전)")
             return deleted

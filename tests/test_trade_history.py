@@ -400,18 +400,18 @@ class TestCleanupOldTrades:
     async def test_cleanup_old_trades(self, db_with_pool):
         """오래된 거래 정리"""
         db, mock_conn = db_with_pool
-        mock_conn.fetchval.return_value = 5
+        mock_conn.execute.return_value = "DELETE 5"
 
         deleted = await db.cleanup_old_trades(days=30)
 
         assert deleted == 5
-        mock_conn.fetchval.assert_called_once()
+        mock_conn.execute.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_cleanup_old_trades_custom_days(self, db_with_pool):
         """사용자 정의 기간"""
         db, mock_conn = db_with_pool
-        mock_conn.fetchval.return_value = 10
+        mock_conn.execute.return_value = "DELETE 10"
 
         deleted = await db.cleanup_old_trades(days=7)
 

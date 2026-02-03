@@ -2,6 +2,7 @@
 n8n 콜백 서비스 모듈
 
 n8n 웹훅으로 이벤트 콜백을 발송합니다.
+Phase 4.1: aiohttp 세션 재사용 및 URL 마스킹
 """
 from typing import Any, Optional
 
@@ -19,6 +20,10 @@ class N8NCallbackService:
     Attributes:
         webhook_url: n8n 웹훅 URL
         is_enabled: 콜백 활성화 여부
+
+    Phase 4.1 개선:
+        - aiohttp 세션 재사용으로 성능 개선
+        - 웹훅 URL 마스킹으로 보안 강화
     """
 
     def __init__(self, webhook_url: Optional[str] = None) -> None:
@@ -29,11 +34,38 @@ class N8NCallbackService:
         """
         self.webhook_url = webhook_url
         self.is_enabled = webhook_url is not None
+        self._session: Optional[aiohttp.ClientSession] = None
 
         if self.is_enabled:
-            logger.info(f"n8n 콜백 서비스 활성화: {webhook_url}")
+            # URL 마스킹 (보안)
+            masked_url = webhook_url[:30] + "***" if webhook_url and len(webhook_url) > 30 else webhook_url
+            logger.info(f"n8n 콜백 서비스 활성화: {masked_url}")
         else:
             logger.info("n8n 콜백 서비스 비활성화 (URL 없음)")
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """세션 반환 (재사용)
+
+        세션이 없거나 닫혀있으면 새로 생성합니다.
+
+        Returns:
+            aiohttp.ClientSession 인스턴스
+        """
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=10)
+            )
+        return self._session
+
+    async def close(self) -> None:
+        """세션 종료
+
+        서비스 종료 시 호출하여 리소스를 정리합니다.
+        """
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
+            logger.debug("n8n 콜백 서비스 세션 종료")
 
     async def send_callback(self, payload: N8NCallbackPayload) -> bool:
         """콜백 발송
@@ -49,24 +81,23 @@ class N8NCallbackService:
             return False
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.webhook_url,  # type: ignore
-                    json=payload.model_dump(mode="json"),
-                    headers={"Content-Type": "application/json"},
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as response:
-                    if response.status >= 200 and response.status < 300:
-                        logger.debug(
-                            f"n8n 콜백 발송 성공: {payload.event_type} "
-                            f"(bot={payload.bot_name})"
-                        )
-                        return True
-                    else:
-                        logger.warning(
-                            f"n8n 콜백 발송 실패: HTTP {response.status}"
-                        )
-                        return False
+            session = await self._get_session()
+            async with session.post(
+                self.webhook_url,  # type: ignore
+                json=payload.model_dump(mode="json"),
+                headers={"Content-Type": "application/json"},
+            ) as response:
+                if response.status >= 200 and response.status < 300:
+                    logger.debug(
+                        f"n8n 콜백 발송 성공: {payload.event_type} "
+                        f"(bot={payload.bot_name})"
+                    )
+                    return True
+                else:
+                    logger.warning(
+                        f"n8n 콜백 발송 실패: HTTP {response.status}"
+                    )
+                    return False
 
         except aiohttp.ClientError as e:
             logger.error(f"n8n 콜백 발송 에러 (네트워크): {e}")

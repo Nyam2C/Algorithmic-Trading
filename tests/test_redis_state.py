@@ -5,7 +5,7 @@ RedisStateManager의 연결, 상태 저장/로드, 봇 등록 기능을 테스�
 """
 import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 from src.storage.redis_state import (
     RedisStateManager,

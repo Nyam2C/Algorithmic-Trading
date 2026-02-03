@@ -37,6 +37,9 @@ def async_retry(
             for attempt in range(1, max_attempts + 1):
                 try:
                     return await func(*args, **kwargs)
+                except asyncio.CancelledError:
+                    # CancelledError는 즉시 전파 (재시도하지 않음)
+                    raise
                 except exceptions as e:
                     last_exception = e
 

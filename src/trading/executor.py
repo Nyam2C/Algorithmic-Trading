@@ -102,7 +102,10 @@ class TradingExecutor:
                 return None
 
             # Setup leverage
-            await self.setup_leverage()
+            leverage_ok = await self.setup_leverage()
+            if not leverage_ok:
+                logger.error("레버리지 설정 실패 - 거래 중단")
+                return None
 
             # Calculate position size
             quantity = self._calculate_position_size(current_price)
@@ -162,7 +165,10 @@ class TradingExecutor:
                 return None
 
             # Setup leverage
-            await self.setup_leverage()
+            leverage_ok = await self.setup_leverage()
+            if not leverage_ok:
+                logger.error("레버리지 설정 실패 - 거래 중단")
+                return None
 
             # Calculate position size
             quantity = self._calculate_position_size(current_price)

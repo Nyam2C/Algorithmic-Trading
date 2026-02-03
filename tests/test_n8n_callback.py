@@ -58,31 +58,29 @@ class TestN8NCallbackService:
             data={"signal": "LONG", "price": 50000.0},
         )
 
-        # aiohttp.ClientSession을 올바르게 mock
-        with patch("src.api.services.n8n_callback.aiohttp.ClientSession") as MockSession:
-            # mock response context manager
-            mock_response = MagicMock()
-            mock_response.status = 200
+        # mock response context manager
+        mock_response = MagicMock()
+        mock_response.status = 200
 
-            # mock post context manager
-            mock_post_cm = MagicMock()
-            mock_post_cm.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_post_cm.__aexit__ = AsyncMock(return_value=None)
+        # mock post context manager
+        mock_post_cm = MagicMock()
+        mock_post_cm.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_post_cm.__aexit__ = AsyncMock(return_value=None)
 
-            # mock session
-            mock_session = MagicMock()
-            mock_session.post.return_value = mock_post_cm
+        # mock session (_get_session에서 반환되는 세션)
+        mock_session = MagicMock()
+        mock_session.post.return_value = mock_post_cm
 
-            # mock session context manager
-            mock_session_cm = MagicMock()
-            mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session_cm.__aexit__ = AsyncMock(return_value=None)
-
-            MockSession.return_value = mock_session_cm
+        # _get_session을 mock하여 세션 반환
+        with patch.object(
+            callback_service, "_get_session", new_callable=AsyncMock
+        ) as mock_get_session:
+            mock_get_session.return_value = mock_session
 
             result = await callback_service.send_callback(payload)
 
             assert result is True
+            mock_get_session.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_send_signal_callback(self, callback_service):

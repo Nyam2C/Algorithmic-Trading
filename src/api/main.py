@@ -2,7 +2,9 @@
 FastAPI 앱 팩토리
 
 REST API 앱을 생성하고 라우터를 등록합니다.
+Phase 4.1: CORS 환경변수 설정 추가
 """
+import os
 from typing import Optional
 
 from fastapi import FastAPI, Request, status
@@ -49,10 +51,11 @@ def create_app(
         redoc_url="/redoc" if config.debug else None,
     )
 
-    # CORS 미들웨어 추가
+    # CORS 미들웨어 추가 (환경변수로 제어)
+    cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # 프로덕션에서는 제한 필요
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

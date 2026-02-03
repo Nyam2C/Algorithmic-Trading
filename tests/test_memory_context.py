@@ -6,7 +6,7 @@ TDD 방식으로 작성
 """
 import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from src.analytics.memory_context import (
     AIMemoryContextBuilder,
@@ -296,7 +296,7 @@ class TestAIMemoryContextBuilder:
         mock_analyzer.get_pattern_insights = AsyncMock(return_value=[])
         mock_analyzer.get_worst_patterns = AsyncMock(return_value=[])
 
-        context = await context_builder.build_context(bot_id="test-bot-id")
+        await context_builder.build_context(bot_id="test-bot-id")
 
         # bot_id가 분석기에 전달되었는지 확인
         mock_analyzer.get_overall_stats.assert_called_once()
