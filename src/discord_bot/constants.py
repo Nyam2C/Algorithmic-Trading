@@ -21,6 +21,12 @@ class Colors:
     LONG = 0x00FF00     # 녹색 - 롱 포지션
     SHORT = 0xFF0000    # 빨간색 - 숏 포지션
 
+    # 권한 색상
+    PERMISSION_DENIED = 0xFF6B6B  # 연한 빨간색 - 권한 거부
+    PERMISSION_ADMIN = 0xFFD700   # 금색 - 관리자
+    PERMISSION_TRADER = 0x4169E1  # 로열 블루 - 트레이더
+    PERMISSION_VIEWER = 0x808080  # 회색 - 조회자
+
 
 # =============================================================================
 # 타임아웃
@@ -111,3 +117,7 @@ class Messages:
 
     # 확인 메시지
     CANCELLED = "취소되었습니다"
+
+    # 권한 메시지
+    PERMISSION_DENIED = "🚫 권한이 없습니다. 이 명령어는 **{level}** 이상의 권한이 필요합니다."
+    PERMISSION_DENIED_BUTTON = "🚫 이 버튼을 사용할 권한이 없습니다."
