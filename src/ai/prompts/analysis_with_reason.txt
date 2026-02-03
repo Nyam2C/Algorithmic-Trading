@@ -1,0 +1,57 @@
+## Current Market Data ({{symbol}} Perpetual)
+
+### Price Action (Last 2 Hours, 5-min candles)
+2-Hour Trend: {{trend_2h_pct}}%
+Recent 30min: {{trend_30min_pct}}%
+Candle Count: {{bullish_candles}} bullish / {{bearish_candles}} bearish
+Highest: ${{highest}}
+Lowest: ${{lowest}}
+
+### Current State
+- Current Price: ${{current_price}}
+- 24h High: ${{high_24h}}
+- 24h Low: ${{low_24h}}
+- 24h Change: {{change_24h_pct}}%
+
+### Technical Indicators
+- RSI (14): {{rsi}}
+- RSI Trend: {{rsi_trend}} (rising/falling/flat)
+- MA7: ${{ma_7}}
+- MA25: ${{ma_25}}
+- MA99: ${{ma_99}}
+- Price vs MA7: {{price_vs_ma7_pct}}% ({{price_vs_ma7_pos}})
+- Price vs MA25: {{price_vs_ma25_pct}}% ({{price_vs_ma25_pos}})
+
+### Volume Analysis
+- Current Volume: {{current_volume}}
+- Avg Volume (24h): {{avg_volume}}
+- Volume Ratio: {{volume_ratio}}x
+- Volume Trend: {{volume_trend}} (increasing/decreasing)
+
+### Volatility
+- ATR (14): ${{atr}}
+- ATR %: {{atr_pct}}%
+- Volatility State: {{volatility_state}} (low/normal/high)
+
+### Key Levels
+- Nearest Resistance: ${{resistance}}
+- Nearest Support: ${{support}}
+- Distance to Resistance: {{dist_resistance_pct}}%
+- Distance to Support: {{dist_support_pct}}%
+
+Based on this data, analyze the market and provide your trading signal with reasoning.
+
+**IMPORTANT**: You MUST respond in the following JSON format only:
+```json
+{
+  "signal": "LONG" | "SHORT" | "WAIT",
+  "reason": "Brief explanation in Korean (1-2 sentences)"
+}
+```
+
+Examples:
+- {"signal": "LONG", "reason": "RSI 30 이하 과매도 구간, MA7이 MA25 위에서 골든크로스 형성"}
+- {"signal": "SHORT", "reason": "RSI 70 이상 과매수 구간, 가격이 저항선 근처에서 거부됨"}
+- {"signal": "WAIT", "reason": "RSI 중립 구간, 명확한 방향성 부재로 관망 필요"}
+
+Your response:
