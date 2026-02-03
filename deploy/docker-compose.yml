@@ -59,6 +59,7 @@ services:
       - API_PORT=8000
     volumes:
       - ../logs:/app/logs
+      - ../configs:/app/configs:ro
     ports:
       - "8000:8000"
     healthcheck:

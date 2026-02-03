@@ -17,6 +17,9 @@ loguru>=0.7.0
 # Environment
 python-dotenv>=1.0.0
 
+# Configuration
+PyYAML>=6.0
+
 # ===========================================
 # Trading Dependencies (Sprint 1)
 # ===========================================

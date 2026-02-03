@@ -1,0 +1,40 @@
+# ===========================================
+# High-Win Survival System - 멀티봇 설정 예시
+# ===========================================
+# 이 파일을 configs/bots.yaml로 복사하여 사용하세요.
+#
+# 위험도(risk_level)별 기본값:
+#   low:    leverage=10, position=3%, tp/sl=0.3%
+#   medium: leverage=15, position=5%, tp/sl=0.4%
+#   high:   leverage=20, position=8%, tp/sl=0.6%
+
+# 글로벌 설정
+global:
+  is_testnet: true           # true: Testnet, false: 실거래
+  loop_interval_seconds: 300  # 트레이딩 루프 간격 (초)
+
+# 봇 목록
+bots:
+  # BTC 보수적 전략
+  - name: btc-conservative
+    symbol: BTCUSDT
+    risk_level: low
+    is_active: true
+
+  # ETH 균형 전략
+  - name: eth-balanced
+    symbol: ETHUSDT
+    risk_level: medium
+    is_active: true
+
+  # SOL 공격적 전략
+  - name: sol-aggressive
+    symbol: SOLUSDT
+    risk_level: high
+    is_active: false          # 비활성화된 봇은 실행되지 않음
+
+# 추가 봇 예시 (필요에 따라 추가)
+#  - name: xrp-balanced
+#    symbol: XRPUSDT
+#    risk_level: medium
+#    is_active: false

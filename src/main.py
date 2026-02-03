@@ -21,6 +21,7 @@ from loguru import logger
 from src.config import get_config
 from src.bot_config import BotConfig
 from src.bot_manager import MultiBotManager
+from src.config_loader import load_bots_from_yaml_optional
 from src.api.main import create_app
 from src.discord_bot.bot import start_discord_bot
 from src.storage.trade_history import TradeHistoryDB
@@ -198,21 +199,37 @@ async def main() -> None:
         redis_state_manager=redis_manager,
     )
 
-    # 5. 기본 봇 생성 (환경변수 기반, 하위 호환성)
-    default_bot_config = BotConfig(
-        bot_name=config.bot_name,
-        symbol=config.symbol,
-        risk_level="medium",
-        leverage=config.leverage,
-        position_size_pct=config.position_size_pct,
-        take_profit_pct=config.take_profit_pct,
-        stop_loss_pct=config.stop_loss_pct,
-        time_cut_minutes=config.time_cut_minutes,
-        is_testnet=config.binance_testnet,
-        is_active=True,
-    )
-    manager.add_bot(default_bot_config)
-    logger.info(f"Default bot added: {config.bot_name} ({config.symbol})")
+    # 5. 봇 설정 로드 (YAML 우선, 없으면 환경변수 fallback)
+    yaml_bot_configs, yaml_global = load_bots_from_yaml_optional()
+
+    if yaml_bot_configs:
+        # YAML 설정 기반 멀티봇 추가
+        active_count = 0
+        for bot_config in yaml_bot_configs:
+            if bot_config.is_active:
+                manager.add_bot(bot_config)
+                logger.info(
+                    f"YAML 봇 추가: {bot_config.bot_name} "
+                    f"({bot_config.symbol}, {bot_config.risk_level})"
+                )
+                active_count += 1
+        logger.info(f"YAML에서 {active_count}개 활성 봇 로드 완료")
+    else:
+        # 하위 호환성: 기존 환경변수 방식
+        default_bot_config = BotConfig(
+            bot_name=config.bot_name,
+            symbol=config.symbol,
+            risk_level="medium",
+            leverage=config.leverage,
+            position_size_pct=config.position_size_pct,
+            take_profit_pct=config.take_profit_pct,
+            stop_loss_pct=config.stop_loss_pct,
+            time_cut_minutes=config.time_cut_minutes,
+            is_testnet=config.binance_testnet,
+            is_active=True,
+        )
+        manager.add_bot(default_bot_config)
+        logger.info(f"기본 봇 추가: {config.bot_name} - 환경변수 기반 ({config.symbol})")
 
     # 6. 공유 상태 (Discord 봇 호환성)
     bot_state = {
