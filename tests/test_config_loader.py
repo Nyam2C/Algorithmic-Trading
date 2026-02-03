@@ -180,6 +180,18 @@ bots: []
         assert len(bot_configs) == 0
         assert global_config.is_testnet is False
 
+    def test_load_yaml_completely_empty_file(self, tmp_path):
+        """완전히 빈 YAML 파일 테스트"""
+        yaml_file = tmp_path / "empty.yaml"
+        yaml_file.write_text("")
+
+        bot_configs, global_config = load_bots_from_yaml(str(yaml_file))
+
+        # 기본값 적용
+        assert len(bot_configs) == 0
+        assert global_config.is_testnet is True
+        assert global_config.loop_interval_seconds == 300
+
 
 class TestLoadBotsFromYamlOptional:
     """선택적 YAML 로드 함수 테스트 (하위 호환성)"""
