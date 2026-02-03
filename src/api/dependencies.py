@@ -4,7 +4,9 @@ FastAPI 의존성 주입 모듈
 MultiBotManager 및 기타 의존성을 주입합니다.
 Phase 4: TradeHistoryAnalyzer 의존성 추가
 Phase 4.1: n8n API 키 인증 추가
+Phase 4.2: 보안 강화 (인증 우회 방지, Timing Attack 방지)
 """
+import hmac
 import os
 from typing import Optional, Union
 
@@ -155,13 +157,43 @@ async def verify_n8n_api_key(
         검증된 API 키
 
     Raises:
-        HTTPException: API 키가 유효하지 않은 경우
+        HTTPException: API 키가 유효하지 않거나 미설정된 경우
     """
     expected_key = os.getenv("N8N_API_KEY")
     if not expected_key:
-        # N8N_API_KEY 환경변수 미설정 시 인증 건너뜀 (개발 환경)
-        return x_n8n_api_key
+        raise HTTPException(
+            status_code=500,
+            detail="N8N_API_KEY not configured"
+        )
 
-    if x_n8n_api_key != expected_key:
+    # Timing Attack 방지: 상수 시간 비교
+    if not hmac.compare_digest(x_n8n_api_key, expected_key):
         raise HTTPException(status_code=401, detail="Invalid API key")
     return x_n8n_api_key
+
+
+async def verify_api_key(
+    x_api_key: str = Header(..., alias="X-API-Key"),
+) -> str:
+    """일반 API 키 검증
+
+    Args:
+        x_api_key: 요청 헤더의 API 키
+
+    Returns:
+        검증된 API 키
+
+    Raises:
+        HTTPException: API 키가 유효하지 않거나 미설정된 경우
+    """
+    expected_key = os.getenv("API_KEY")
+    if not expected_key:
+        raise HTTPException(
+            status_code=500,
+            detail="API_KEY not configured"
+        )
+
+    # Timing Attack 방지: 상수 시간 비교
+    if not hmac.compare_digest(x_api_key, expected_key):
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return x_api_key

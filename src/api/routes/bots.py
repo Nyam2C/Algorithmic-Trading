@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, status, Depends
 
-from src.api.dependencies import get_bot_manager
+from src.api.dependencies import get_bot_manager, verify_api_key
 from src.api.schemas.bot import (
     BotCreateRequest,
     BotUpdateRequest,
@@ -19,7 +19,11 @@ from src.api.schemas.common import SuccessResponse, APIResponse
 from src.api.services.bot_service import BotService
 from src.bot_manager import MultiBotManager
 
-router = APIRouter(prefix="/bots", tags=["Bots"])
+router = APIRouter(
+    prefix="/bots",
+    tags=["Bots"],
+    dependencies=[Depends(verify_api_key)],
+)
 
 
 def get_bot_service(

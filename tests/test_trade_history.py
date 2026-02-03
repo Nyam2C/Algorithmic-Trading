@@ -302,8 +302,15 @@ class TestGetStatistics:
         """거래 통계 조회"""
         db, mock_conn = db_with_pool
 
-        # fetchval 호출 순서: total, winners, total_pnl, best, worst, long_trades
-        mock_conn.fetchval.side_effect = [10, 6, 150.0, 2.5, -1.5, 7]
+        # fetchrow 결과: 단일 쿼리로 모든 통계 조회
+        mock_conn.fetchrow.return_value = {
+            "total_trades": 10,
+            "winners": 6,
+            "total_pnl": 150.0,
+            "best_trade": 2.5,
+            "worst_trade": -1.5,
+            "long_trades": 7,
+        }
 
         stats = await db.get_statistics(hours=24)
 
@@ -319,7 +326,16 @@ class TestGetStatistics:
     async def test_get_statistics_no_trades(self, db_with_pool):
         """거래 없는 경우"""
         db, mock_conn = db_with_pool
-        mock_conn.fetchval.return_value = 0
+
+        # total_trades가 0인 경우
+        mock_conn.fetchrow.return_value = {
+            "total_trades": 0,
+            "winners": 0,
+            "total_pnl": 0,
+            "best_trade": 0,
+            "worst_trade": 0,
+            "long_trades": 0,
+        }
 
         stats = await db.get_statistics(hours=24)
 
@@ -331,7 +347,15 @@ class TestGetStatistics:
     async def test_get_statistics_custom_period(self, db_with_pool):
         """사용자 정의 기간"""
         db, mock_conn = db_with_pool
-        mock_conn.fetchval.side_effect = [5, 3, 75.0, 1.5, -0.8, 3]
+
+        mock_conn.fetchrow.return_value = {
+            "total_trades": 5,
+            "winners": 3,
+            "total_pnl": 75.0,
+            "best_trade": 1.5,
+            "worst_trade": -0.8,
+            "long_trades": 3,
+        }
 
         stats = await db.get_statistics(hours=48)
 
@@ -503,7 +527,15 @@ class TestBotIdSupport:
     async def test_get_statistics_with_bot_id_filter(self, db_with_pool):
         """bot_id로 필터링하여 통계 조회"""
         db, mock_conn = db_with_pool
-        mock_conn.fetchval.side_effect = [5, 3, 75.0, 1.5, -0.8, 3]
+
+        mock_conn.fetchrow.return_value = {
+            "total_trades": 5,
+            "winners": 3,
+            "total_pnl": 75.0,
+            "best_trade": 1.5,
+            "worst_trade": -0.8,
+            "long_trades": 3,
+        }
 
         stats = await db.get_statistics(hours=24, bot_id="bot-uuid")
 

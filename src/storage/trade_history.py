@@ -4,6 +4,7 @@
 모든 거래 진입/청산 기록을 분석 및 리포트용으로 저장
 """
 import asyncpg
+from asyncpg import Connection
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from loguru import logger
@@ -205,144 +206,122 @@ class TradeHistoryDB:
         async with self.pool.acquire() as conn:
             cutoff_time = datetime.now() - timedelta(hours=hours)
 
-            # bot_id 필터 조건
-            bot_filter = "AND bot_id = $2::uuid" if bot_id else ""
-
-            # 전체 거래 수
+            # 통계 조회: bot_id 유무에 따라 별도 쿼리 사용
             if bot_id:
-                total_trades = await conn.fetchval(f"""
-                    SELECT COUNT(*)
-                    FROM trades
-                    WHERE status = 'CLOSED'
-                    AND exit_time >= $1
-                    {bot_filter}
-                """, cutoff_time, bot_id)
+                stats = await self._get_statistics_with_bot_id(
+                    conn, cutoff_time, bot_id
+                )
             else:
-                total_trades = await conn.fetchval("""
-                    SELECT COUNT(*)
-                    FROM trades
-                    WHERE status = 'CLOSED'
-                    AND exit_time >= $1
-                """, cutoff_time)
+                stats = await self._get_statistics_all(conn, cutoff_time)
 
-            if total_trades == 0:
-                return {
-                    "period_hours": hours,
-                    "total_trades": 0,
-                    "winners": 0,
-                    "losers": 0,
-                    "win_rate": 0,
-                    "total_pnl": 0,
-                    "best_trade": 0,
-                    "worst_trade": 0,
-                    "long_trades": 0,
-                    "short_trades": 0,
-                }
+            stats["period_hours"] = hours
+            return stats
 
-            # 수익/손실 거래
-            if bot_id:
-                winners = await conn.fetchval(f"""
-                    SELECT COUNT(*)
-                    FROM trades
-                    WHERE status = 'CLOSED'
-                    AND exit_time >= $1
-                    AND pnl > 0
-                    {bot_filter}
-                """, cutoff_time, bot_id)
-            else:
-                winners = await conn.fetchval("""
-                    SELECT COUNT(*)
-                    FROM trades
-                    WHERE status = 'CLOSED'
-                    AND exit_time >= $1
-                    AND pnl > 0
-                """, cutoff_time)
+    async def _get_statistics_all(
+        self,
+        conn: Connection,
+        cutoff_time: datetime,
+    ) -> Dict[str, Any]:
+        """모든 봇의 통계 조회 (내부 메서드)"""
+        # 단일 쿼리로 모든 통계 조회
+        row = await conn.fetchrow("""
+            SELECT
+                COUNT(*) as total_trades,
+                COUNT(*) FILTER (WHERE pnl > 0) as winners,
+                COALESCE(SUM(pnl), 0) as total_pnl,
+                COALESCE(MAX(pnl_pct), 0) as best_trade,
+                COALESCE(MIN(pnl_pct), 0) as worst_trade,
+                COUNT(*) FILTER (WHERE side = 'LONG') as long_trades
+            FROM trades
+            WHERE status = 'CLOSED'
+            AND exit_time >= $1
+        """, cutoff_time)
 
-            # 총 손익
-            if bot_id:
-                total_pnl = await conn.fetchval(f"""
-                    SELECT COALESCE(SUM(pnl), 0)
-                    FROM trades
-                    WHERE status = 'CLOSED'
-                    AND exit_time >= $1
-                    {bot_filter}
-                """, cutoff_time, bot_id)
-            else:
-                total_pnl = await conn.fetchval("""
-                    SELECT COALESCE(SUM(pnl), 0)
-                    FROM trades
-                    WHERE status = 'CLOSED'
-                    AND exit_time >= $1
-                """, cutoff_time)
-
-            # 최고/최저 거래
-            if bot_id:
-                best_trade = await conn.fetchval(f"""
-                    SELECT COALESCE(MAX(pnl_pct), 0)
-                    FROM trades
-                    WHERE status = 'CLOSED'
-                    AND exit_time >= $1
-                    {bot_filter}
-                """, cutoff_time, bot_id)
-            else:
-                best_trade = await conn.fetchval("""
-                    SELECT COALESCE(MAX(pnl_pct), 0)
-                    FROM trades
-                    WHERE status = 'CLOSED'
-                    AND exit_time >= $1
-                """, cutoff_time)
-
-            if bot_id:
-                worst_trade = await conn.fetchval(f"""
-                    SELECT COALESCE(MIN(pnl_pct), 0)
-                    FROM trades
-                    WHERE status = 'CLOSED'
-                    AND exit_time >= $1
-                    {bot_filter}
-                """, cutoff_time, bot_id)
-            else:
-                worst_trade = await conn.fetchval("""
-                    SELECT COALESCE(MIN(pnl_pct), 0)
-                    FROM trades
-                    WHERE status = 'CLOSED'
-                    AND exit_time >= $1
-                """, cutoff_time)
-
-            # 롱 vs 숏
-            if bot_id:
-                long_trades = await conn.fetchval(f"""
-                    SELECT COUNT(*)
-                    FROM trades
-                    WHERE status = 'CLOSED'
-                    AND exit_time >= $1
-                    AND side = 'LONG'
-                    {bot_filter}
-                """, cutoff_time, bot_id)
-            else:
-                long_trades = await conn.fetchval("""
-                    SELECT COUNT(*)
-                    FROM trades
-                    WHERE status = 'CLOSED'
-                    AND exit_time >= $1
-                    AND side = 'LONG'
-                """, cutoff_time)
-
-            losers = total_trades - winners
-            win_rate = (winners / total_trades * 100) if total_trades > 0 else 0
-            short_trades = total_trades - long_trades
-
+        total_trades = row["total_trades"]
+        if total_trades == 0:
             return {
-                "period_hours": hours,
-                "total_trades": total_trades,
-                "winners": winners,
-                "losers": losers,
-                "win_rate": round(win_rate, 2),
-                "total_pnl": float(total_pnl),
-                "best_trade": float(best_trade),
-                "worst_trade": float(worst_trade),
-                "long_trades": long_trades,
-                "short_trades": short_trades,
+                "total_trades": 0,
+                "winners": 0,
+                "losers": 0,
+                "win_rate": 0,
+                "total_pnl": 0,
+                "best_trade": 0,
+                "worst_trade": 0,
+                "long_trades": 0,
+                "short_trades": 0,
             }
+
+        winners = row["winners"]
+        losers = total_trades - winners
+        win_rate = (winners / total_trades * 100) if total_trades > 0 else 0
+        long_trades = row["long_trades"]
+        short_trades = total_trades - long_trades
+
+        return {
+            "total_trades": total_trades,
+            "winners": winners,
+            "losers": losers,
+            "win_rate": round(win_rate, 2),
+            "total_pnl": float(row["total_pnl"]),
+            "best_trade": float(row["best_trade"]),
+            "worst_trade": float(row["worst_trade"]),
+            "long_trades": long_trades,
+            "short_trades": short_trades,
+        }
+
+    async def _get_statistics_with_bot_id(
+        self,
+        conn: Connection,
+        cutoff_time: datetime,
+        bot_id: str,
+    ) -> Dict[str, Any]:
+        """특정 봇의 통계 조회 (내부 메서드)"""
+        # 단일 쿼리로 모든 통계 조회
+        row = await conn.fetchrow("""
+            SELECT
+                COUNT(*) as total_trades,
+                COUNT(*) FILTER (WHERE pnl > 0) as winners,
+                COALESCE(SUM(pnl), 0) as total_pnl,
+                COALESCE(MAX(pnl_pct), 0) as best_trade,
+                COALESCE(MIN(pnl_pct), 0) as worst_trade,
+                COUNT(*) FILTER (WHERE side = 'LONG') as long_trades
+            FROM trades
+            WHERE status = 'CLOSED'
+            AND exit_time >= $1
+            AND bot_id = $2::uuid
+        """, cutoff_time, bot_id)
+
+        total_trades = row["total_trades"]
+        if total_trades == 0:
+            return {
+                "total_trades": 0,
+                "winners": 0,
+                "losers": 0,
+                "win_rate": 0,
+                "total_pnl": 0,
+                "best_trade": 0,
+                "worst_trade": 0,
+                "long_trades": 0,
+                "short_trades": 0,
+            }
+
+        winners = row["winners"]
+        losers = total_trades - winners
+        win_rate = (winners / total_trades * 100) if total_trades > 0 else 0
+        long_trades = row["long_trades"]
+        short_trades = total_trades - long_trades
+
+        return {
+            "total_trades": total_trades,
+            "winners": winners,
+            "losers": losers,
+            "win_rate": round(win_rate, 2),
+            "total_pnl": float(row["total_pnl"]),
+            "best_trade": float(row["best_trade"]),
+            "worst_trade": float(row["worst_trade"]),
+            "long_trades": long_trades,
+            "short_trades": short_trades,
+        }
 
     async def get_open_trade(
         self,

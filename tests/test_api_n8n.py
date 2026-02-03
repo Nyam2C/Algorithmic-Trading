@@ -51,13 +51,18 @@ def mock_manager(mock_bot):
     return manager
 
 
+@pytest.fixture(autouse=True)
+def set_n8n_api_key_env():
+    """모든 테스트에서 N8N_API_KEY 환경변수 설정"""
+    with patch.dict(os.environ, {"N8N_API_KEY": TEST_N8N_API_KEY}):
+        yield
+
+
 @pytest.fixture
 def client(mock_manager):
-    """테스트 클라이언트 fixture (API 키 인증 설정)"""
-    # N8N_API_KEY 환경변수 설정
-    with patch.dict(os.environ, {"N8N_API_KEY": TEST_N8N_API_KEY}):
-        app = create_app(bot_manager=mock_manager)
-        return TestClient(app)
+    """테스트 클라이언트 fixture"""
+    app = create_app(bot_manager=mock_manager)
+    return TestClient(app)
 
 
 @pytest.fixture
@@ -350,16 +355,9 @@ class TestN8NPayloadValidation:
 class TestN8NAuthValidation:
     """API 키 인증 테스트"""
 
-    @pytest.fixture
-    def auth_client(self, mock_manager):
-        """인증 테스트용 클라이언트 (N8N_API_KEY 설정됨)"""
-        with patch.dict(os.environ, {"N8N_API_KEY": TEST_N8N_API_KEY}):
-            app = create_app(bot_manager=mock_manager)
-            yield TestClient(app)
-
-    def test_missing_api_key(self, auth_client):
+    def test_missing_api_key(self, client):
         """API 키 누락 시 422 반환"""
-        response = auth_client.post(
+        response = client.post(
             "/api/n8n/signal",
             json={
                 "signal": "LONG",
@@ -370,9 +368,9 @@ class TestN8NAuthValidation:
 
         assert response.status_code == 422
 
-    def test_invalid_api_key(self, auth_client):
+    def test_invalid_api_key(self, client):
         """잘못된 API 키 시 401 반환"""
-        response = auth_client.post(
+        response = client.post(
             "/api/n8n/signal",
             json={
                 "signal": "LONG",
