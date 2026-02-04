@@ -157,10 +157,40 @@ STOP_LOSS_PCT=0.004            # Stop loss (0.4%)
 TIME_CUT_MINUTES=120           # Max position duration (2 hours)
 ```
 
-#### 6. Database (for future backend)
+#### 6. Database
 
 ```bash
 DATABASE_URL=postgresql://postgres:postgres@db:5432/trading
+```
+
+#### 7. Redis (상태 관리)
+
+```bash
+REDIS_URL=redis://localhost:6379/0
+```
+
+#### 8. 리스크 관리
+
+```bash
+MAX_DAILY_LOSS_PCT=0.05              # 일일 최대 손실률 (5%)
+MAX_DRAWDOWN_PCT=0.10                # 최대 드로다운 (10%)
+MAX_CONSECUTIVE_LOSSES=3             # 최대 연속 손실 횟수
+COOLDOWN_MINUTES=30                  # 쿨다운 시간 (분)
+```
+
+#### 9. 수동 승인 모드
+
+```bash
+MANUAL_APPROVAL_ENABLED=true         # 수동 승인 활성화
+MANUAL_APPROVAL_TRADES=5             # 수동 승인 필요 거래 수
+APPROVAL_TIMEOUT=60                  # 승인 대기 시간 (초)
+```
+
+#### 10. 메인넷 안전장치
+
+```bash
+BINANCE_TESTNET=true                 # true=테스트넷, false=메인넷
+MAINNET_CONFIRMATION=false           # 메인넷 사용 시 반드시 true 설정 필요
 ```
 
 ---
@@ -186,16 +216,40 @@ psql -U postgres -f db/init.sql
 
 The database includes tables for:
 
-**Current (Sprint 1):**
+**Core Tables:**
 - `trades` - Trading history
 - `ai_signals` - AI signal history
 - `market_data` - Market snapshots
 - `bot_status` - Bot state tracking
-
-**Future (Sprint 2+):**
-- `users` - User management
 - `bot_configs` - Multi-bot configurations
-- `notifications` - Alert system
+- `audit_logs` - Audit log entries
+
+**Migrations:**
+- `db/migrations/001_multi_bot.sql` - 멀티봇 지원 스키마
+- `db/migrations/002_analytics_views.sql` - 분석용 뷰/함수
+- `db/migrations/003_audit_logs.sql` - 감사 로그 테이블
+
+### DB 마이그레이션 가이드
+
+마이그레이션을 적용하려면 아래 순서대로 실행하세요:
+
+```bash
+# PostgreSQL 컨테이너 실행 확인
+docker compose ps
+
+# 기본 스키마 적용
+docker exec -i trading-db psql -U trading -d trading < db/init.sql
+
+# 마이그레이션 순차 적용
+docker exec -i trading-db psql -U trading -d trading < db/migrations/001_multi_bot.sql
+docker exec -i trading-db psql -U trading -d trading < db/migrations/002_analytics_views.sql
+docker exec -i trading-db psql -U trading -d trading < db/migrations/003_audit_logs.sql
+```
+
+또는 Docker 시작 시 자동으로 적용됩니다:
+```bash
+./scripts/start.sh
+```
 
 ### Connect to Database
 
@@ -523,7 +577,7 @@ After successful setup:
 
 ---
 
-## Future: Backend Setup (Sprint 2+)
+## Future: Backend Setup
 
 When implementing the FastAPI backend:
 
@@ -587,5 +641,5 @@ If you encounter issues:
 
 ---
 
-**마지막 업데이트:** 2026-01-21
-**상태:** Phase 2 Testnet 검증 진행 중
+**마지막 업데이트:** 2026-02-03
+**마지막 업데이트:** 2026-02-03

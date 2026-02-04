@@ -1,8 +1,10 @@
 """
 Binance Testnet Client for futures trading
+
+Phase 4: AsyncClient 마이그레이션 - 비동기 클라이언트 사용
 """
 from typing import Dict, Optional
-from binance.client import Client
+from binance import AsyncClient
 from binance.enums import (
     SIDE_BUY,
     SIDE_SELL,
@@ -18,7 +20,13 @@ from src.utils.retry import async_retry
 
 
 class BinanceTestnetClient:
-    """Binance Futures Testnet Client"""
+    """Binance Futures Testnet Client (Async)
+
+    Phase 4: AsyncClient 마이그레이션 완료
+    - 모든 API 호출이 진정한 비동기로 동작
+    - connect() 호출 필수
+    - close() 호출로 리소스 정리
+    """
 
     def __init__(self, api_key: str, secret_key: str, testnet: bool = True):
         """
@@ -29,23 +37,49 @@ class BinanceTestnetClient:
             secret_key: Binance secret key
             testnet: Use testnet or real trading (default: True)
         """
-        self.testnet = testnet
+        self._api_key = api_key
+        self._secret_key = secret_key
+        self._testnet = testnet
+        self._client: Optional[AsyncClient] = None
 
-        if testnet:
-            # Testnet base URL
-            self.client = Client(
-                api_key=api_key,
-                api_secret=secret_key,
-                testnet=True,
-            )
-            logger.info("Binance Testnet client initialized")
+    async def connect(self) -> None:
+        """AsyncClient 초기화 (비동기)
+
+        사용 전 반드시 호출해야 합니다.
+        """
+        if self._client is not None:
+            logger.warning("클라이언트가 이미 연결되어 있습니다")
+            return
+
+        self._client = await AsyncClient.create(
+            api_key=self._api_key,
+            api_secret=self._secret_key,
+            testnet=self._testnet,
+        )
+
+        if self._testnet:
+            logger.info("Binance Testnet AsyncClient 연결 완료")
         else:
-            # Real trading (for Sprint 3+)
-            self.client = Client(
-                api_key=api_key,
-                api_secret=secret_key,
-            )
-            logger.warning("Binance REAL trading client initialized")
+            logger.warning("Binance REAL trading AsyncClient 연결 완료")
+
+    async def close(self) -> None:
+        """연결 종료"""
+        if self._client:
+            await self._client.close_connection()
+            self._client = None
+            logger.info("Binance AsyncClient 연결 종료")
+
+    @property
+    def client(self) -> AsyncClient:
+        """내부 클라이언트 반환 (연결 확인)"""
+        if self._client is None:
+            raise RuntimeError("클라이언트가 연결되지 않았습니다. connect()를 먼저 호출하세요.")
+        return self._client
+
+    @property
+    def testnet(self) -> bool:
+        """Testnet 사용 여부"""
+        return self._testnet
 
     @async_retry(
         max_attempts=3,
@@ -64,7 +98,7 @@ class BinanceTestnetClient:
             Current price as float
         """
         try:
-            ticker = self.client.futures_symbol_ticker(symbol=symbol)
+            ticker = await self.client.futures_symbol_ticker(symbol=symbol)
             price = float(ticker["price"])
             logger.debug(f"{symbol} current price: ${price:,.2f}")
             return price
@@ -81,7 +115,7 @@ class BinanceTestnetClient:
     async def get_klines(
         self,
         symbol: str,
-        interval: str = Client.KLINE_INTERVAL_5MINUTE,
+        interval: str = AsyncClient.KLINE_INTERVAL_5MINUTE,
         limit: int = 24,
     ) -> pd.DataFrame:
         """
@@ -96,7 +130,7 @@ class BinanceTestnetClient:
             DataFrame with OHLCV data
         """
         try:
-            klines = self.client.futures_klines(
+            klines = await self.client.futures_klines(
                 symbol=symbol, interval=interval, limit=limit
             )
 
@@ -144,7 +178,7 @@ class BinanceTestnetClient:
             Dictionary with 24h stats
         """
         try:
-            ticker = self.client.futures_ticker(symbol=symbol)
+            ticker = await self.client.futures_ticker(symbol=symbol)
             stats = {
                 "high_24h": float(ticker["highPrice"]),
                 "low_24h": float(ticker["lowPrice"]),
@@ -176,7 +210,7 @@ class BinanceTestnetClient:
             Response from exchange
         """
         try:
-            response = self.client.futures_change_leverage(
+            response = await self.client.futures_change_leverage(
                 symbol=symbol, leverage=leverage
             )
             logger.info(f"Leverage set to {leverage}x for {symbol}")
@@ -206,7 +240,7 @@ class BinanceTestnetClient:
             Order details
         """
         try:
-            order = self.client.futures_create_order(
+            order = await self.client.futures_create_order(
                 symbol=symbol,
                 side=side,
                 type=ORDER_TYPE_MARKET,
@@ -243,7 +277,7 @@ class BinanceTestnetClient:
             Order details
         """
         try:
-            order = self.client.futures_create_order(
+            order = await self.client.futures_create_order(
                 symbol=symbol,
                 side=side,
                 type=ORDER_TYPE_LIMIT,
@@ -278,7 +312,7 @@ class BinanceTestnetClient:
             Order details with status
         """
         try:
-            order = self.client.futures_get_order(symbol=symbol, orderId=order_id)
+            order = await self.client.futures_get_order(symbol=symbol, orderId=order_id)
             logger.debug(f"Order {order_id} status: {order['status']}")
             return order
         except Exception as e:
@@ -303,7 +337,7 @@ class BinanceTestnetClient:
             Cancel response
         """
         try:
-            result = self.client.futures_cancel_order(symbol=symbol, orderId=order_id)
+            result = await self.client.futures_cancel_order(symbol=symbol, orderId=order_id)
             logger.info(f"Order {order_id} cancelled")
             return result
         except Exception as e:
@@ -321,7 +355,7 @@ class BinanceTestnetClient:
             Position info or None if no position
         """
         try:
-            positions = self.client.futures_position_information(symbol=symbol)
+            positions = await self.client.futures_position_information(symbol=symbol)
 
             for pos in positions:
                 if float(pos["positionAmt"]) != 0:
@@ -330,7 +364,7 @@ class BinanceTestnetClient:
                         "position_amt": float(pos["positionAmt"]),
                         "entry_price": float(pos["entryPrice"]),
                         "unrealized_pnl": float(pos["unRealizedProfit"]),
-                        "leverage": int(pos.get("leverage", 1)),  # Default to 1x if not present
+                        "leverage": int(pos.get("leverage", 1)),
                         "side": "LONG" if float(pos["positionAmt"]) > 0 else "SHORT",
                     }
                     logger.debug(
@@ -355,7 +389,7 @@ class BinanceTestnetClient:
             열린 포지션 리스트 (포지션이 없으면 빈 리스트)
         """
         try:
-            positions = self.client.futures_position_information()
+            positions = await self.client.futures_position_information()
             open_positions = []
 
             for pos in positions:
@@ -363,9 +397,8 @@ class BinanceTestnetClient:
                 if position_amt != 0:
                     # 현재가 조회
                     try:
-                        current_price = float(
-                            self.client.futures_symbol_ticker(symbol=pos["symbol"])["price"]
-                        )
+                        ticker = await self.client.futures_symbol_ticker(symbol=pos["symbol"])
+                        current_price = float(ticker["price"])
                     except Exception:
                         current_price = float(pos["markPrice"])
 
@@ -452,7 +485,7 @@ class BinanceTestnetClient:
         """
         try:
             # 현재 펀딩비
-            funding_info = self.client.futures_funding_rate(symbol=symbol, limit=1)
+            funding_info = await self.client.futures_funding_rate(symbol=symbol, limit=1)
             if funding_info:
                 rate = float(funding_info[0]["fundingRate"]) * 100  # 퍼센트로 변환
                 funding_time = funding_info[0]["fundingTime"]
@@ -478,7 +511,7 @@ class BinanceTestnetClient:
         """
         try:
             # 상위 트레이더 롱숏 비율
-            ratio_data = self.client.futures_top_longshort_position_ratio(
+            ratio_data = await self.client.futures_top_longshort_position_ratio(
                 symbol=symbol, period="5m", limit=1
             )
             if ratio_data:
@@ -509,7 +542,7 @@ class BinanceTestnetClient:
             미결제약정 정보
         """
         try:
-            oi_data = self.client.futures_open_interest(symbol=symbol)
+            oi_data = await self.client.futures_open_interest(symbol=symbol)
             oi = float(oi_data["openInterest"])
             logger.debug(f"{symbol} 미결제약정: {oi:,.2f}")
             return {"open_interest": oi, "symbol": symbol}
@@ -553,7 +586,7 @@ class BinanceTestnetClient:
             Dictionary with USDT balance info
         """
         try:
-            account = self.client.futures_account()
+            account = await self.client.futures_account()
             usdt_balance = None
 
             for asset in account["assets"]:

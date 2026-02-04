@@ -22,6 +22,10 @@ class TradingConfig(BaseModel):
     binance_api_key: str
     binance_secret_key: str
 
+    # Phase 7.1: 메인넷 안전장치
+    # 실거래 활성화 시 명시적 확인 문자열 필요
+    mainnet_confirmation: str = Field(default="")
+
     # Redis Configuration
     redis_url: Optional[str] = Field(default=None)
     redis_password: Optional[str] = Field(default=None)
@@ -35,6 +39,14 @@ class TradingConfig(BaseModel):
     take_profit_pct: float = Field(default=0.004, gt=0)
     stop_loss_pct: float = Field(default=0.004, gt=0)
     time_cut_minutes: int = Field(default=120, gt=0)
+
+    # Phase 5.1: 실제 잔고 기반 포지션 사이징
+    use_real_balance: bool = Field(default=False)  # True면 실제 잔고 사용, False면 1000 USDT 기본값
+
+    # Phase 6.1: ATR 기반 동적 TP/SL
+    use_atr_tp_sl: bool = Field(default=False)
+    atr_tp_multiplier: float = Field(default=2.0, gt=0)
+    atr_sl_multiplier: float = Field(default=1.0, gt=0)
 
     # AI Configuration
     gemini_api_key: str
@@ -77,6 +89,33 @@ class TradingConfig(BaseModel):
             logger.warning(f"Position size {v*100}% is high, recommended: <=10%")
         return v
 
+    def validate_mainnet_switch(self) -> bool:
+        """
+        Phase 7.1: 메인넷 전환 시 안전 검증
+
+        실거래(메인넷) 활성화 시 명시적 확인 문자열을 요구합니다.
+        이는 실수로 실거래를 활성화하는 것을 방지합니다.
+
+        Returns:
+            True if validation passes
+
+        Raises:
+            ValueError: If mainnet is enabled without proper confirmation
+        """
+        REQUIRED_CONFIRMATION = "I_UNDERSTAND_THIS_IS_REAL_MONEY"
+
+        if not self.binance_testnet:
+            if self.mainnet_confirmation != REQUIRED_CONFIRMATION:
+                raise ValueError(
+                    f"메인넷(실거래) 전환을 위해 MAINNET_CONFIRMATION 환경변수를 "
+                    f"'{REQUIRED_CONFIRMATION}'으로 설정하세요.\n"
+                    f"주의: 실거래 모드에서는 실제 자금이 사용됩니다!"
+                )
+            logger.critical(
+                "⚠️ 실거래 모드 활성화 - 실제 자금이 사용됩니다! ⚠️"
+            )
+        return True
+
     class Config:
         validate_assignment = True
 
@@ -89,12 +128,14 @@ def load_config() -> TradingConfig:
             binance_testnet=os.getenv("BINANCE_TESTNET", "true").lower() == "true",
             binance_api_key=os.getenv("BINANCE_API_KEY", ""),
             binance_secret_key=os.getenv("BINANCE_SECRET_KEY", ""),
+            mainnet_confirmation=os.getenv("MAINNET_CONFIRMATION", ""),
             symbol=os.getenv("SYMBOL", "BTCUSDT"),
             leverage=int(os.getenv("LEVERAGE", "15")),
             position_size_pct=float(os.getenv("POSITION_SIZE_PCT", "0.05")),
             take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "0.004")),
             stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0.004")),
             time_cut_minutes=int(os.getenv("TIME_CUT_MINUTES", "120")),
+            use_real_balance=os.getenv("USE_REAL_BALANCE", "false").lower() == "true",
             gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp"),
             gemini_temperature=float(os.getenv("GEMINI_TEMPERATURE", "0.1")),
@@ -115,6 +156,9 @@ def load_config() -> TradingConfig:
             api_port=int(os.getenv("API_PORT", "8000")),
             api_debug=os.getenv("API_DEBUG", "false").lower() == "true",
         )
+
+        # Phase 7.1: 메인넷 안전 검증
+        config.validate_mainnet_switch()
 
         logger.info("Configuration loaded successfully")
         logger.info(f"Bot: {config.bot_name}")

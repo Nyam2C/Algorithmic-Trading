@@ -3,8 +3,15 @@ FastAPI 의존성 주입 모듈
 
 MultiBotManager 및 기타 의존성을 주입합니다.
 Phase 4: TradeHistoryAnalyzer 의존성 추가
+Phase 4.1: n8n API 키 인증 추가
+Phase 4.2: 보안 강화 (인증 우회 방지, Timing Attack 방지)
+Phase 6.3: SignalTracker 의존성 추가
 """
-from typing import Optional, Union
+import hmac
+import os
+from typing import Any, Optional, Union
+
+from fastapi import Header, HTTPException
 
 from src.bot_manager import MultiBotManager
 from src.api.config import APIConfig
@@ -16,6 +23,7 @@ _bot_manager: Optional[MultiBotManager] = None
 _api_config: Optional[APIConfig] = None
 _redis_state_manager: Optional[Union[RedisStateManager, DummyRedisStateManager]] = None
 _trade_analyzer: Optional[TradeHistoryAnalyzer] = None
+_signal_tracker: Optional[Any] = None  # SignalTracker 타입
 
 
 def set_bot_manager(manager: MultiBotManager) -> None:
@@ -132,3 +140,100 @@ def get_trade_analyzer() -> Optional[TradeHistoryAnalyzer]:
         TradeHistoryAnalyzer 인스턴스 또는 None
     """
     return _trade_analyzer
+
+
+# =============================================================================
+# Phase 4.1: n8n API 키 인증
+# =============================================================================
+
+
+async def verify_n8n_api_key(
+    x_n8n_api_key: str = Header(..., alias="X-N8N-API-Key"),
+) -> str:
+    """n8n 웹훅 API 키 검증
+
+    Args:
+        x_n8n_api_key: 요청 헤더의 API 키
+
+    Returns:
+        검증된 API 키
+
+    Raises:
+        HTTPException: API 키가 유효하지 않거나 미설정된 경우
+    """
+    expected_key = os.getenv("N8N_API_KEY")
+    if not expected_key:
+        raise HTTPException(
+            status_code=500,
+            detail="N8N_API_KEY not configured"
+        )
+
+    # Timing Attack 방지: 상수 시간 비교
+    if not hmac.compare_digest(x_n8n_api_key, expected_key):
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return x_n8n_api_key
+
+
+async def verify_api_key(
+    x_api_key: str = Header(..., alias="X-API-Key"),
+) -> str:
+    """일반 API 키 검증
+
+    Args:
+        x_api_key: 요청 헤더의 API 키
+
+    Returns:
+        검증된 API 키
+
+    Raises:
+        HTTPException: API 키가 유효하지 않거나 미설정된 경우
+    """
+    expected_key = os.getenv("API_KEY")
+    if not expected_key:
+        raise HTTPException(
+            status_code=500,
+            detail="API_KEY not configured"
+        )
+
+    # Timing Attack 방지: 상수 시간 비교
+    if not hmac.compare_digest(x_api_key, expected_key):
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return x_api_key
+
+
+# =============================================================================
+# Phase 6.3: SignalTracker 의존성
+# =============================================================================
+
+
+def set_signal_tracker(tracker: Any) -> None:
+    """SignalTracker 인스턴스 설정
+
+    Args:
+        tracker: SignalTracker 인스턴스
+    """
+    global _signal_tracker
+    _signal_tracker = tracker
+
+
+def get_signal_tracker() -> Any:
+    """SignalTracker 인스턴스 반환
+
+    Returns:
+        SignalTracker 인스턴스
+
+    Raises:
+        RuntimeError: SignalTracker가 설정되지 않은 경우
+    """
+    if _signal_tracker is None:
+        raise RuntimeError("SignalTracker not configured")
+    return _signal_tracker
+
+
+def get_optional_signal_tracker() -> Optional[Any]:
+    """SignalTracker 인스턴스 반환 (Optional)
+
+    Returns:
+        SignalTracker 인스턴스 또는 None
+    """
+    return _signal_tracker

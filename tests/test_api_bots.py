@@ -3,14 +3,26 @@ Bots API 테스트
 
 /api/bots 엔드포인트 테스트입니다.
 """
+import os
 import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from src.api.main import create_app
 from src.bot_manager import MultiBotManager
 from src.bot_config import BotConfig
 from src.bot_instance import BotInstance
+
+
+# 테스트용 API 키
+TEST_API_KEY = "test-api-key-12345"
+
+
+@pytest.fixture(autouse=True)
+def set_api_key_env():
+    """모든 테스트에서 API_KEY 환경변수 설정"""
+    with patch.dict(os.environ, {"API_KEY": TEST_API_KEY}):
+        yield
 
 
 @pytest.fixture
@@ -60,10 +72,18 @@ def mock_manager(mock_bot):
 
 
 @pytest.fixture
-def client(mock_manager):
+def api_headers():
+    """API 인증 헤더"""
+    return {"X-API-Key": TEST_API_KEY}
+
+
+@pytest.fixture
+def client(mock_manager, api_headers):
     """테스트 클라이언트 fixture"""
     app = create_app(bot_manager=mock_manager)
-    return TestClient(app)
+    client = TestClient(app)
+    client.headers.update(api_headers)
+    return client
 
 
 class TestListBots:
@@ -80,7 +100,7 @@ class TestListBots:
         assert data["data"]["total_bots"] == 1
         assert len(data["data"]["bots"]) == 1
 
-    def test_list_bots_empty(self):
+    def test_list_bots_empty(self, api_headers):
         """빈 봇 목록"""
         manager = MagicMock(spec=MultiBotManager)
         manager.bots = {}
@@ -91,7 +111,7 @@ class TestListBots:
         app = create_app(bot_manager=manager)
         client = TestClient(app)
 
-        response = client.get("/api/bots")
+        response = client.get("/api/bots", headers=api_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -217,7 +237,7 @@ class TestDeleteBot:
 
         assert response.status_code == 404
 
-    def test_delete_running_bot_fails(self):
+    def test_delete_running_bot_fails(self, api_headers):
         """실행 중인 봇 삭제 실패"""
         # 새로운 mock 생성
         mock_bot = MagicMock(spec=BotInstance)
@@ -239,7 +259,7 @@ class TestDeleteBot:
         app = create_app(bot_manager=manager)
         client = TestClient(app)
 
-        response = client.delete("/api/bots/running-bot")
+        response = client.delete("/api/bots/running-bot", headers=api_headers)
 
         # 실행 중인 봇은 409 Conflict
         assert response.status_code == 409

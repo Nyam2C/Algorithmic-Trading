@@ -6,7 +6,7 @@ TDD 방식으로 작성
 """
 import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from src.analytics.memory_context import (
     AIMemoryContextBuilder,
@@ -63,28 +63,28 @@ def sample_stats():
 
 @pytest.fixture
 def sample_rsi_stats():
-    """샘플 RSI 조건별 통계"""
+    """샘플 RSI 조건별 통계 (Phase 6.2: 최소 30 샘플)"""
     return [
         RSIConditionStats(
             rsi_zone="oversold",
             side="LONG",
-            total_trades=12,
-            winning_trades=10,
-            losing_trades=2,
-            win_rate=83.33,
+            total_trades=35,  # Phase 6.2: 30 이상
+            winning_trades=28,
+            losing_trades=7,
+            win_rate=80.0,  # 70% 이상
             avg_pnl=8.50,
-            total_pnl=102.00,
+            total_pnl=297.50,
             avg_duration_minutes=35.0,
         ),
         RSIConditionStats(
             rsi_zone="neutral",
             side="LONG",
-            total_trades=15,
-            winning_trades=6,
-            losing_trades=9,
-            win_rate=40.0,
+            total_trades=40,  # Phase 6.2: 30 이상
+            winning_trades=14,
+            losing_trades=26,
+            win_rate=35.0,  # 40% 이하 (피해야 할 조건)
             avg_pnl=-2.50,
-            total_pnl=-37.50,
+            total_pnl=-100.00,
             avg_duration_minutes=55.0,
         ),
     ]
@@ -92,27 +92,27 @@ def sample_rsi_stats():
 
 @pytest.fixture
 def sample_hourly_stats():
-    """샘플 시간대별 통계"""
+    """샘플 시간대별 통계 (Phase 6.2: 최소 30 샘플)"""
     return [
         TimeBasedStats(
             hour_of_day=14,
             side="LONG",
-            total_trades=8,
-            winning_trades=7,
-            losing_trades=1,
-            win_rate=87.5,
+            total_trades=32,  # Phase 6.2: 30 이상
+            winning_trades=26,
+            losing_trades=6,
+            win_rate=81.25,  # 75% 이상
             avg_pnl=12.00,
-            total_pnl=96.00,
+            total_pnl=384.00,
         ),
         TimeBasedStats(
             hour_of_day=3,
             side="LONG",
-            total_trades=5,
-            winning_trades=1,
-            losing_trades=4,
-            win_rate=20.0,
+            total_trades=35,  # Phase 6.2: 30 이상
+            winning_trades=10,
+            losing_trades=25,
+            win_rate=28.57,  # 35% 이하 (피해야 할 시간대)
             avg_pnl=-8.00,
-            total_pnl=-40.00,
+            total_pnl=-280.00,
         ),
     ]
 
@@ -296,7 +296,7 @@ class TestAIMemoryContextBuilder:
         mock_analyzer.get_pattern_insights = AsyncMock(return_value=[])
         mock_analyzer.get_worst_patterns = AsyncMock(return_value=[])
 
-        context = await context_builder.build_context(bot_id="test-bot-id")
+        await context_builder.build_context(bot_id="test-bot-id")
 
         # bot_id가 분석기에 전달되었는지 확인
         mock_analyzer.get_overall_stats.assert_called_once()
@@ -339,7 +339,8 @@ class TestAIMemoryContextBuilder:
 
         # RSI 과매도에서 LONG의 높은 승률
         assert "RSI" in best or "LONG" in best
-        assert "83" in best or "87" in best  # win_rate
+        # Phase 6.2: 업데이트된 fixture 승률 (80.0%, 81.2%)
+        assert "80" in best or "81" in best  # win_rate
 
     @pytest.mark.asyncio
     async def test_build_worst_conditions(

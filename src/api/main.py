@@ -2,7 +2,10 @@
 FastAPI 앱 팩토리
 
 REST API 앱을 생성하고 라우터를 등록합니다.
+Phase 4.1: CORS 환경변수 설정 추가
+Phase 6.1: Rate Limiting 미들웨어 추가
 """
+import os
 from typing import Optional
 
 from fastapi import FastAPI, Request, status
@@ -17,6 +20,8 @@ from src.api.routes.health import router as health_router
 from src.api.routes.bots import router as bots_router
 from src.api.routes.n8n import router as n8n_router
 from src.api.routes.analytics import router as analytics_router
+from src.api.routes.dashboard import router as dashboard_router
+from src.api.middleware.rate_limit import RateLimiter, RateLimitMiddleware
 
 
 def create_app(
@@ -49,14 +54,24 @@ def create_app(
         redoc_url="/redoc" if config.debug else None,
     )
 
-    # CORS 미들웨어 추가
+    # CORS 미들웨어 추가 (환경변수로 제어)
+    cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # 프로덕션에서는 제한 필요
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Phase 6.1: Rate Limiting 미들웨어 추가
+    rate_limit_enabled = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
+    if rate_limit_enabled:
+        default_limit = int(os.getenv("RATE_LIMIT_DEFAULT", "100"))
+        n8n_limit = int(os.getenv("RATE_LIMIT_N8N", "30"))
+        limiter = RateLimiter(default_limit=default_limit, n8n_limit=n8n_limit)
+        app.add_middleware(RateLimitMiddleware, limiter=limiter)
+        logger.info(f"Rate limiting 활성화: default={default_limit}/min, n8n={n8n_limit}/min")
 
     # 전역 예외 핸들러
     @app.exception_handler(ValueError)
@@ -100,6 +115,7 @@ def create_app(
     app.include_router(bots_router, prefix="/api")
     app.include_router(n8n_router, prefix="/api")
     app.include_router(analytics_router, prefix="/api")  # Phase 4: Analytics API
+    app.include_router(dashboard_router, prefix="/api")  # Phase 6.3: Dashboard API
 
     # 시작/종료 이벤트
     @app.on_event("startup")

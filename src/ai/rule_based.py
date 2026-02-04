@@ -12,24 +12,34 @@ class RuleBasedSignalGenerator:
     """
     Rule-based trading signal generator using technical indicators
 
-    Strategy (relaxed for testing):
-    - LONG: RSI < 45 (oversold) AND price > MA_7 (uptrend) AND volume > 0.5x
-    - SHORT: RSI > 55 (overbought) AND price < MA_7 (downtrend) AND volume > 0.5x
+    Strategy:
+    - LONG: RSI < oversold AND price > MA_7 (uptrend) AND volume > threshold
+    - SHORT: RSI > overbought AND price < MA_7 (downtrend) AND volume > threshold
     - WAIT: Otherwise
+
+    기본 RSI 설정:
+    - 테스트넷/개발: 45/55 (더 많은 시그널)
+    - 프로덕션 권장: 30/70 (더 보수적)
+
+    Phase 6.3: BotConfig에서 rsi_oversold/rsi_overbought 설정 가능
     """
+
+    # 프로덕션 권장 RSI 임계값
+    PRODUCTION_RSI_OVERSOLD = 30.0
+    PRODUCTION_RSI_OVERBOUGHT = 70.0
 
     def __init__(
         self,
-        rsi_oversold: float = 45.0,
-        rsi_overbought: float = 55.0,
+        rsi_oversold: float = 45.0,  # 테스트용 기본값, 프로덕션에선 30 권장
+        rsi_overbought: float = 55.0,  # 테스트용 기본값, 프로덕션에선 70 권장
         volume_threshold: float = 0.5,
     ):
         """
         Initialize rule-based signal generator
 
         Args:
-            rsi_oversold: RSI threshold for oversold condition
-            rsi_overbought: RSI threshold for overbought condition
+            rsi_oversold: RSI threshold for oversold condition (프로덕션 권장: 30)
+            rsi_overbought: RSI threshold for overbought condition (프로덕션 권장: 70)
             volume_threshold: Volume ratio threshold (1.2 = 20% above average)
         """
         self.rsi_oversold = rsi_oversold

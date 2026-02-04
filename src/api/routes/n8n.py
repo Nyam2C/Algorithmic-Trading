@@ -2,11 +2,12 @@
 n8n 웹훅 라우트
 
 n8n과의 통합을 위한 웹훅 엔드포인트입니다.
+Phase 4.1: API 키 인증 추가
 """
 from fastapi import APIRouter, HTTPException, status, Depends
 from loguru import logger
 
-from src.api.dependencies import get_bot_manager
+from src.api.dependencies import get_bot_manager, verify_n8n_api_key
 from src.api.schemas.n8n import N8NSignalPayload, N8NCommandPayload
 from src.api.schemas.common import SuccessResponse
 from src.bot_manager import MultiBotManager
@@ -23,6 +24,7 @@ router = APIRouter(prefix="/n8n", tags=["n8n"])
 async def receive_signal(
     payload: N8NSignalPayload,
     manager: MultiBotManager = Depends(get_bot_manager),
+    _: str = Depends(verify_n8n_api_key),
 ) -> SuccessResponse:
     """외부 시그널 수신
 
@@ -68,6 +70,7 @@ async def receive_signal(
 async def receive_command(
     payload: N8NCommandPayload,
     manager: MultiBotManager = Depends(get_bot_manager),
+    _: str = Depends(verify_n8n_api_key),
 ) -> SuccessResponse:
     """외부 명령 수신
 

@@ -18,7 +18,7 @@ services:
     image: grafana/loki:2.9.3
     container_name: trading-loki
     ports:
-      - "3100:3100"
+      - "127.0.0.1:3100:3100"  # localhost만 접근 (보안)
     volumes:
       - ./loki/loki-config.yml:/etc/loki/local-config.yaml
       - loki-data:/loki
@@ -54,7 +54,7 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_ROOT_URL=http://localhost:3000
     volumes:

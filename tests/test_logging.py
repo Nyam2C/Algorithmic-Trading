@@ -5,7 +5,6 @@ JSON 포맷, 민감정보 마스킹 기능을 테스트합니다.
 """
 import json
 import pytest
-from io import StringIO
 from unittest.mock import patch, MagicMock
 from datetime import datetime, timezone
 
@@ -276,8 +275,8 @@ class TestFeatureFlags:
 
     def test_enable_disable_json_logging(self):
         """JSON 로깅 활성화/비활성화 토글 테스트"""
-        # 초기 상태 확인
-        initial = is_json_logging_enabled()
+        # 초기 상태 확인 (side effect only)
+        _ = is_json_logging_enabled()
 
         # 활성화
         enable_json_logging()

@@ -302,7 +302,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "{app=\"trading\"} |= \"SIGNAL\" or \"TRADE\" or \"ORDER\"",
+          "expr": "{app=\"trading\"} |~ \"SIGNAL|TRADE|ORDER\"",
           "queryType": "range",
           "refId": "A"
         }

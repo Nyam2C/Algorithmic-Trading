@@ -25,7 +25,8 @@ class TestGeminiSignalGeneratorInit:
         """초기화 성공"""
         with patch("src.ai.gemini.genai.Client") as mock_client:
             with patch.object(GeminiSignalGenerator, "_load_prompt") as mock_load:
-                mock_load.side_effect = ["system prompt", "analysis template"]
+                # Phase 6.1: 3개 프롬프트 로드 (system, analysis, analysis_with_reason)
+                mock_load.side_effect = ["system prompt", "analysis template", "analysis with reason"]
 
                 generator = GeminiSignalGenerator(
                     api_key="test_key",
@@ -41,12 +42,14 @@ class TestGeminiSignalGeneratorInit:
         """기본 파라미터로 초기화"""
         with patch("src.ai.gemini.genai.Client"):
             with patch.object(GeminiSignalGenerator, "_load_prompt") as mock_load:
-                mock_load.side_effect = ["system", "analysis"]
+                # Phase 6.1: 3개 프롬프트 로드
+                mock_load.side_effect = ["system", "analysis", "analysis_with_reason"]
 
                 generator = GeminiSignalGenerator(api_key="test_key")
 
                 assert generator.model == "gemini-2.0-flash-exp"
-                assert generator.temperature == 0.1
+                # Phase 6.1: 기본 온도 0.1 → 0.3
+                assert generator.temperature == 0.3
 
 
 class TestLoadPrompt:
@@ -77,9 +80,11 @@ class TestBuildMarketPrompt:
         """테스트용 Generator"""
         with patch("src.ai.gemini.genai.Client"):
             with patch.object(GeminiSignalGenerator, "_load_prompt") as mock_load:
+                # Phase 6.1: 3개 프롬프트 로드
                 mock_load.side_effect = [
                     "System prompt",
-                    "Symbol: {{symbol}}, Price: {{current_price}}, RSI: {{rsi}}"
+                    "Symbol: {{symbol}}, Price: {{current_price}}, RSI: {{rsi}}",
+                    "Analysis with reason template"
                 ]
                 return GeminiSignalGenerator(api_key="test_key")
 
@@ -133,7 +138,8 @@ class TestGetSignal:
         """테스트용 Generator"""
         with patch("src.ai.gemini.genai.Client"):
             with patch.object(GeminiSignalGenerator, "_load_prompt") as mock_load:
-                mock_load.side_effect = ["System", "Analysis {{current_price}}"]
+                # Phase 6.1: 3개 프롬프트 로드
+                mock_load.side_effect = ["System", "Analysis {{current_price}}", "Analysis with reason"]
                 gen = GeminiSignalGenerator(api_key="test_key")
                 return gen
 
@@ -255,7 +261,8 @@ class TestGetSignalSync:
     def generator(self):
         with patch("src.ai.gemini.genai.Client"):
             with patch.object(GeminiSignalGenerator, "_load_prompt") as mock_load:
-                mock_load.side_effect = ["System", "Analysis {{current_price}}"]
+                # Phase 6.1: 3개 프롬프트 로드
+                mock_load.side_effect = ["System", "Analysis {{current_price}}", "Analysis with reason"]
                 gen = GeminiSignalGenerator(api_key="test_key")
                 return gen
 

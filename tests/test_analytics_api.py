@@ -7,12 +7,10 @@ TDD 방식으로 작성
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
-from datetime import datetime
 
 from src.api.main import create_app
 from src.analytics.trade_analyzer import (
     TradingStats,
-    ExitReasonStats,
     RSIConditionStats,
     TimeBasedStats,
     PatternInsight,

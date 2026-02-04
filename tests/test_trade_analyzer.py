@@ -7,7 +7,7 @@ TDD 방식으로 작성
 import pytest
 from datetime import datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from src.analytics.trade_analyzer import (
     TradeHistoryAnalyzer,

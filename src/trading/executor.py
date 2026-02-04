@@ -1,5 +1,9 @@
 """
 Trading executor for opening and closing positions
+
+Phase 5: 리스크 관리 강화
+- 실제 잔고 기반 포지션 사이징
+- ATR 기반 동적 TP/SL
 """
 from typing import Dict, Optional
 import asyncio
@@ -12,7 +16,12 @@ from loguru import logger
 
 
 class TradingExecutor:
-    """Execute trades on Binance Futures"""
+    """Execute trades on Binance Futures
+
+    Phase 5: 리스크 관리 기능 추가
+    - 실제 잔고 기반 포지션 사이징 (use_real_balance 옵션)
+    - ATR 기반 동적 TP/SL (Phase 6.1)
+    """
 
     def __init__(self, binance_client, config):
         """
@@ -25,6 +34,11 @@ class TradingExecutor:
         self.client = binance_client
         self.config = config
         self.current_position: Optional[Dict] = None
+
+        # Phase 5: 잔고 캐싱
+        self._cached_balance: Optional[float] = None
+        self._balance_cache_time: Optional[datetime] = None
+        self._balance_cache_ttl_seconds: int = 60  # 1분 캐싱
 
         logger.info("Trading executor initialized")
 
@@ -48,22 +62,54 @@ class TradingExecutor:
             logger.error(f"Failed to set leverage: {e}")
             return False
 
-    def _calculate_position_size(self, current_price: float) -> float:
+    async def _get_available_balance(self) -> float:
         """
-        Calculate position size based on configuration
+        Get available USDT balance with caching
+
+        Returns:
+            Available balance in USDT
+        """
+        now = datetime.now()
+
+        # 캐시가 유효한지 확인
+        if (
+            self._cached_balance is not None
+            and self._balance_cache_time is not None
+            and (now - self._balance_cache_time).total_seconds() < self._balance_cache_ttl_seconds
+        ):
+            return self._cached_balance
+
+        # 새로운 잔고 조회
+        try:
+            balance_info = await self.client.get_account_balance()
+            self._cached_balance = balance_info["available"]
+            self._balance_cache_time = now
+            logger.debug(f"잔고 조회 완료: ${self._cached_balance:,.2f} USDT")
+            return self._cached_balance
+        except Exception as e:
+            logger.error(f"잔고 조회 실패: {e}")
+            # 캐시된 값이 있으면 사용, 없으면 기본값
+            if self._cached_balance is not None:
+                logger.warning(f"캐시된 잔고 사용: ${self._cached_balance:,.2f}")
+                return self._cached_balance
+            raise
+
+    def _calculate_position_size(self, current_price: float, capital: Optional[float] = None) -> float:
+        """
+        Calculate position size based on configuration (동기 버전 - 테스트 호환)
 
         Args:
             current_price: Current market price
+            capital: Capital to use (None = use default 1000.0 for backward compatibility)
 
         Returns:
             Position quantity in base asset
         """
-        # Get account balance
-        # For MVP, we'll use a simplified calculation
-        # In Sprint 2, we'll fetch real balance from exchange
+        # capital이 제공되지 않으면 기본값 사용 (테스트 호환성)
+        if capital is None:
+            capital = 1000.0
 
         # Calculate position value in USDT
-        capital = 1000.0  # Simplified for Sprint 1 (will get from balance in Sprint 2)
         position_value = capital * self.config.position_size_pct * self.config.leverage
 
         # Calculate quantity
@@ -74,13 +120,39 @@ class TradingExecutor:
 
         logger.info(
             f"Position size calculated: {quantity} @ ${current_price:,.2f} "
-            f"= ${position_value:,.2f} (with {self.config.leverage}x leverage)"
+            f"= ${position_value:,.2f} (capital=${capital:,.2f}, {self.config.leverage}x leverage)"
         )
 
         return quantity
 
+    async def _calculate_position_size_with_balance(self, current_price: float) -> float:
+        """
+        Calculate position size based on real account balance (비동기 버전)
+
+        Phase 5.1: 실제 잔고 기반 포지션 사이징
+
+        Args:
+            current_price: Current market price
+
+        Returns:
+            Position quantity in base asset
+        """
+        # use_real_balance 설정 확인 (기본값: False = 기존 동작 유지)
+        use_real_balance = getattr(self.config, "use_real_balance", False)
+
+        if use_real_balance:
+            try:
+                capital = await self._get_available_balance()
+            except Exception as e:
+                logger.warning(f"실제 잔고 조회 실패, 기본값 사용: {e}")
+                capital = 1000.0
+        else:
+            capital = 1000.0
+
+        return self._calculate_position_size(current_price, capital)
+
     async def open_position(
-        self, signal: str, current_price: float
+        self, signal: str, current_price: float, entry_atr: Optional[float] = None
     ) -> Optional[Dict]:
         """
         Open a new position based on signal
@@ -88,6 +160,7 @@ class TradingExecutor:
         Args:
             signal: "LONG" or "SHORT"
             current_price: Current market price
+            entry_atr: ATR value at entry (Phase 6.1: for dynamic TP/SL)
 
         Returns:
             Order details or None if failed
@@ -102,10 +175,13 @@ class TradingExecutor:
                 return None
 
             # Setup leverage
-            await self.setup_leverage()
+            leverage_ok = await self.setup_leverage()
+            if not leverage_ok:
+                logger.error("레버리지 설정 실패 - 거래 중단")
+                return None
 
-            # Calculate position size
-            quantity = self._calculate_position_size(current_price)
+            # Calculate position size (Phase 5.1: 실제 잔고 사용 가능)
+            quantity = await self._calculate_position_size_with_balance(current_price)
 
             # Determine order side
             side = SIDE_BUY if signal == "LONG" else SIDE_SELL
@@ -126,10 +202,12 @@ class TradingExecutor:
                 "entry_price": current_price,
                 "order_id": order["orderId"],
                 "entry_time": datetime.now(),  # Add entry time for timecut
+                "entry_atr": entry_atr,  # Phase 6.1: ATR at entry for dynamic TP/SL
             }
 
             logger.info(
                 f"Position opened: {signal} {quantity} @ ${current_price:,.2f}"
+                + (f" (ATR={entry_atr:.2f})" if entry_atr else "")
             )
 
             return order
@@ -139,7 +217,8 @@ class TradingExecutor:
             return None
 
     async def open_position_maker(
-        self, signal: str, current_price: float, use_maker: bool = True
+        self, signal: str, current_price: float, use_maker: bool = True,
+        entry_atr: Optional[float] = None
     ) -> Optional[Dict]:
         """
         Open a new position using Maker order (limit order)
@@ -148,6 +227,7 @@ class TradingExecutor:
             signal: "LONG" or "SHORT"
             current_price: Current market price
             use_maker: Use Maker order (default: True)
+            entry_atr: ATR value at entry (Phase 6.1: for dynamic TP/SL)
 
         Returns:
             Order details or None if failed
@@ -162,10 +242,13 @@ class TradingExecutor:
                 return None
 
             # Setup leverage
-            await self.setup_leverage()
+            leverage_ok = await self.setup_leverage()
+            if not leverage_ok:
+                logger.error("레버리지 설정 실패 - 거래 중단")
+                return None
 
-            # Calculate position size
-            quantity = self._calculate_position_size(current_price)
+            # Calculate position size (Phase 5.1: 실제 잔고 사용 가능)
+            quantity = await self._calculate_position_size_with_balance(current_price)
 
             # Determine order side and limit price
             side = SIDE_BUY if signal == "LONG" else SIDE_SELL
@@ -231,10 +314,12 @@ class TradingExecutor:
                 "entry_price": current_price,
                 "order_id": order["orderId"],
                 "entry_time": datetime.now(),
+                "entry_atr": entry_atr,  # Phase 6.1: ATR at entry for dynamic TP/SL
             }
 
             logger.info(
                 f"Position opened: {signal} {quantity} @ ${current_price:,.2f}"
+                + (f" (ATR={entry_atr:.2f})" if entry_atr else "")
             )
 
             return order
@@ -390,6 +475,87 @@ class TradingExecutor:
         except Exception as e:
             logger.error(f"Failed to check TP/SL: {e}")
             return None
+
+    async def check_tp_sl_dynamic(
+        self, position: Dict, current_price: float
+    ) -> Optional[str]:
+        """
+        Phase 6.1: ATR 기반 동적 TP/SL 체크
+
+        ATR을 사용하여 시장 변동성에 따른 동적 TP/SL 레벨 설정.
+
+        Args:
+            position: Position info (must include entry_atr)
+            current_price: Current price
+
+        Returns:
+            "TP", "SL", or None
+        """
+        try:
+            entry_price = position["entry_price"]
+            entry_atr = position.get("entry_atr")
+            side = position.get("side") or position.get("signal")
+
+            # ATR 정보가 없거나 use_atr_tp_sl이 비활성화면 기존 로직 사용
+            use_atr = getattr(self.config, "use_atr_tp_sl", False)
+            if not use_atr or not entry_atr:
+                return await self.check_tp_sl(position, current_price)
+
+            # ATR 승수 가져오기
+            atr_tp_multiplier = getattr(self.config, "atr_tp_multiplier", 2.0)
+            atr_sl_multiplier = getattr(self.config, "atr_sl_multiplier", 1.0)
+
+            # 동적 TP/SL 가격 계산
+            if side == "LONG":
+                tp_price = entry_price + (entry_atr * atr_tp_multiplier)
+                sl_price = entry_price - (entry_atr * atr_sl_multiplier)
+
+                if current_price >= tp_price:
+                    pnl_pct = ((current_price - entry_price) / entry_price) * 100
+                    logger.info(
+                        f"ATR TP 도달 (LONG): ${current_price:,.2f} >= ${tp_price:,.2f} "
+                        f"(ATR={entry_atr:.2f}, multiplier={atr_tp_multiplier}), PnL={pnl_pct:+.2f}%"
+                    )
+                    return "TP"
+
+                if current_price <= sl_price:
+                    pnl_pct = ((current_price - entry_price) / entry_price) * 100
+                    logger.info(
+                        f"ATR SL 도달 (LONG): ${current_price:,.2f} <= ${sl_price:,.2f} "
+                        f"(ATR={entry_atr:.2f}, multiplier={atr_sl_multiplier}), PnL={pnl_pct:+.2f}%"
+                    )
+                    return "SL"
+
+            else:  # SHORT
+                tp_price = entry_price - (entry_atr * atr_tp_multiplier)
+                sl_price = entry_price + (entry_atr * atr_sl_multiplier)
+
+                if current_price <= tp_price:
+                    pnl_pct = ((entry_price - current_price) / entry_price) * 100
+                    logger.info(
+                        f"ATR TP 도달 (SHORT): ${current_price:,.2f} <= ${tp_price:,.2f} "
+                        f"(ATR={entry_atr:.2f}, multiplier={atr_tp_multiplier}), PnL={pnl_pct:+.2f}%"
+                    )
+                    return "TP"
+
+                if current_price >= sl_price:
+                    pnl_pct = ((entry_price - current_price) / entry_price) * 100
+                    logger.info(
+                        f"ATR SL 도달 (SHORT): ${current_price:,.2f} >= ${sl_price:,.2f} "
+                        f"(ATR={entry_atr:.2f}, multiplier={atr_sl_multiplier}), PnL={pnl_pct:+.2f}%"
+                    )
+                    return "SL"
+
+            logger.debug(
+                f"ATR TP/SL 미달: 현재=${current_price:,.2f}, "
+                f"TP=${tp_price:,.2f}, SL=${sl_price:,.2f}"
+            )
+            return None
+
+        except Exception as e:
+            logger.error(f"ATR TP/SL 체크 실패: {e}")
+            # Fallback to regular check
+            return await self.check_tp_sl(position, current_price)
 
     def check_timecut(self, position: Dict) -> bool:
         """

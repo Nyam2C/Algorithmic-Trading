@@ -55,13 +55,12 @@
 
 ### Docker Compose 구성
 
-`start.sh`는 다음 5개의 Docker Compose 파일을 조합하여 실행합니다:
+`start.sh`는 다음 Docker Compose 파일을 조합하여 실행합니다:
 
 | 파일 | 설명 |
 |------|------|
-| `deploy/docker-compose.yml` | 기본 서비스 (PostgreSQL, Trading Bot) |
-| `deploy/docker-compose.dev.yml` | 개발 환경 설정 (포트, 볼륨) |
-| `deploy/docker-compose.api.yml` | FastAPI REST API 서버 |
+| `deploy/docker-compose.yml` | 기본 서비스 (PostgreSQL, Redis, Trading Bot + API 통합) |
+| `deploy/docker-compose.dev.yml` | 개발 환경 설정 (포트, 볼륨, 디버그) |
 | `deploy/docker-compose.n8n.yml` | n8n 워크플로우 자동화 |
 | `deploy/docker-compose.monitoring.yml` | Grafana + Loki + Promtail |
 
@@ -79,8 +78,8 @@
 ### 실행되는 서비스
 
 1. **PostgreSQL** - 거래 데이터 저장
-2. **Trading Bot** - 트레이딩 봇 (Python)
-3. **FastAPI** - REST API 서버
+2. **Redis** - 봇 상태 관리
+3. **Trading Bot + API** - 트레이딩 봇 및 REST API (통합 컨테이너)
 4. **n8n** - 워크플로우 자동화
 5. **Grafana** - 대시보드 및 시각화
 6. **Loki** - 로그 저장소
@@ -229,4 +228,4 @@ docker restart trading-n8n
 
 ---
 
-**마지막 업데이트:** 2026-01-31
+**마지막 업데이트:** 2026-02-03

@@ -82,6 +82,28 @@ class BotConfig(BaseModel):
     stop_loss_pct: Optional[float] = Field(default=None, gt=0)
     time_cut_minutes: int = Field(default=120, gt=0)
 
+    # Phase 5.1: 실제 잔고 기반 포지션 사이징
+    use_real_balance: bool = Field(default=False)
+
+    # Phase 5.2: 일일 손실 한도
+    max_daily_loss_pct: float = Field(default=0.05, gt=0, le=1)  # 5%
+
+    # Phase 5.3: 연속 손실 관리
+    max_consecutive_losses: int = Field(default=3, ge=1)
+    cooldown_minutes: int = Field(default=30, ge=1)
+
+    # Phase 5: 드로다운 관리
+    max_drawdown_pct: float = Field(default=0.10, gt=0, le=1)  # 10%
+
+    # Phase 6.1: ATR 기반 동적 TP/SL
+    use_atr_tp_sl: bool = Field(default=False)  # True면 ATR 기반 TP/SL 사용
+    atr_tp_multiplier: float = Field(default=2.0, gt=0)  # TP = entry ± ATR × multiplier
+    atr_sl_multiplier: float = Field(default=1.0, gt=0)  # SL = entry ± ATR × multiplier
+
+    # Phase 6.2: 마켓 레짐 필터링
+    use_regime_filter: bool = Field(default=False)  # True면 횡보장 진입 회피
+    allow_weak_trend: bool = Field(default=True)  # 약한 추세에서 거래 허용
+
     # 신호 파라미터
     rsi_oversold: float = Field(default=35.0, ge=0, le=100)
     rsi_overbought: float = Field(default=65.0, ge=0, le=100)
@@ -205,6 +227,10 @@ class BotConfig(BaseModel):
             take_profit_pct=self.get_effective_take_profit_pct(),
             stop_loss_pct=self.get_effective_stop_loss_pct(),
             time_cut_minutes=self.time_cut_minutes,
+            use_real_balance=self.use_real_balance,  # Phase 5.1
+            use_atr_tp_sl=self.use_atr_tp_sl,  # Phase 6.1
+            atr_tp_multiplier=self.atr_tp_multiplier,  # Phase 6.1
+            atr_sl_multiplier=self.atr_sl_multiplier,  # Phase 6.1
             gemini_api_key=gemini_api_key,
             discord_webhook_url=discord_webhook_url,
             discord_bot_token=discord_bot_token,
@@ -232,6 +258,14 @@ class BotConfig(BaseModel):
             take_profit_pct=row.get("take_profit_pct"),
             stop_loss_pct=row.get("stop_loss_pct"),
             time_cut_minutes=row.get("time_cut_minutes", 120),
+            use_real_balance=row.get("use_real_balance", False),  # Phase 5.1
+            max_daily_loss_pct=row.get("max_daily_loss_pct", 0.05),  # Phase 5.2
+            max_consecutive_losses=row.get("max_consecutive_losses", 3),  # Phase 5.3
+            cooldown_minutes=row.get("cooldown_minutes", 30),  # Phase 5.3
+            max_drawdown_pct=row.get("max_drawdown_pct", 0.10),  # Phase 5
+            use_atr_tp_sl=row.get("use_atr_tp_sl", False),  # Phase 6.1
+            atr_tp_multiplier=row.get("atr_tp_multiplier", 2.0),  # Phase 6.1
+            atr_sl_multiplier=row.get("atr_sl_multiplier", 1.0),  # Phase 6.1
             rsi_oversold=row.get("rsi_oversold", 35.0),
             rsi_overbought=row.get("rsi_overbought", 65.0),
             volume_threshold=row.get("volume_threshold", 1.2),
@@ -258,6 +292,14 @@ class BotConfig(BaseModel):
             "take_profit_pct": self.take_profit_pct,
             "stop_loss_pct": self.stop_loss_pct,
             "time_cut_minutes": self.time_cut_minutes,
+            "use_real_balance": self.use_real_balance,  # Phase 5.1
+            "max_daily_loss_pct": self.max_daily_loss_pct,  # Phase 5.2
+            "max_consecutive_losses": self.max_consecutive_losses,  # Phase 5.3
+            "cooldown_minutes": self.cooldown_minutes,  # Phase 5.3
+            "max_drawdown_pct": self.max_drawdown_pct,  # Phase 5
+            "use_atr_tp_sl": self.use_atr_tp_sl,  # Phase 6.1
+            "atr_tp_multiplier": self.atr_tp_multiplier,  # Phase 6.1
+            "atr_sl_multiplier": self.atr_sl_multiplier,  # Phase 6.1
             "rsi_oversold": self.rsi_oversold,
             "rsi_overbought": self.rsi_overbought,
             "volume_threshold": self.volume_threshold,

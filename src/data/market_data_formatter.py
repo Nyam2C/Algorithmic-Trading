@@ -79,9 +79,10 @@ class CompactMarketData:
 
         # 4줄: 포지션 정보
         if self.position != "없음" and self.entry_price:
+            pnl_str = f"{self.unrealized_pnl_pct:+.2f}%" if self.unrealized_pnl_pct is not None else "N/A"
             lines.append(
                 f"포지션:{self.position} @ ${self.entry_price:,} "
-                f"({self.unrealized_pnl_pct:+.2f}%)"
+                f"({pnl_str})"
             )
         else:
             lines.append("포지션:없음")
@@ -108,7 +109,8 @@ class CompactMarketData:
             parts.append(f"펀딩:{self.funding_rate:+.3f}%")
 
         if self.position != "없음":
-            parts.append(f"포지션:{self.position}({self.unrealized_pnl_pct:+.1f}%)")
+            pnl_str = f"{self.unrealized_pnl_pct:+.1f}%" if self.unrealized_pnl_pct is not None else "N/A"
+            parts.append(f"포지션:{self.position}({pnl_str})")
         else:
             parts.append("포지션:없음")
 

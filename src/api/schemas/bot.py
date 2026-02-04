@@ -6,7 +6,18 @@
 from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+# 허용된 거래 심볼 화이트리스트
+ALLOWED_SYMBOLS = frozenset({
+    # 메이저 코인
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "SOLUSDT",
+    "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "DOTUSDT", "MATICUSDT",
+    # 추가 인기 코인
+    "LINKUSDT", "ATOMUSDT", "LTCUSDT", "UNIUSDT", "NEARUSDT",
+    "AAVEUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "SEIUSDT",
+})
 
 
 class BotCreateRequest(BaseModel):
@@ -30,6 +41,18 @@ class BotCreateRequest(BaseModel):
 
     bot_name: str = Field(..., min_length=1, max_length=50, description="봇 이름")
     symbol: str = Field(default="BTCUSDT", description="거래 심볼")
+
+    @field_validator("symbol")
+    @classmethod
+    def validate_symbol(cls, v: str) -> str:
+        """거래 심볼 화이트리스트 검증"""
+        v = v.upper()
+        if v not in ALLOWED_SYMBOLS:
+            raise ValueError(
+                f"허용되지 않은 심볼: {v}. "
+                f"허용 목록: {', '.join(sorted(ALLOWED_SYMBOLS))}"
+            )
+        return v
     risk_level: str = Field(default="medium", description="위험도 (low, medium, high)")
     leverage: Optional[int] = Field(default=None, ge=1, le=125, description="레버리지")
     position_size_pct: Optional[float] = Field(
