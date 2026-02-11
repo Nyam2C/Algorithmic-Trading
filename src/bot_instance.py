@@ -18,9 +18,13 @@ from src.ai.enhanced_gemini import EnhancedGeminiSignalGenerator
 from src.ai.rule_based import RuleBasedSignalGenerator
 from src.ai.signals import should_enter_trade, validate_signal
 from src.analytics.memory_context import AIMemoryContextBuilder
+
+# Phase 5 통합 모듈
+from src.analytics.signal_tracker import SignalTracker
 from src.analytics.trade_analyzer import TradeHistoryAnalyzer
 from src.bot_config import BotConfig
 from src.data.indicators import analyze_market
+from src.data.multi_timeframe import MultiTimeframeAnalyzer
 from src.data.regime_detector import MarketRegime, RegimeDetector  # Phase 6.2
 from src.exchange.binance import BinanceTestnetClient
 from src.storage.redis_state import DummyRedisStateManager, RedisStateManager
@@ -32,6 +36,7 @@ from src.trading.risk_manager import RiskManager  # Phase 5.2
 OnSignalCallback = Callable[[str, str, float], Awaitable[None]]
 OnTradeCallback = Callable[[str, str, str, float, float | None], Awaitable[None]]
 OnErrorCallback = Callable[[str, Exception], Awaitable[None]]
+OnExposureCheckCallback = Callable[[str, float], Awaitable[tuple[bool, str]]]
 
 
 class BotInstance:
@@ -76,6 +81,8 @@ class BotInstance:
         on_signal_callback: OnSignalCallback | None = None,
         on_trade_callback: OnTradeCallback | None = None,
         on_error_callback: OnErrorCallback | None = None,
+        # Phase 5: 노출도 체크 콜백
+        on_exposure_check: OnExposureCheckCallback | None = None,
     ) -> None:
         """봇 인스턴스 초기화.
 
@@ -95,6 +102,7 @@ class BotInstance:
             on_signal_callback: 시그널 발생 시 콜백
             on_trade_callback: 거래 발생 시 콜백
             on_error_callback: 에러 발생 시 콜백
+            on_exposure_check: 노출도 체크 콜백 (Phase 5)
         """
         self.config = config
         self._binance_api_key = binance_api_key
@@ -148,6 +156,32 @@ class BotInstance:
         # Phase 6.2: 마켓 레짐 감지기
         self._regime_detector = RegimeDetector()
         self._current_regime: MarketRegime = MarketRegime.UNKNOWN
+
+        # Phase 5 통합: SignalTracker (인메모리)
+        self._signal_tracker = SignalTracker(db_pool=None)
+        self._last_signal_id: str | None = None
+
+        # Phase 5 통합: Prometheus 메트릭
+        self._metrics: Any | None = None
+        try:
+            from src.metrics.prometheus import _get_metrics  # noqa: PLC0415
+            self._metrics = _get_metrics()
+        except Exception:  # noqa: S110
+            pass  # prometheus_client 미설치 시 스킵
+
+        # Phase 5 통합: MultiTimeframeAnalyzer
+        self._mtf_analyzer = MultiTimeframeAnalyzer()
+        self._higher_tf_data: dict[str, Any] | None = None
+
+        # Phase 5 통합: EnsembleSignalGenerator
+        self._ensemble_generator: Any | None = None
+
+        # Phase 5 통합: TradeApprovalManager
+        self._trade_approval: Any | None = None
+        self._pending_approval_request: Any | None = None
+
+        # Phase 5 통합: 노출도 체크 콜백
+        self._on_exposure_check = on_exposure_check
 
         # 콜백
         self._on_signal_callback = on_signal_callback
@@ -214,6 +248,19 @@ class BotInstance:
             "risk_stats": self._risk_manager.get_stats(),
             # Phase 6.2: 마켓 레짐
             "market_regime": self._current_regime.value,
+            # Phase 5 통합: MTF 분석
+            "use_mtf_filter": getattr(self.config, "use_mtf_filter", False),
+            "higher_tf_trend": (
+                self._mtf_analyzer.get_higher_tf_trend(self._higher_tf_data)
+                if self._higher_tf_data else "NEUTRAL"
+            ),
+            # Phase 5 통합: 앙상블
+            "use_ensemble": getattr(self.config, "use_ensemble", False),
+            # Phase 5 통합: 승인 상태
+            "trade_approval": (
+                self._trade_approval.get_stats()
+                if self._trade_approval else None
+            ),
         }
 
     def pause(self) -> None:
@@ -348,7 +395,7 @@ class BotInstance:
     # 초기화
     # =========================================================================
 
-    async def _initialize(self) -> None:
+    async def _initialize(self) -> None:  # noqa: PLR0915
         """봇 초기화 (클라이언트 및 DB 연결)."""
         # Binance 클라이언트 초기화
         if self._binance_client is None:
@@ -414,6 +461,39 @@ class BotInstance:
             await self._redis_state_manager.register_bot(self.bot_name)
             await self._redis_state_manager.set_bot_running(self.bot_name)
 
+        # Phase 5 통합: EnsembleSignalGenerator 초기화
+        if getattr(self.config, "use_ensemble", False):
+            try:
+                from src.ai.ensemble import EnsembleSignalGenerator  # noqa: PLC0415
+                self._ensemble_generator = EnsembleSignalGenerator(
+                    rule_based_generator=self._signal_generator,
+                )
+                # Gemini 생성기 연결
+                if self._enhanced_gemini:
+                    self._ensemble_generator.set_gemini_generator(self._enhanced_gemini)
+                self._log.info("EnsembleSignalGenerator 초기화 완료")
+            except Exception as e:
+                self._log.warning(f"앙상블 생성기 초기화 실패: {e}")
+
+        # Phase 5 통합: TradeApprovalManager 초기화
+        if getattr(self.config, "manual_approval_enabled", False):
+            try:
+                from src.trading.trade_approval import (  # noqa: PLC0415
+                    TradeApprovalManager,
+                )
+                self._trade_approval = TradeApprovalManager(
+                    manual_approval_enabled=True,
+                    manual_approval_trades=getattr(
+                        self.config, "manual_approval_trades", 5
+                    ),
+                    approval_timeout=getattr(
+                        self.config, "approval_timeout", 60
+                    ),
+                )
+                self._log.info("TradeApprovalManager 초기화 완료")
+            except Exception as e:
+                self._log.warning(f"승인 매니저 초기화 실패: {e}")
+
         # Phase 5.2: 리스크 매니저 일일 통계 초기화
         try:
             if self._binance_client:
@@ -469,11 +549,24 @@ class BotInstance:
         self._current_price = current_price
         self._market_data = indicators
 
+        # Phase 5 통합: MTF 15분봉 데이터 수집
+        higher_tf_data = None
+        if getattr(self.config, "use_mtf_filter", False):
+            try:
+                klines_15m = await self._binance_client.get_klines(
+                    self.symbol, interval="15m", limit=24
+                )
+                higher_tf_data = analyze_market(klines_15m, ticker_24h, current_price)
+                self._higher_tf_data = higher_tf_data
+            except Exception as e:
+                self._log.warning(f"15분봉 데이터 수집 실패: {e}")
+
         return {
             "current_price": current_price,
             "klines": klines,
             "ticker_24h": ticker_24h,
             "indicators": indicators,
+            "higher_tf_data": higher_tf_data,
         }
 
     # =========================================================================
@@ -583,7 +676,7 @@ class BotInstance:
 
         return order
 
-    async def _close_position(
+    async def _close_position(  # noqa: PLR0915
         self,
         current_price: float,
         exit_reason: str,
@@ -615,7 +708,10 @@ class BotInstance:
 
             # PnL 계산
             pnl_pct = self._executor.calculate_pnl_pct(entry_price, current_price, side)
-            pnl_usd = (current_price - entry_price) * position["position_amt"]
+            if side == "LONG":
+                pnl_usd = (current_price - entry_price) * abs(position["position_amt"])
+            else:
+                pnl_usd = (entry_price - current_price) * abs(position["position_amt"])
             pnl_usd *= self.config.get_effective_leverage()
 
             # DB에 기록
@@ -646,6 +742,36 @@ class BotInstance:
                 self.pause()
                 self._risk_halt_notified = True
                 await self._notify_risk_halt(reason)
+
+            # Phase 5 통합: SignalTracker 결과 업데이트
+            if self._last_signal_id:
+                result_str = "win" if pnl_usd >= 0 else "loss"
+                await self._signal_tracker.update_signal_result(
+                    self._last_signal_id, result_str, pnl_usd
+                )
+                self._last_signal_id = None
+
+            # Phase 5 통합: Prometheus 거래 메트릭
+            if self._metrics:
+                try:
+                    result_str = "win" if pnl_usd >= 0 else "loss"
+                    entry_time = None
+                    if self._executor.current_position:
+                        entry_time = self._executor.current_position.get("entry_time")
+                    duration_s = (
+                        (datetime.now() - entry_time).total_seconds()
+                        if entry_time else 0.0
+                    )
+                    self._metrics.record_trade(
+                        self.bot_name, side, result_str, duration_s
+                    )
+                    self._metrics.clear_position_metrics(self.bot_name)
+                except Exception as e:
+                    self._log.debug(f"메트릭 기록 실패: {e}")
+
+            # Phase 5 통합: TradeApprovalManager 거래 완료 기록
+            if self._trade_approval:
+                await self._trade_approval.record_trade_completed(self.bot_name)
 
             self._current_position = None
 
@@ -707,7 +833,7 @@ class BotInstance:
     # 트레이딩 루프
     # =========================================================================
 
-    async def _execute_single_loop(self) -> None:
+    async def _execute_single_loop(self) -> None:  # noqa: PLR0911, PLR0915
         """단일 트레이딩 루프 실행."""
         self._loop_count += 1
         self._log.info(f"루프 #{self._loop_count} 시작")
@@ -716,9 +842,36 @@ class BotInstance:
         market_data = await self._fetch_market_data()
         current_price = market_data["current_price"]
 
-        # 2. 시그널 생성 (Phase 4: 메모리 기반 또는 규칙 기반)
-        if self._use_memory_signals and self._enhanced_gemini:
+        # 잔고 업데이트 (드로다운 추적)
+        if self._binance_client:
+            try:
+                balance_info = await self._binance_client.get_account_balance()
+                await self._risk_manager.update_balance(balance_info["available"])
+            except Exception:  # noqa: S110
+                pass  # 잔고 조회 실패 시 스킵
+
+        # 2. 시그널 생성 (우선순위: ensemble > memory_gemini > rule_based)
+        signal_source = "rule_based"
+        if getattr(self.config, "use_ensemble", False) and self._ensemble_generator:
+            try:
+                result = await self._ensemble_generator.generate_ensemble_signal(
+                    market_data.get("indicators", {}),
+                    bot_id=str(self.config.bot_id),
+                )
+                signal = result.final_signal
+                signal_source = "ensemble"
+                self._last_signal = signal
+                self._last_signal_time = datetime.now()
+                self._log.info(
+                    f"앙상블 시그널: {signal} @ ${current_price:,.2f} "
+                    f"(합의율={result.consensus_ratio:.1%})"
+                )
+            except Exception as e:
+                self._log.warning(f"앙상블 시그널 실패, 폴백: {e}")
+                signal = self._generate_signal(market_data)
+        elif self._use_memory_signals and self._enhanced_gemini:
             signal = await self._generate_signal_with_memory(market_data)
+            signal_source = "memory_gemini"
             self._log.info(f"메모리 시그널: {signal} @ ${current_price:,.2f}")
         else:
             signal = self._generate_signal(market_data)
@@ -740,6 +893,30 @@ class BotInstance:
                     f"레짐 필터링: {original_signal} → {signal} "
                     f"(레짐={self._current_regime.value})"
                 )
+
+        # Phase 5 통합: 다중 타임프레임 필터링
+        if getattr(self.config, "use_mtf_filter", False) and self._higher_tf_data:
+            original_signal = signal
+            signal = self._mtf_analyzer.filter_signal(signal, self._higher_tf_data)
+            if signal != original_signal:
+                self._log.info(
+                    f"MTF 필터링: {original_signal} → {signal}"
+                )
+
+        # Phase 5 통합: 시그널 기록
+        try:
+            conditions = {
+                "price": current_price,
+                "regime": self._current_regime.value,
+            }
+            self._last_signal_id = await self._signal_tracker.record_signal(
+                bot_id=str(self.config.bot_id),
+                signal=signal,
+                source=signal_source,
+                market_conditions=conditions,
+            )
+        except Exception:  # noqa: S110
+            pass
 
         # 콜백 호출
         await self._notify_signal(signal, current_price)
@@ -764,6 +941,16 @@ class BotInstance:
             self._log.debug(
                 f"현재 포지션: {position['side']} @ ${position['entry_price']:,.2f}"
             )
+
+            # Phase 5 통합: Prometheus 포지션 PnL 기록
+            if self._metrics and self._executor:
+                try:
+                    pos_pnl_pct = self._executor.calculate_pnl_pct(
+                        position["entry_price"], current_price, position["side"]
+                    )
+                    self._metrics.record_position_pnl(self.bot_name, pos_pnl_pct)
+                except Exception:  # noqa: S110
+                    pass
 
             # Timecut 체크
             if (
@@ -793,6 +980,62 @@ class BotInstance:
         if should_skip:
             self._log.info(f"리스크 제한으로 진입 스킵: {skip_reason}")
             return
+
+        # Phase 5 통합: 수동 승인 체크 (비차단)
+        if self._trade_approval and signal in ("LONG", "SHORT"):
+            # 대기 중인 승인 요청이 있는지 확인
+            if self._pending_approval_request:
+                from src.trading.trade_approval import ApprovalStatus  # noqa: PLC0415
+                req = self._pending_approval_request
+                if req.status == ApprovalStatus.APPROVED:
+                    self._log.info(f"승인 완료 - 진입 진행: {req.request_id}")
+                    self._pending_approval_request = None
+                elif req.status == ApprovalStatus.PENDING:
+                    # 타임아웃 체크
+                    elapsed = (
+                        datetime.now(req.created_at.tzinfo) - req.created_at
+                    ).total_seconds()
+                    if elapsed > self._trade_approval.approval_timeout:
+                        req.timeout()
+                        self._pending_approval_request = None
+                        self._log.info("승인 시간 초과 - 이번 루프 스킵")
+                        return
+                    self._log.debug("승인 대기 중 - 이번 루프 스킵")
+                    return
+                else:
+                    # REJECTED or TIMEOUT
+                    self._pending_approval_request = None
+                    self._log.info(f"승인 거부/만료 - 스킵: {req.status.value}")
+                    return
+
+            # 새 승인 필요 여부 체크
+            if await self._trade_approval.requires_approval(self.bot_name):
+                indicators_data = self._market_data or {}
+                request = await self._trade_approval.create_request(
+                    bot_name=self.bot_name,
+                    signal=signal,
+                    price=current_price,
+                    quantity=0.0,
+                    rsi=indicators_data.get("rsi"),
+                    atr=indicators_data.get("atr"),
+                )
+                self._pending_approval_request = request
+                self._log.info(f"수동 승인 요청 생성: {request.request_id}")
+                return
+
+        # Phase 5 통합: 노출도 체크
+        if self._on_exposure_check and signal in ("LONG", "SHORT"):
+            try:
+                pct = self.config.get_effective_position_size_pct()
+                position_value = current_price * pct
+                can_open, reason = await self._on_exposure_check(
+                    self.bot_name, position_value
+                )
+                if not can_open:
+                    self._log.info(f"노출도 한도 초과 - 진입 스킵: {reason}")
+                    return
+            except Exception as e:
+                self._log.warning(f"노출도 체크 실패: {e}")
 
         if should_enter_trade(signal, has_position):
             # Phase 6.1: ATR 값 전달 (동적 TP/SL용)

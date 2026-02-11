@@ -135,6 +135,10 @@ def load_config() -> TradingConfig:
             stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0.004")),
             time_cut_minutes=int(os.getenv("TIME_CUT_MINUTES", "120")),
             use_real_balance=os.getenv("USE_REAL_BALANCE", "false").lower() == "true",
+            # Phase 6.1: ATR 기반 동적 TP/SL
+            use_atr_tp_sl=os.getenv("USE_ATR_TP_SL", "false").lower() == "true",
+            atr_tp_multiplier=float(os.getenv("ATR_TP_MULTIPLIER", "2.0")),
+            atr_sl_multiplier=float(os.getenv("ATR_SL_MULTIPLIER", "1.0")),
             gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
             gemini_temperature=float(os.getenv("GEMINI_TEMPERATURE", "0.1")),

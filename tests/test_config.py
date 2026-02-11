@@ -137,7 +137,7 @@ class TestTradingConfig:
         assert config.take_profit_pct == 0.004
         assert config.stop_loss_pct == 0.004
         assert config.time_cut_minutes == 120
-        assert config.gemini_model == "gemini-2.0-flash-exp"
+        assert config.gemini_model == "gemini-2.5-flash"
         assert config.gemini_temperature == 0.1
         assert config.loop_interval_seconds == 300
 
@@ -292,3 +292,33 @@ class TestMainnetSafetySwitch:
 
         assert config.binance_testnet is False
         assert config.mainnet_confirmation == "I_UNDERSTAND_THIS_IS_REAL_MONEY"
+
+
+    def test_load_config_atr_env_vars(self, monkeypatch):
+        """ATR 환경변수 매핑 테스트"""
+        monkeypatch.setenv("BINANCE_API_KEY", "test")
+        monkeypatch.setenv("BINANCE_SECRET_KEY", "test")
+        monkeypatch.setenv("GEMINI_API_KEY", "test")
+        monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://test.com")
+        monkeypatch.setenv("USE_ATR_TP_SL", "true")
+        monkeypatch.setenv("ATR_TP_MULTIPLIER", "3.0")
+        monkeypatch.setenv("ATR_SL_MULTIPLIER", "1.5")
+
+        config = load_config()
+
+        assert config.use_atr_tp_sl is True
+        assert config.atr_tp_multiplier == 3.0
+        assert config.atr_sl_multiplier == 1.5
+
+    def test_load_config_atr_defaults(self, monkeypatch):
+        """ATR 환경변수 기본값 테스트"""
+        monkeypatch.setenv("BINANCE_API_KEY", "test")
+        monkeypatch.setenv("BINANCE_SECRET_KEY", "test")
+        monkeypatch.setenv("GEMINI_API_KEY", "test")
+        monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://test.com")
+
+        config = load_config()
+
+        assert config.use_atr_tp_sl is False
+        assert config.atr_tp_multiplier == 2.0
+        assert config.atr_sl_multiplier == 1.0

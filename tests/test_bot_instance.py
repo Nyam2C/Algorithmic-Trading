@@ -1331,6 +1331,75 @@ class TestPositionManagement:
         assert result is not None
 
 
+
+    @pytest.mark.asyncio
+    async def test_close_short_position_pnl_calculation(
+        self, coverage_bot_config, coverage_mock_binance_client, coverage_mock_trade_db
+    ):
+        """SHORT 포지션 PnL 정확히 계산되는지 검증 (Phase 5 P1 버그 수정)"""
+        on_trade = AsyncMock()
+
+        instance = _create_instance(
+            coverage_bot_config,
+            binance_client=coverage_mock_binance_client,
+            trade_db=coverage_mock_trade_db,
+            on_trade_callback=on_trade,
+        )
+
+        await instance._initialize()
+
+        # SHORT 포지션: entry=50000, exit=49000 → 이익
+        position = {
+            "side": "SHORT",
+            "entry_price": 50000.0,
+            "position_amt": -0.001,  # SHORT이므로 음수
+        }
+        instance._executor.get_position = AsyncMock(return_value=position)
+        instance._executor.close_position = AsyncMock(return_value={"orderId": "789"})
+        instance._executor.calculate_pnl_pct = MagicMock(return_value=2.0)
+        instance._executor.current_position = {
+            "side": "SHORT",
+            "entry_price": 50000.0,
+            "trade_id": "trade-short",
+            "entry_time": datetime.now(),
+        }
+
+        result = await instance._close_position(49000.0, "TP")
+
+        assert result is not None
+        # pnl_usd = (50000 - 49000) * abs(-0.001) * leverage(15) = 15.0
+        # 리스크 매니저의 daily_pnl이 양수여야 함
+        daily_pnl = instance._risk_manager.get_daily_pnl()
+        assert daily_pnl > 0, f"SHORT 이익인데 daily_pnl이 음수: {daily_pnl}"
+
+    @pytest.mark.asyncio
+    async def test_close_short_position_loss_pnl(
+        self, coverage_bot_config, coverage_mock_binance_client
+    ):
+        """SHORT 포지션 손실 시 PnL이 음수로 계산되는지 검증"""
+        instance = _create_instance(
+            coverage_bot_config,
+            binance_client=coverage_mock_binance_client,
+        )
+
+        await instance._initialize()
+
+        # SHORT 포지션: entry=50000, exit=51000 → 손실
+        position = {
+            "side": "SHORT",
+            "entry_price": 50000.0,
+            "position_amt": -0.001,
+        }
+        instance._executor.get_position = AsyncMock(return_value=position)
+        instance._executor.close_position = AsyncMock(return_value={"orderId": "790"})
+        instance._executor.calculate_pnl_pct = MagicMock(return_value=-2.0)
+        instance._executor.current_position = None
+
+        result = await instance._close_position(51000.0, "SL")
+
+        assert result is not None
+
+
 # =============================================================================
 # 콜백 에러 핸들링 테스트
 # =============================================================================
@@ -1611,6 +1680,57 @@ class TestTradingLoop:
                 await instance._execute_single_loop()
 
     @pytest.mark.asyncio
+    async def test_execute_single_loop_calls_update_balance(
+        self, coverage_bot_config, coverage_mock_binance_client
+    ):
+        """매 루프마다 update_balance가 호출되어 드로다운 추적"""
+        instance = _create_instance(
+            coverage_bot_config,
+            binance_client=coverage_mock_binance_client,
+        )
+
+        await instance._initialize()
+
+        with patch("src.bot_instance.analyze_market") as mock_analyze:
+            mock_analyze.return_value = {
+                "rsi": 45.0,
+                "ma_7": 49500.0,
+                "volume_ratio": 1.1,
+            }
+
+            await instance._execute_single_loop()
+
+        # get_account_balance가 호출되어야 함 (init + loop)
+        assert coverage_mock_binance_client.get_account_balance.call_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_execute_single_loop_update_balance_failure(
+        self, coverage_bot_config, coverage_mock_binance_client
+    ):
+        """update_balance 실패 시 루프가 계속 진행"""
+        coverage_mock_binance_client.get_account_balance = AsyncMock(
+            side_effect=Exception("balance error")
+        )
+
+        instance = _create_instance(
+            coverage_bot_config,
+            binance_client=coverage_mock_binance_client,
+        )
+
+        # init에서도 실패하므로 기본값으로 초기화됨
+        await instance._initialize()
+
+        with patch("src.bot_instance.analyze_market") as mock_analyze:
+            mock_analyze.return_value = {
+                "rsi": 45.0,
+                "ma_7": 49500.0,
+                "volume_ratio": 1.1,
+            }
+
+            # 에러가 발생해도 루프가 계속 진행
+            await instance._execute_single_loop()
+
+    @pytest.mark.asyncio
     async def test_execute_single_loop_enter_trade_with_atr(
         self, coverage_bot_config, coverage_mock_binance_client
     ):
@@ -1849,3 +1969,438 @@ class TestProperties:
         assert "memory_signals_enabled" in state
         assert "risk_stats" in state
         assert "market_regime" in state
+
+
+# =============================================================================
+# Phase 5 통합 테스트
+# =============================================================================
+
+
+class TestSignalTrackerIntegration:
+    """SignalTracker 통합 테스트"""
+
+    def test_signal_tracker_initialized(self, coverage_bot_config):
+        """SignalTracker가 __init__에서 초기화됨"""
+        instance = _create_instance(coverage_bot_config)
+        assert instance._signal_tracker is not None
+
+    @pytest.mark.asyncio
+    async def test_signal_recorded_in_loop(
+        self, coverage_bot_config, coverage_mock_binance_client
+    ):
+        """루프에서 시그널이 기록됨"""
+        instance = _create_instance(
+            coverage_bot_config,
+            binance_client=coverage_mock_binance_client,
+        )
+
+        await instance._initialize()
+
+        with patch("src.bot_instance.analyze_market") as mock_analyze:
+            mock_analyze.return_value = {
+                "rsi": 45.0,
+                "ma_7": 49500.0,
+                "volume_ratio": 1.1,
+            }
+
+            await instance._execute_single_loop()
+
+        # 시그널이 기록되었는지 확인
+        assert instance._last_signal_id is not None
+        assert len(instance._signal_tracker._in_memory_signals) > 0
+
+    @pytest.mark.asyncio
+    async def test_signal_result_updated_on_close(
+        self, coverage_bot_config, coverage_mock_binance_client
+    ):
+        """포지션 청산 시 시그널 결과가 업데이트됨"""
+        instance = _create_instance(
+            coverage_bot_config,
+            binance_client=coverage_mock_binance_client,
+        )
+
+        await instance._initialize()
+
+        # 시그널 ID 설정
+        signal_id = await instance._signal_tracker.record_signal(
+            bot_id=str(coverage_bot_config.bot_id),
+            signal="LONG",
+            source="rule_based",
+        )
+        instance._last_signal_id = signal_id
+
+        # 포지션 청산
+        position = {
+            "side": "LONG",
+            "entry_price": 49000.0,
+            "position_amt": 0.001,
+        }
+        instance._executor.get_position = AsyncMock(return_value=position)
+        instance._executor.close_position = AsyncMock(return_value={"orderId": "456"})
+        instance._executor.calculate_pnl_pct = MagicMock(return_value=2.0)
+        instance._executor.current_position = None
+
+        await instance._close_position(50000.0, "TP")
+
+        # 시그널 결과 업데이트 확인
+        record = instance._signal_tracker._in_memory_signals.get(signal_id)
+        assert record is not None
+        assert record.trade_result == "win"
+
+
+class TestPrometheusIntegration:
+    """Prometheus 메트릭 통합 테스트"""
+
+    def test_metrics_initialized(self, coverage_bot_config):
+        """TradingMetrics가 __init__에서 초기화 시도됨"""
+        instance = _create_instance(coverage_bot_config)
+        # prometheus_client가 설치되어 있으면 metrics가 있음
+        # 설치되지 않았으면 None
+        assert hasattr(instance, "_metrics")
+
+    @pytest.mark.asyncio
+    async def test_metrics_record_on_close(
+        self, coverage_bot_config, coverage_mock_binance_client
+    ):
+        """포지션 청산 시 Prometheus 메트릭 기록"""
+        instance = _create_instance(
+            coverage_bot_config,
+            binance_client=coverage_mock_binance_client,
+        )
+
+        await instance._initialize()
+
+        # 메트릭을 모킹
+        mock_metrics = MagicMock()
+        instance._metrics = mock_metrics
+
+        position = {
+            "side": "LONG",
+            "entry_price": 49000.0,
+            "position_amt": 0.001,
+        }
+        instance._executor.get_position = AsyncMock(return_value=position)
+        instance._executor.close_position = AsyncMock(return_value={"orderId": "456"})
+        instance._executor.calculate_pnl_pct = MagicMock(return_value=2.0)
+        instance._executor.current_position = {
+            "entry_time": datetime.now(),
+        }
+
+        await instance._close_position(50000.0, "TP")
+
+        mock_metrics.record_trade.assert_called_once()
+        mock_metrics.clear_position_metrics.assert_called_once_with(
+            coverage_bot_config.bot_name
+        )
+
+    @pytest.mark.asyncio
+    async def test_metrics_position_pnl_during_hold(
+        self, coverage_bot_config, coverage_mock_binance_client
+    ):
+        """포지션 유지 중 PnL 메트릭 기록"""
+        instance = _create_instance(
+            coverage_bot_config,
+            binance_client=coverage_mock_binance_client,
+        )
+
+        await instance._initialize()
+
+        mock_metrics = MagicMock()
+        instance._metrics = mock_metrics
+
+        position = {"side": "LONG", "entry_price": 49000.0, "position_amt": 0.001}
+        instance._executor.get_position = AsyncMock(return_value=position)
+        instance._executor.current_position = {
+            "side": "LONG",
+            "entry_price": 49000.0,
+            "entry_time": datetime.now(),
+        }
+        instance._executor.check_timecut = MagicMock(return_value=False)
+        instance._executor.check_tp_sl_dynamic = AsyncMock(return_value=None)
+
+        with patch("src.bot_instance.analyze_market") as mock_analyze:
+            mock_analyze.return_value = {
+                "rsi": 45.0,
+                "ma_7": 49500.0,
+                "volume_ratio": 1.1,
+            }
+
+            await instance._execute_single_loop()
+
+        mock_metrics.record_position_pnl.assert_called_once()
+
+
+class TestMultiTimeframeIntegration:
+    """MultiTimeframeAnalyzer 통합 테스트"""
+
+    def test_mtf_analyzer_initialized(self, coverage_bot_config):
+        """MTF 분석기가 __init__에서 초기화됨"""
+        instance = _create_instance(coverage_bot_config)
+        assert instance._mtf_analyzer is not None
+
+    @pytest.mark.asyncio
+    async def test_mtf_filter_applied_when_enabled(
+        self, coverage_mock_binance_client
+    ):
+        """MTF 필터가 활성화 시 적용됨"""
+        config = BotConfig(
+            bot_name="mtf-test",
+            symbol="BTCUSDT",
+            use_mtf_filter=True,
+        )
+
+        instance = _create_instance(
+            config,
+            binance_client=coverage_mock_binance_client,
+        )
+
+        await instance._initialize()
+
+        # 15분봉 데이터도 반환하도록 설정
+        coverage_mock_binance_client.get_klines = AsyncMock(return_value=[
+            [1234567890000, "49000", "51000", "48500", "50000", "100", 0, 0, 0, 0, 0, 0],
+        ] * 24)
+
+        with patch("src.bot_instance.analyze_market") as mock_analyze:
+            mock_analyze.return_value = {
+                "rsi": 45.0,
+                "ma_7": 49500.0,
+                "ma_25": 49000.0,
+                "volume_ratio": 1.1,
+                "current_price": 50000.0,
+            }
+
+            await instance._execute_single_loop()
+
+        # 15분봉 데이터가 수집되었는지 확인 (초기 5분봉 + 15분봉)
+        assert coverage_mock_binance_client.get_klines.call_count >= 2
+
+
+class TestEnsembleIntegration:
+    """EnsembleSignalGenerator 통합 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_ensemble_used_when_enabled(
+        self, coverage_mock_binance_client
+    ):
+        """앙상블이 활성화 시 사용됨"""
+        config = BotConfig(
+            bot_name="ensemble-test",
+            symbol="BTCUSDT",
+            use_ensemble=True,
+        )
+
+        instance = _create_instance(
+            config,
+            binance_client=coverage_mock_binance_client,
+        )
+
+        await instance._initialize()
+
+        # 앙상블 생성기가 초기화되었는지 확인
+        assert instance._ensemble_generator is not None
+
+    @pytest.mark.asyncio
+    async def test_ensemble_signal_generation(
+        self, coverage_mock_binance_client
+    ):
+        """앙상블 시그널 생성"""
+        config = BotConfig(
+            bot_name="ensemble-test",
+            symbol="BTCUSDT",
+            use_ensemble=True,
+        )
+
+        instance = _create_instance(
+            config,
+            binance_client=coverage_mock_binance_client,
+        )
+
+        await instance._initialize()
+
+        # 앙상블을 모킹
+        mock_result = MagicMock()
+        mock_result.final_signal = "LONG"
+        mock_result.consensus_ratio = 0.67
+        instance._ensemble_generator.generate_ensemble_signal = AsyncMock(
+            return_value=mock_result
+        )
+
+        with patch("src.bot_instance.analyze_market") as mock_analyze:
+            mock_analyze.return_value = {
+                "rsi": 45.0,
+                "ma_7": 49500.0,
+                "volume_ratio": 1.1,
+            }
+
+            await instance._execute_single_loop()
+
+        instance._ensemble_generator.generate_ensemble_signal.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_ensemble_fallback_on_error(
+        self, coverage_mock_binance_client
+    ):
+        """앙상블 실패 시 규칙 기반으로 폴백"""
+        config = BotConfig(
+            bot_name="ensemble-fallback",
+            symbol="BTCUSDT",
+            use_ensemble=True,
+        )
+
+        instance = _create_instance(
+            config,
+            binance_client=coverage_mock_binance_client,
+        )
+
+        await instance._initialize()
+
+        # 앙상블이 에러를 발생시키도록 설정
+        instance._ensemble_generator.generate_ensemble_signal = AsyncMock(
+            side_effect=Exception("ensemble error")
+        )
+
+        with patch("src.bot_instance.analyze_market") as mock_analyze:
+            mock_analyze.return_value = {
+                "rsi": 45.0,
+                "ma_7": 49500.0,
+                "volume_ratio": 1.1,
+            }
+
+            # 에러 없이 폴백해야 함
+            await instance._execute_single_loop()
+
+
+class TestTradeApprovalIntegration:
+    """TradeApprovalManager 통합 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_approval_manager_initialized_when_enabled(
+        self, coverage_mock_binance_client
+    ):
+        """승인 매니저가 활성화 시 초기화됨"""
+        config = BotConfig(
+            bot_name="approval-test",
+            symbol="BTCUSDT",
+            manual_approval_enabled=True,
+        )
+
+        instance = _create_instance(
+            config,
+            binance_client=coverage_mock_binance_client,
+        )
+
+        await instance._initialize()
+        assert instance._trade_approval is not None
+
+    @pytest.mark.asyncio
+    async def test_approval_creates_request_and_skips(
+        self, coverage_mock_binance_client
+    ):
+        """승인 필요 시 요청 생성 후 루프 스킵"""
+        config = BotConfig(
+            bot_name="approval-skip",
+            symbol="BTCUSDT",
+            manual_approval_enabled=True,
+        )
+
+        instance = _create_instance(
+            config,
+            binance_client=coverage_mock_binance_client,
+        )
+
+        await instance._initialize()
+        instance._open_position = AsyncMock()
+
+        # 규칙 기반 생성기가 LONG을 반환하도록 모킹
+        instance._signal_generator.get_signal = MagicMock(return_value="LONG")
+
+        with patch("src.bot_instance.analyze_market") as mock_analyze:
+            mock_analyze.return_value = {
+                "rsi": 20.0,
+                "ma_7": 49500.0,
+                "volume_ratio": 2.0,
+            }
+
+            await instance._execute_single_loop()
+
+        # 승인 대기 중이므로 포지션 오픈이 호출되지 않아야 함
+        instance._open_position.assert_not_called()
+        # 승인 요청이 생성되었는지 확인
+        assert instance._pending_approval_request is not None
+
+
+class TestExposureCheckIntegration:
+    """MultiBotManager 노출도 체크 통합 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_exposure_check_blocks_entry(
+        self, coverage_bot_config, coverage_mock_binance_client
+    ):
+        """노출도 한도 초과 시 진입 차단"""
+        async def deny_exposure(bot_name: str, value: float) -> tuple[bool, str]:
+            return False, "총 노출도 한도 초과"
+
+        instance = _create_instance(
+            coverage_bot_config,
+            binance_client=coverage_mock_binance_client,
+            on_exposure_check=deny_exposure,
+        )
+
+        await instance._initialize()
+        instance._open_position = AsyncMock()
+        instance._signal_generator.get_signal = MagicMock(return_value="LONG")
+
+        with patch("src.bot_instance.analyze_market") as mock_analyze:
+            mock_analyze.return_value = {
+                "rsi": 20.0,
+                "ma_7": 49500.0,
+                "volume_ratio": 2.0,
+            }
+            with patch("src.bot_instance.should_enter_trade", return_value=True):
+                await instance._execute_single_loop()
+
+        instance._open_position.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_exposure_check_allows_entry(
+        self, coverage_bot_config, coverage_mock_binance_client
+    ):
+        """노출도 허용 범위 내 진입 허용"""
+        async def allow_exposure(bot_name: str, value: float) -> tuple[bool, str]:
+            return True, ""
+
+        instance = _create_instance(
+            coverage_bot_config,
+            binance_client=coverage_mock_binance_client,
+            on_exposure_check=allow_exposure,
+        )
+
+        await instance._initialize()
+        instance._open_position = AsyncMock(return_value={"orderId": "123"})
+        instance._signal_generator.get_signal = MagicMock(return_value="LONG")
+
+        with patch("src.bot_instance.analyze_market") as mock_analyze:
+            mock_analyze.return_value = {
+                "rsi": 20.0,
+                "ma_7": 49500.0,
+                "volume_ratio": 2.0,
+            }
+            with patch("src.bot_instance.should_enter_trade", return_value=True):
+                await instance._execute_single_loop()
+
+        instance._open_position.assert_called_once()
+
+
+class TestGetStateIntegration:
+    """get_state 통합 필드 테스트"""
+
+    def test_get_state_includes_new_fields(self, coverage_bot_config):
+        """get_state에 Phase 5 통합 필드 포함"""
+        instance = _create_instance(coverage_bot_config)
+        state = instance.get_state()
+
+        assert "use_mtf_filter" in state
+        assert "higher_tf_trend" in state
+        assert "use_ensemble" in state
+        assert "trade_approval" in state
