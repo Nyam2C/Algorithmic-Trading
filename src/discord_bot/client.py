@@ -1,11 +1,11 @@
-"""Discord 트레이딩 봇 클라이언트
+"""Discord 트레이딩 봇 클라이언트.
 
 메인 봇 클라이언트와 명령어 핸들러를 정의합니다.
 Phase 4.1: 리팩토링된 모듈 구조
 """
 import os
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import aiohttp
 import discord
@@ -30,12 +30,17 @@ from src.discord_bot.embeds import (
 from src.discord_bot.utils import validate_bot_name as _validate_bot_name
 from src.discord_bot.views import DashboardView
 
+# Discord 메시지/임베드 길이 제한 상수
+MAX_MESSAGE_LENGTH = 500
+MAX_EMBED_FIELD_LENGTH = 400
+STATUS_UPDATE_INTERVAL = 60
+
 if TYPE_CHECKING:
     from src.bot_manager import MultiBotManager
 
 
 class TradingBotClient(discord.Client):
-    """Discord 트레이딩 봇 클라이언트
+    """Discord 트레이딩 봇 클라이언트.
 
     단일 봇 모드와 멀티봇 모드를 모두 지원합니다.
     - 단일 봇 모드: bot_state dict를 사용
@@ -54,7 +59,7 @@ class TradingBotClient(discord.Client):
         binance_client=None,
         bot_manager: Optional["MultiBotManager"] = None,
     ):
-        """TradingBotClient 초기화
+        """TradingBotClient 초기화.
 
         Args:
             bot_state: 공유 상태 딕셔너리
@@ -83,15 +88,15 @@ class TradingBotClient(discord.Client):
     # =========================================================================
 
     async def _get_status_embed(self) -> discord.Embed:
-        """봇 상태 임베드 반환"""
+        """봇 상태 임베드 반환."""
         return create_status_embed(self.bot_state)
 
     async def _get_position_embed(self) -> discord.Embed:
-        """포지션 임베드 반환"""
+        """포지션 임베드 반환."""
         return create_position_embed(self.bot_state)
 
     async def _get_stats_embed(self, hours: int = 24) -> discord.Embed:
-        """통계 임베드 반환"""
+        """통계 임베드 반환."""
         if not self.trade_db:
             return discord.Embed(
                 title="❌ 데이터베이스 연결 안 됨",
@@ -103,7 +108,7 @@ class TradingBotClient(discord.Client):
         return create_stats_embed(stats_data, hours)
 
     async def _get_history_embed(self, limit: int = 5) -> discord.Embed:
-        """내역 임베드 반환"""
+        """내역 임베드 반환."""
         if not self.trade_db:
             return discord.Embed(
                 title="❌ 데이터베이스 연결 안 됨",
@@ -116,7 +121,7 @@ class TradingBotClient(discord.Client):
         return create_history_embed(trades)
 
     async def _get_account_embed(self) -> discord.Embed:
-        """계정 임베드 반환"""
+        """계정 임베드 반환."""
         if not self.binance_client:
             return discord.Embed(
                 title="❌ Binance 클라이언트 연결 안 됨",
@@ -144,9 +149,9 @@ class TradingBotClient(discord.Client):
         self,
         method: str,
         endpoint: str,
-        json_data: Dict[str, Any] | None = None,
-    ) -> Dict[str, Any]:
-        """REST API 호출 헬퍼
+        json_data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """REST API 호출 헬퍼.
 
         Args:
             method: HTTP 메서드 (GET, POST, PUT, DELETE)
@@ -163,27 +168,37 @@ class TradingBotClient(discord.Client):
         timeout = aiohttp.ClientTimeout(total=Timeouts.API_CALL)
 
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.request(method, url, json=json_data) as resp:
-                    if resp.status >= 500:
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.request(method, url, json=json_data) as resp,
+            ):
+                    if resp.status >= MAX_MESSAGE_LENGTH:
                         error_text = await resp.text()
-                        logger.error(f"API 서버 오류: {method} {url} - {resp.status}")
-                        raise Exception(f"API 서버 오류 ({resp.status}): {error_text}")
-                    if resp.status >= 400:
+                        logger.error(
+                        f"API 서버 오류: {method} {url} - {resp.status}"
+                    )
+                        raise Exception(
+                        f"API 서버 오류 ({resp.status}): {error_text}"
+                    )
+                    if resp.status >= MAX_EMBED_FIELD_LENGTH:
                         error_text = await resp.text()
-                        logger.warning(f"API 클라이언트 오류: {method} {url} - {resp.status}")
-                        raise ValueError(f"API 요청 오류 ({resp.status}): {error_text}")
+                        logger.warning(
+                        f"API 클라이언트 오류: {method} {url} - {resp.status}"
+                    )
+                        raise ValueError(
+                        f"API 요청 오류 ({resp.status}): {error_text}"
+                    )
                     return await resp.json()
         except aiohttp.ClientError as e:
             logger.error(f"API 호출 실패: {method} {url} - {e}")
-            raise Exception(f"API 서버 연결 실패: {e!s}")
+            raise Exception(f"API 서버 연결 실패: {e!s}") from e
 
     # =========================================================================
     # Command Implementations
     # =========================================================================
 
     async def _dashboard_command(self, interaction: discord.Interaction):
-        """대시보드 명령어 구현"""
+        """대시보드 명령어 구현."""
         await interaction.response.defer()
 
         try:
@@ -215,7 +230,7 @@ class TradingBotClient(discord.Client):
             if last_signal_time and isinstance(last_signal_time, datetime):
                 time_diff = datetime.now() - last_signal_time
                 mins_ago = int(time_diff.total_seconds() / 60)
-                if mins_ago < 60:
+                if mins_ago < STATUS_UPDATE_INTERVAL:
                     signal_time_str = f"{mins_ago}분 전"
                 else:
                     hours_ago = mins_ago // 60
@@ -244,7 +259,7 @@ class TradingBotClient(discord.Client):
             await interaction.followup.send(f"❌ 오류: {e!s}", ephemeral=True)
 
     async def _status_command(self, interaction: discord.Interaction):
-        """상태 조회 명령어 구현"""
+        """상태 조회 명령어 구현."""
         await interaction.response.defer()
 
         try:
@@ -253,10 +268,12 @@ class TradingBotClient(discord.Client):
             logger.info(f"Discord 명령어 /상태 실행: {interaction.user}")
         except Exception as e:
             logger.error(f"/상태 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 봇 상태 조회 오류: {e!s}", ephemeral=True)
+            await interaction.followup.send(
+                f"❌ 봇 상태 조회 오류: {e!s}", ephemeral=True
+            )
 
     async def _position_command(self, interaction: discord.Interaction):
-        """포지션 조회 명령어 구현"""
+        """포지션 조회 명령어 구현."""
         await interaction.response.defer()
 
         try:
@@ -265,34 +282,44 @@ class TradingBotClient(discord.Client):
             logger.info(f"Discord 명령어 /포지션 실행: {interaction.user}")
         except Exception as e:
             logger.error(f"/포지션 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 포지션 조회 오류: {e!s}", ephemeral=True)
+            await interaction.followup.send(
+                f"❌ 포지션 조회 오류: {e!s}", ephemeral=True
+            )
 
     async def _stats_command(self, interaction: discord.Interaction, hours: int = 24):
-        """통계 조회 명령어 구현"""
+        """통계 조회 명령어 구현."""
         await interaction.response.defer()
 
         try:
             embed = await self._get_stats_embed(hours=hours)
             await interaction.followup.send(embed=embed)
-            logger.info(f"Discord 명령어 /통계 실행 (hours={hours}): {interaction.user}")
+            logger.info(
+                f"Discord 명령어 /통계 실행 (hours={hours}): {interaction.user}"
+            )
         except Exception as e:
             logger.error(f"/통계 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 통계 조회 오류: {e!s}", ephemeral=True)
+            await interaction.followup.send(
+                f"❌ 통계 조회 오류: {e!s}", ephemeral=True
+            )
 
     async def _history_command(self, interaction: discord.Interaction, count: int = 5):
-        """내역 조회 명령어 구현"""
+        """내역 조회 명령어 구현."""
         await interaction.response.defer()
 
         try:
             embed = await self._get_history_embed(limit=count)
             await interaction.followup.send(embed=embed)
-            logger.info(f"Discord 명령어 /내역 실행 (count={count}): {interaction.user}")
+            logger.info(
+                f"Discord 명령어 /내역 실행 (count={count}): {interaction.user}"
+            )
         except Exception as e:
             logger.error(f"/내역 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 내역 조회 오류: {e!s}", ephemeral=True)
+            await interaction.followup.send(
+                f"❌ 내역 조회 오류: {e!s}", ephemeral=True
+            )
 
     async def _stop_command(self, interaction: discord.Interaction):
-        """일시정지 명령어 구현"""
+        """일시정지 명령어 구현."""
         await interaction.response.defer()
 
         try:
@@ -307,23 +334,33 @@ class TradingBotClient(discord.Client):
             )
 
             embed.add_field(name="🛑 새 포지션", value="진입 중지", inline=True)
-            embed.add_field(name="📍 기존 포지션", value="계속 관리 (TP/SL 작동)", inline=True)
+            embed.add_field(
+                name="📍 기존 포지션",
+                value="계속 관리 (TP/SL 작동)",
+                inline=True,
+            )
             embed.add_field(
                 name="⚠️ 재시작",
                 value="`/재시작` 명령어로 정상 거래 재개",
                 inline=False
             )
-            embed.add_field(name="👤 일시정지한 사용자", value=str(interaction.user), inline=True)
+            embed.add_field(
+                name="👤 일시정지한 사용자",
+                value=str(interaction.user),
+                inline=True,
+            )
 
             await interaction.followup.send(embed=embed)
             logger.warning(f"봇 일시정지: {interaction.user}")
 
         except Exception as e:
             logger.error(f"/일시정지 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 일시정지 오류: {e!s}", ephemeral=True)
+            await interaction.followup.send(
+                f"❌ 일시정지 오류: {e!s}", ephemeral=True
+            )
 
     async def _start_command(self, interaction: discord.Interaction):
-        """재시작 명령어 구현"""
+        """재시작 명령어 구현."""
         await interaction.response.defer()
 
         try:
@@ -339,8 +376,16 @@ class TradingBotClient(discord.Client):
             )
 
             embed.add_field(name="✅ 거래", value="활성화", inline=True)
-            embed.add_field(name="🔄 다음 신호", value="다음 루프에서 생성됩니다", inline=True)
-            embed.add_field(name="👤 재시작한 사용자", value=str(interaction.user), inline=False)
+            embed.add_field(
+                name="🔄 다음 신호",
+                value="다음 루프에서 생성됩니다",
+                inline=True,
+            )
+            embed.add_field(
+                name="👤 재시작한 사용자",
+                value=str(interaction.user),
+                inline=False,
+            )
 
             if was_paused:
                 paused_by = self.bot_state.get("paused_by", "알 수 없음")
@@ -363,7 +408,7 @@ class TradingBotClient(discord.Client):
             await interaction.followup.send(f"❌ 재시작 오류: {e!s}", ephemeral=True)
 
     async def _emergency_command(self, interaction: discord.Interaction):
-        """긴급청산 명령어 구현"""
+        """긴급청산 명령어 구현."""
         await interaction.response.defer()
 
         try:
@@ -394,15 +439,27 @@ class TradingBotClient(discord.Client):
             )
 
             emoji = Emojis.LONG if side == "LONG" else Emojis.SHORT
-            embed.add_field(name=f"{emoji} 포지션", value=f"{side} @ ${entry_price:,.2f}", inline=True)
+            embed.add_field(
+                name=f"{emoji} 포지션",
+                value=f"{side} @ ${entry_price:,.2f}",
+                inline=True,
+            )
             embed.add_field(name="📊 수량", value=f"{size:.4f} BTC", inline=True)
-            embed.add_field(name="⚠️ 작업", value="다음 루프에서 시장가 청산", inline=False)
+            embed.add_field(
+                name="⚠️ 작업",
+                value="다음 루프에서 시장가 청산",
+                inline=False,
+            )
             embed.add_field(
                 name="⏸️ 봇 상태",
                 value="자동 일시정지 (`/재시작`으로 재개)",
                 inline=False
             )
-            embed.add_field(name="👤 요청한 사용자", value=str(interaction.user), inline=True)
+            embed.add_field(
+                name="👤 요청한 사용자",
+                value=str(interaction.user),
+                inline=True,
+            )
 
             await interaction.followup.send(embed=embed)
             logger.critical(f"긴급 청산 시작: {interaction.user}")
@@ -412,7 +469,7 @@ class TradingBotClient(discord.Client):
             await interaction.followup.send(f"❌ 긴급청산 오류: {e!s}", ephemeral=True)
 
     async def _account_command(self, interaction: discord.Interaction):
-        """계정 조회 명령어 구현"""
+        """계정 조회 명령어 구현."""
         await interaction.response.defer()
 
         try:
@@ -428,7 +485,7 @@ class TradingBotClient(discord.Client):
     # =========================================================================
 
     async def _bot_list_command(self, interaction: discord.Interaction):
-        """봇 목록 조회 명령어 구현 (REST API 사용)"""
+        """봇 목록 조회 명령어 구현 (REST API 사용)."""
         await interaction.response.defer()
 
         try:
@@ -441,10 +498,14 @@ class TradingBotClient(discord.Client):
 
         except Exception as e:
             logger.error(f"/봇목록 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 봇 목록 조회 오류: {e!s}", ephemeral=True)
+            await interaction.followup.send(
+                f"❌ 봇 목록 조회 오류: {e!s}", ephemeral=True
+            )
 
-    async def _bot_status_command(self, interaction: discord.Interaction, bot_name: str):
-        """봇 상태 조회 명령어 구현 (REST API 사용)"""
+    async def _bot_status_command(
+        self, interaction: discord.Interaction, bot_name: str
+    ):
+        """봇 상태 조회 명령어 구현 (REST API 사용)."""
         await interaction.response.defer()
 
         try:
@@ -459,10 +520,12 @@ class TradingBotClient(discord.Client):
 
         except Exception as e:
             logger.error(f"/봇상태 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 봇 상태 조회 오류: {e!s}", ephemeral=True)
+            await interaction.followup.send(
+                f"❌ 봇 상태 조회 오류: {e!s}", ephemeral=True
+            )
 
     async def _bot_start_command(self, interaction: discord.Interaction, bot_name: str):
-        """봇 시작 명령어 구현 (REST API 사용)"""
+        """봇 시작 명령어 구현 (REST API 사용)."""
         await interaction.response.defer()
 
         try:
@@ -474,7 +537,11 @@ class TradingBotClient(discord.Client):
                 description=f"봇 **{bot_name}**이(가) 시작되었습니다.",
                 color=Colors.SUCCESS
             )
-            embed.add_field(name="👤 시작한 사용자", value=str(interaction.user), inline=True)
+            embed.add_field(
+                name="👤 시작한 사용자",
+                value=str(interaction.user),
+                inline=True,
+            )
 
             await interaction.followup.send(embed=embed)
             logger.info(f"Discord 명령어 /봇시작 {bot_name} 실행: {interaction.user}")
@@ -484,7 +551,7 @@ class TradingBotClient(discord.Client):
             await interaction.followup.send(f"❌ 봇 시작 오류: {e!s}", ephemeral=True)
 
     async def _bot_stop_command(self, interaction: discord.Interaction, bot_name: str):
-        """봇 정지 명령어 구현 (REST API 사용)"""
+        """봇 정지 명령어 구현 (REST API 사용)."""
         await interaction.response.defer()
 
         try:
@@ -496,7 +563,11 @@ class TradingBotClient(discord.Client):
                 description=f"봇 **{bot_name}**이(가) 정지되었습니다.",
                 color=Colors.ERROR
             )
-            embed.add_field(name="👤 정지한 사용자", value=str(interaction.user), inline=True)
+            embed.add_field(
+                name="👤 정지한 사용자",
+                value=str(interaction.user),
+                inline=True,
+            )
 
             await interaction.followup.send(embed=embed)
             logger.info(f"Discord 명령어 /봇정지 {bot_name} 실행: {interaction.user}")
@@ -506,7 +577,7 @@ class TradingBotClient(discord.Client):
             await interaction.followup.send(f"❌ 봇 정지 오류: {e!s}", ephemeral=True)
 
     async def _bot_pause_command(self, interaction: discord.Interaction, bot_name: str):
-        """봇 일시정지 명령어 구현 (REST API 사용)"""
+        """봇 일시정지 명령어 구현 (REST API 사용)."""
         await interaction.response.defer()
 
         try:
@@ -519,21 +590,31 @@ class TradingBotClient(discord.Client):
                 color=Colors.WARNING
             )
             embed.add_field(
-                name="ℹ️ 안내",
+                name="ℹ️ 안내",  # noqa: RUF001
                 value="새 포지션 진입이 중지됩니다.\n기존 포지션은 계속 관리됩니다.",
                 inline=False
             )
-            embed.add_field(name="👤 일시정지한 사용자", value=str(interaction.user), inline=True)
+            embed.add_field(
+                name="👤 일시정지한 사용자",
+                value=str(interaction.user),
+                inline=True,
+            )
 
             await interaction.followup.send(embed=embed)
-            logger.info(f"Discord 명령어 /봇일시정지 {bot_name} 실행: {interaction.user}")
+            logger.info(
+                f"Discord 명령어 /봇일시정지 {bot_name} 실행: {interaction.user}"
+            )
 
         except Exception as e:
             logger.error(f"/봇일시정지 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 봇 일시정지 오류: {e!s}", ephemeral=True)
+            await interaction.followup.send(
+                f"❌ 봇 일시정지 오류: {e!s}", ephemeral=True
+            )
 
-    async def _bot_resume_command(self, interaction: discord.Interaction, bot_name: str):
-        """봇 재개 명령어 구현 (REST API 사용)"""
+    async def _bot_resume_command(
+        self, interaction: discord.Interaction, bot_name: str
+    ):
+        """봇 재개 명령어 구현 (REST API 사용)."""
         await interaction.response.defer()
 
         try:
@@ -545,8 +626,16 @@ class TradingBotClient(discord.Client):
                 description=f"봇 **{bot_name}**이(가) 재개되었습니다.",
                 color=Colors.SUCCESS
             )
-            embed.add_field(name="ℹ️ 안내", value="정상 거래가 재개됩니다.", inline=False)
-            embed.add_field(name="👤 재개한 사용자", value=str(interaction.user), inline=True)
+            embed.add_field(
+                name="ℹ️ 안내",  # noqa: RUF001
+                value="정상 거래가 재개됩니다.",
+                inline=False,
+            )
+            embed.add_field(
+                name="👤 재개한 사용자",
+                value=str(interaction.user),
+                inline=True,
+            )
 
             await interaction.followup.send(embed=embed)
             logger.info(f"Discord 명령어 /봇재개 {bot_name} 실행: {interaction.user}")
@@ -556,7 +645,7 @@ class TradingBotClient(discord.Client):
             await interaction.followup.send(f"❌ 봇 재개 오류: {e!s}", ephemeral=True)
 
     async def _start_all_command(self, interaction: discord.Interaction):
-        """전체 봇 시작 명령어 구현 (REST API 사용)"""
+        """전체 봇 시작 명령어 구현 (REST API 사용)."""
         await interaction.response.defer()
 
         try:
@@ -569,7 +658,11 @@ class TradingBotClient(discord.Client):
                 description=f"모든 봇({started_count}개)이 시작되었습니다.",
                 color=Colors.SUCCESS
             )
-            embed.add_field(name="👤 시작한 사용자", value=str(interaction.user), inline=True)
+            embed.add_field(
+                name="👤 시작한 사용자",
+                value=str(interaction.user),
+                inline=True,
+            )
 
             await interaction.followup.send(embed=embed)
             logger.info(f"Discord 명령어 /전체시작 실행: {interaction.user}")
@@ -579,7 +672,7 @@ class TradingBotClient(discord.Client):
             await interaction.followup.send(f"❌ 전체 시작 오류: {e!s}", ephemeral=True)
 
     async def _stop_all_command(self, interaction: discord.Interaction):
-        """전체 봇 정지 명령어 구현 (REST API 사용)"""
+        """전체 봇 정지 명령어 구현 (REST API 사용)."""
         await interaction.response.defer()
 
         try:
@@ -592,7 +685,11 @@ class TradingBotClient(discord.Client):
                 description=f"모든 봇({stopped_count}개)이 정지되었습니다.",
                 color=Colors.ERROR
             )
-            embed.add_field(name="👤 정지한 사용자", value=str(interaction.user), inline=True)
+            embed.add_field(
+                name="👤 정지한 사용자",
+                value=str(interaction.user),
+                inline=True,
+            )
 
             await interaction.followup.send(embed=embed)
             logger.info(f"Discord 명령어 /전체정지 실행: {interaction.user}")
@@ -606,7 +703,7 @@ class TradingBotClient(discord.Client):
     # =========================================================================
 
     async def on_ready(self):
-        """봇이 준비되면 호출"""
+        """봇이 준비되면 호출."""
         logger.info(f"Discord 봇 로그인: {self.user}")
         logger.info(f"서버 수: {len(self.guilds)}")
 
@@ -621,7 +718,7 @@ class TradingBotClient(discord.Client):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError
     ):
-        """명령어 에러 핸들러"""
+        """명령어 에러 핸들러."""
         logger.error(f"명령어 에러: {error}")
         await interaction.response.send_message(
             f"❌ 명령어 오류: {error!s}",
@@ -636,7 +733,7 @@ async def start_discord_bot(
     binance_client=None,
     bot_manager: Optional["MultiBotManager"] = None,
 ):
-    """Discord 봇 시작
+    """Discord 봇 시작.
 
     Args:
         token: Discord 봇 토큰

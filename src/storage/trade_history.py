@@ -1,9 +1,9 @@
-"""거래 이력 저장소 (PostgreSQL)
+"""거래 이력 저장소 (PostgreSQL).
 
 모든 거래 진입/청산 기록을 분석 및 리포트용으로 저장
 """
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
+from typing import Any
 
 import asyncpg
 from asyncpg import Connection
@@ -11,10 +11,10 @@ from loguru import logger
 
 
 class TradeHistoryDB:
-    """PostgreSQL 거래 이력 데이터베이스"""
+    """PostgreSQL 거래 이력 데이터베이스."""
 
     def __init__(self, database_url: str):
-        """거래 이력 데이터베이스 초기화
+        """거래 이력 데이터베이스 초기화.
 
         Args:
             database_url: PostgreSQL 연결 URL
@@ -23,7 +23,7 @@ class TradeHistoryDB:
         self.pool: asyncpg.Pool | None = None
 
     async def connect(self):
-        """데이터베이스 연결 풀 생성"""
+        """데이터베이스 연결 풀 생성."""
         try:
             self.pool = await asyncpg.create_pool(
                 self.database_url,
@@ -41,13 +41,13 @@ class TradeHistoryDB:
             raise
 
     async def disconnect(self):
-        """데이터베이스 연결 풀 종료"""
+        """데이터베이스 연결 풀 종료."""
         if self.pool:
             await self.pool.close()
             logger.info("거래 이력 데이터베이스 연결 종료")
 
     async def create_tables(self):
-        """데이터베이스 테이블 확인 - db/init.sql 스키마 사용"""
+        """데이터베이스 테이블 확인 - db/init.sql 스키마 사용."""
         if self.pool is None:
             raise RuntimeError("Database pool not initialized. Call connect() first.")
         # 테이블은 db/init.sql로 생성됨, 연결만 확인
@@ -74,7 +74,7 @@ class TradeHistoryDB:
         symbol: str = "BTCUSDT",
         bot_id: str | None = None,
     ) -> str:
-        """거래 진입 기록
+        """거래 진입 기록.
 
         Args:
             entry_time: 진입 시간
@@ -94,15 +94,22 @@ class TradeHistoryDB:
             if bot_id:
                 trade_id = await conn.fetchval("""
                     INSERT INTO trades (
-                        entry_time, entry_price, side, quantity, leverage, symbol, bot_id, status
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7::uuid, 'OPEN')
+                        entry_time, entry_price, side, quantity,
+                        leverage, symbol, bot_id, status
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, $7::uuid, 'OPEN'
+                    )
                     RETURNING id
-                """, entry_time, entry_price, side, quantity, leverage, symbol, bot_id)
+                """, entry_time, entry_price, side, quantity,
+                    leverage, symbol, bot_id)
             else:
                 trade_id = await conn.fetchval("""
                     INSERT INTO trades (
-                        entry_time, entry_price, side, quantity, leverage, symbol, status
-                    ) VALUES ($1, $2, $3, $4, $5, $6, 'OPEN')
+                        entry_time, entry_price, side, quantity,
+                        leverage, symbol, status
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, 'OPEN'
+                    )
                     RETURNING id
                 """, entry_time, entry_price, side, quantity, leverage, symbol)
 
@@ -119,7 +126,7 @@ class TradeHistoryDB:
         pnl_pct: float,
         duration_minutes: int | None = None
     ):
-        """거래 청산 기록"""
+        """거래 청산 기록."""
         if self.pool is None:
             raise RuntimeError("Database pool not initialized. Call connect() first.")
         async with self.pool.acquire() as conn:
@@ -134,7 +141,8 @@ class TradeHistoryDB:
                     status = 'CLOSED',
                     updated_at = NOW()
                 WHERE id = $1::uuid
-            """, trade_id, exit_time, exit_price, exit_reason, pnl, pnl_pct, duration_minutes)
+            """, trade_id, exit_time, exit_price, exit_reason,
+                pnl, pnl_pct, duration_minutes)
 
             logger.info(
                 f"거래 청산 기록: ID={trade_id}, "
@@ -146,8 +154,8 @@ class TradeHistoryDB:
         self,
         limit: int = 10,
         bot_id: str | None = None,
-    ) -> List[Dict[str, Any]]:
-        """최근 완료된 거래 조회
+    ) -> list[dict[str, Any]]:
+        """최근 완료된 거래 조회.
 
         Args:
             limit: 조회할 거래 수
@@ -188,8 +196,8 @@ class TradeHistoryDB:
         self,
         hours: int = 24,
         bot_id: str | None = None,
-    ) -> Dict[str, Any]:
-        """최근 N시간 동안의 거래 통계 조회
+    ) -> dict[str, Any]:
+        """최근 N시간 동안의 거래 통계 조회.
 
         Args:
             hours: 조회 기간 (시간)
@@ -214,8 +222,8 @@ class TradeHistoryDB:
         conn: Connection,
         cutoff_time: datetime,
         bot_id: str | None = None,
-    ) -> Dict[str, Any]:
-        """통계 조회 (내부 메서드)
+    ) -> dict[str, Any]:
+        """통계 조회 (내부 메서드).
 
         bot_id가 지정되면 해당 봇의 통계만, 없으면 전체 통계를 조회합니다.
 
@@ -281,8 +289,8 @@ class TradeHistoryDB:
     async def get_open_trade(
         self,
         bot_id: str | None = None,
-    ) -> Dict[str, Any] | None:
-        """현재 열린 거래 조회 (아직 청산되지 않음)
+    ) -> dict[str, Any] | None:
+        """현재 열린 거래 조회 (아직 청산되지 않음).
 
         Args:
             bot_id: 봇 ID (지정 시 해당 봇 거래만 조회)
@@ -296,7 +304,8 @@ class TradeHistoryDB:
             if bot_id:
                 row = await conn.fetchrow("""
                     SELECT
-                        id, entry_time, entry_price, side, quantity, leverage, symbol, bot_id
+                        id, entry_time, entry_price, side, quantity,
+                        leverage, symbol, bot_id
                     FROM trades
                     WHERE status = 'OPEN' AND bot_id = $1::uuid
                     ORDER BY entry_time DESC
@@ -315,7 +324,7 @@ class TradeHistoryDB:
             return dict(row) if row else None
 
     async def cleanup_old_trades(self, days: int = 30):
-        """N일 이상 지난 CLOSED 거래 삭제
+        """N일 이상 지난 CLOSED 거래 삭제.
 
         OPEN 상태의 거래는 exit_time이 NULL이거나 아직 활성 중이므로 삭제하지 않습니다.
         """

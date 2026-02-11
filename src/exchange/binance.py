@@ -1,9 +1,8 @@
-"""Binance Testnet Client for futures trading
+"""Binance Testnet Client for futures trading.
 
 Phase 4: AsyncClient 마이그레이션 - 비동기 클라이언트 사용
 """
 import asyncio
-from typing import Dict
 
 import pandas as pd
 from binance import AsyncClient
@@ -21,7 +20,7 @@ from src.utils.retry import async_retry
 
 
 class BinanceTestnetClient:
-    """Binance Futures Testnet Client (Async)
+    """Binance Futures Testnet Client (Async).
 
     Phase 4: AsyncClient 마이그레이션 완료
     - 모든 API 호출이 진정한 비동기로 동작
@@ -30,7 +29,7 @@ class BinanceTestnetClient:
     """
 
     def __init__(self, api_key: str, secret_key: str, testnet: bool = True):
-        """Initialize Binance client
+        """Initialize Binance client.
 
         Args:
             api_key: Binance API key
@@ -43,7 +42,7 @@ class BinanceTestnetClient:
         self._client: AsyncClient | None = None
 
     async def connect(self) -> None:
-        """AsyncClient 초기화 (비동기)
+        """AsyncClient 초기화 (비동기).
 
         사용 전 반드시 호출해야 합니다.
         """
@@ -63,7 +62,7 @@ class BinanceTestnetClient:
             logger.warning("Binance REAL trading AsyncClient 연결 완료")
 
     async def close(self) -> None:
-        """연결 종료"""
+        """연결 종료."""
         if self._client:
             await self._client.close_connection()
             self._client = None
@@ -71,14 +70,16 @@ class BinanceTestnetClient:
 
     @property
     def client(self) -> AsyncClient:
-        """내부 클라이언트 반환 (연결 확인)"""
+        """내부 클라이언트 반환 (연결 확인)."""
         if self._client is None:
-            raise RuntimeError("클라이언트가 연결되지 않았습니다. connect()를 먼저 호출하세요.")
+            raise RuntimeError(
+                "클라이언트가 연결되지 않았습니다. connect()를 먼저 호출하세요."
+            )
         return self._client
 
     @property
     def testnet(self) -> bool:
-        """Testnet 사용 여부"""
+        """Testnet 사용 여부."""
         return self._testnet
 
     @async_retry(
@@ -88,7 +89,7 @@ class BinanceTestnetClient:
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
     )
     async def get_current_price(self, symbol: str) -> float:
-        """Get current price for a symbol (with retry)
+        """Get current price for a symbol (with retry).
 
         Args:
             symbol: Trading pair (e.g., "BTCUSDT")
@@ -117,7 +118,7 @@ class BinanceTestnetClient:
         interval: str = AsyncClient.KLINE_INTERVAL_5MINUTE,
         limit: int = 24,
     ) -> pd.DataFrame:
-        """Get candlestick data (with retry)
+        """Get candlestick data (with retry).
 
         Args:
             symbol: Trading pair
@@ -171,8 +172,8 @@ class BinanceTestnetClient:
         backoff=2.0,
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
     )
-    async def get_ticker_24h(self, symbol: str) -> Dict:
-        """Get 24-hour ticker statistics
+    async def get_ticker_24h(self, symbol: str) -> dict:
+        """Get 24-hour ticker statistics.
 
         Args:
             symbol: Trading pair
@@ -201,8 +202,8 @@ class BinanceTestnetClient:
         backoff=2.0,
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
     )
-    async def set_leverage(self, symbol: str, leverage: int) -> Dict:
-        """Set leverage for a symbol (with retry)
+    async def set_leverage(self, symbol: str, leverage: int) -> dict:
+        """Set leverage for a symbol (with retry).
 
         Args:
             symbol: Trading pair
@@ -229,8 +230,8 @@ class BinanceTestnetClient:
     )
     async def create_market_order(
         self, symbol: str, side: str, quantity: float
-    ) -> Dict:
-        """Create a market order (with retry)
+    ) -> dict:
+        """Create a market order (with retry).
 
         Args:
             symbol: Trading pair
@@ -264,8 +265,8 @@ class BinanceTestnetClient:
     )
     async def create_limit_order(
         self, symbol: str, side: str, quantity: float, price: float
-    ) -> Dict:
-        """Create a limit order (Maker order with retry)
+    ) -> dict:
+        """Create a limit order (Maker order with retry).
 
         Args:
             symbol: Trading pair
@@ -300,8 +301,8 @@ class BinanceTestnetClient:
         backoff=2.0,
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
     )
-    async def get_order_status(self, symbol: str, order_id: int) -> Dict:
-        """Get order status (with retry)
+    async def get_order_status(self, symbol: str, order_id: int) -> dict:
+        """Get order status (with retry).
 
         Args:
             symbol: Trading pair
@@ -324,8 +325,8 @@ class BinanceTestnetClient:
         backoff=2.0,
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
     )
-    async def cancel_order(self, symbol: str, order_id: int) -> Dict:
-        """Cancel an open order (with retry)
+    async def cancel_order(self, symbol: str, order_id: int) -> dict:
+        """Cancel an open order (with retry).
 
         Args:
             symbol: Trading pair
@@ -335,15 +336,17 @@ class BinanceTestnetClient:
             Cancel response
         """
         try:
-            result = await self.client.futures_cancel_order(symbol=symbol, orderId=order_id)
+            result = await self.client.futures_cancel_order(
+                symbol=symbol, orderId=order_id
+            )
             logger.info(f"Order {order_id} cancelled")
             return result
         except Exception as e:
             logger.error(f"Failed to cancel order {order_id}: {e}")
             raise
 
-    async def get_position(self, symbol: str) -> Dict | None:
-        """Get current position for a symbol
+    async def get_position(self, symbol: str) -> dict | None:
+        """Get current position for a symbol.
 
         Args:
             symbol: Trading pair
@@ -385,7 +388,7 @@ class BinanceTestnetClient:
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
     )
     async def get_all_positions(self) -> list:
-        """계정 내 모든 열린 포지션 조회
+        """계정 내 모든 열린 포지션 조회.
 
         Returns:
             열린 포지션 리스트 (포지션이 없으면 빈 리스트)
@@ -402,7 +405,9 @@ class BinanceTestnetClient:
                 if position_amt != 0:
                     # 현재가 조회
                     try:
-                        ticker = await self.client.futures_symbol_ticker(symbol=pos["symbol"])
+                        ticker = await self.client.futures_symbol_ticker(
+                            symbol=pos["symbol"]
+                        )
                         current_price = float(ticker["price"])
                     except Exception:
                         current_price = float(pos["markPrice"])
@@ -417,9 +422,13 @@ class BinanceTestnetClient:
                     # 거래소 API 응답 기반의 실시간 포지션 모니터링에 사용됩니다.
                     if entry_price > 0:
                         if side == "LONG":
-                            pnl_pct = ((current_price - entry_price) / entry_price) * 100 * leverage
+                            pnl_pct = (
+                                (current_price - entry_price) / entry_price
+                            ) * 100 * leverage
                         else:
-                            pnl_pct = ((entry_price - current_price) / entry_price) * 100 * leverage
+                            pnl_pct = (
+                                (entry_price - current_price) / entry_price
+                            ) * 100 * leverage
                     else:
                         pnl_pct = 0
 
@@ -444,8 +453,8 @@ class BinanceTestnetClient:
             logger.error(f"전체 포지션 조회 실패: {e}")
             raise
 
-    async def close_position(self, symbol: str) -> Dict | None:
-        """Close current position for a symbol
+    async def close_position(self, symbol: str) -> dict | None:
+        """Close current position for a symbol.
 
         NOTE: @async_retry를 의도적으로 제거함.
         내부에서 호출하는 create_market_order()에 이미 @async_retry가 적용되어 있어
@@ -477,8 +486,8 @@ class BinanceTestnetClient:
             logger.error(f"Failed to close position for {symbol}: {e}")
             raise
 
-    async def get_funding_rate(self, symbol: str) -> Dict:
-        """현재 펀딩비 조회
+    async def get_funding_rate(self, symbol: str) -> dict:
+        """현재 펀딩비 조회.
 
         Args:
             symbol: 거래쌍 (예: "BTCUSDT")
@@ -488,7 +497,9 @@ class BinanceTestnetClient:
         """
         try:
             # 현재 펀딩비
-            funding_info = await self.client.futures_funding_rate(symbol=symbol, limit=1)
+            funding_info = await self.client.futures_funding_rate(
+                symbol=symbol, limit=1
+            )
             if funding_info:
                 rate = float(funding_info[0]["fundingRate"]) * 100  # 퍼센트로 변환
                 funding_time = funding_info[0]["fundingTime"]
@@ -503,8 +514,8 @@ class BinanceTestnetClient:
             logger.warning(f"펀딩비 조회 실패 {symbol}: {e} - 기본값 사용")
             return {"funding_rate": 0.0, "funding_time": None, "is_error": True}
 
-    async def get_long_short_ratio(self, symbol: str) -> Dict:
-        """롱숏 비율 조회 (상위 트레이더 포지션 기준)
+    async def get_long_short_ratio(self, symbol: str) -> dict:
+        """롱숏 비율 조회 (상위 트레이더 포지션 기준).
 
         Args:
             symbol: 거래쌍 (예: "BTCUSDT")
@@ -530,13 +541,19 @@ class BinanceTestnetClient:
                     "long_short_ratio": ls_ratio,
                     "is_error": False,
                 }
-            return {"long_ratio": 0.5, "short_ratio": 0.5, "long_short_ratio": 1.0, "is_error": False}
+            return {
+                "long_ratio": 0.5, "short_ratio": 0.5,
+                "long_short_ratio": 1.0, "is_error": False,
+            }
         except Exception as e:
             logger.warning(f"롱숏 비율 조회 실패 {symbol}: {e} - 기본값 사용")
-            return {"long_ratio": 0.5, "short_ratio": 0.5, "long_short_ratio": 1.0, "is_error": True}
+            return {
+                "long_ratio": 0.5, "short_ratio": 0.5,
+                "long_short_ratio": 1.0, "is_error": True,
+            }
 
-    async def get_open_interest(self, symbol: str) -> Dict:
-        """미결제약정 조회
+    async def get_open_interest(self, symbol: str) -> dict:
+        """미결제약정 조회.
 
         Args:
             symbol: 거래쌍 (예: "BTCUSDT")
@@ -553,8 +570,8 @@ class BinanceTestnetClient:
             logger.warning(f"미결제약정 조회 실패 {symbol}: {e} - 기본값 사용")
             return {"open_interest": 0.0, "symbol": symbol, "is_error": True}
 
-    async def get_market_sentiment(self, symbol: str) -> Dict:
-        """시장 심리 데이터 통합 조회 (펀딩비 + 롱숏비율 + 미결제약정)
+    async def get_market_sentiment(self, symbol: str) -> dict:
+        """시장 심리 데이터 통합 조회 (펀딩비 + 롱숏비율 + 미결제약정).
 
         Args:
             symbol: 거래쌍 (예: "BTCUSDT")
@@ -583,8 +600,8 @@ class BinanceTestnetClient:
         )
         return sentiment
 
-    async def get_account_balance(self) -> Dict:
-        """Get account balance
+    async def get_account_balance(self) -> dict:
+        """Get account balance.
 
         Returns:
             Dictionary with USDT balance info

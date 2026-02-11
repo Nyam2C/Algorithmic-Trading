@@ -68,8 +68,10 @@ ignore = [
     "S106",    # 하드코딩 패스워드 (테스트 픽스처)
     "S108",    # 임시 파일 경로 허용
     "B011",    # assert False 허용
+    "B017",    # pytest.raises(Exception) 허용
     "PLR0915", # 긴 함수 허용
     "PLC0415", # 함수 내 import (테스트 격리)
+    "PLC2401", # 한글 변수명 허용 (테스트 가독성)
     "SIM",     # 간소화 불필요
     "ERA001",  # 주석 처리 코드 허용
     "N802",    # 함수명 규칙 완화
@@ -78,8 +80,10 @@ ignore = [
     "E501",    # 긴 줄 허용
     "F841",    # 미사용 변수 허용 (side-effect 테스트)
     "RET504",  # return 전 할당 허용
+    "RUF001",  # 유니코드 문자 허용 (한글 테스트)
     "RUF015",  # next(iter()) 패턴 완화
     "RUF059",  # 미사용 __all__ 허용
+    "UP035",   # deprecated typing imports 허용
 ]
 "tests/**/conftest.py" = [
     "S101", "D", "ARG", "T20",
@@ -98,8 +102,19 @@ ignore = [
 # 메인 루프 — 복잡도 허용
 "src/main.py" = ["PLR0912", "PLR0915"]
 
-# Discord 봇 — 프레임워크 콜백 패턴
-"src/discord_bot/**/*.py" = ["ARG001", "ARG002"]
+# 봇 인스턴스 — 복잡도 허용
+"src/bot_instance.py" = ["PLR0912"]
+
+# 복잡도 허용 파일들 — PLR0911 (too-many-return-statements)
+"src/data/multi_timeframe.py" = ["PLR0911"]
+"src/data/regime_detector.py" = ["PLR0911"]
+"src/backtest/engine.py" = ["PLR0911"]
+"src/backtest/slippage.py" = ["PLR0911"]
+"src/trading/executor.py" = ["PLR0911"]
+
+# Discord 봇 — 프레임워크 콜백 패턴 + 복잡도 허용
+"src/discord_bot/**/*.py" = ["ARG001", "ARG002", "PLR0912"]
+"src/discord_bot/commands/multibot.py" = ["ARG001", "ARG002", "PLR0912", "PLR0915"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

@@ -1,4 +1,4 @@
-"""Rate Limiting 미들웨어
+"""Rate Limiting 미들웨어.
 
 Phase 6.1: API Rate Limiting
 - Token Bucket 알고리즘 기반
@@ -6,10 +6,11 @@ Phase 6.1: API Rate Limiting
 - DoS 방지
 """
 import asyncio
+import contextlib
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
@@ -19,7 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 @dataclass
 class TokenBucket:
-    """토큰 버킷 알고리즘 구현
+    """토큰 버킷 알고리즘 구현.
 
     요청 속도 제한을 위한 토큰 버킷
 
@@ -36,11 +37,11 @@ class TokenBucket:
     last_refill: float = field(default_factory=time.time, init=False)
 
     def __post_init__(self) -> None:
-        """초기화 후 토큰을 최대 용량으로 설정"""
+        """초기화 후 토큰을 최대 용량으로 설정."""
         self.tokens = self.capacity
 
-    def consume(self, tokens: int = 1) -> Tuple[bool, float]:
-        """토큰 소비 시도
+    def consume(self, tokens: int = 1) -> tuple[bool, float]:
+        """토큰 소비 시도.
 
         Args:
             tokens: 소비할 토큰 수
@@ -59,7 +60,7 @@ class TokenBucket:
         return False, wait_time
 
     def _refill(self) -> None:
-        """토큰 보충"""
+        """토큰 보충."""
         now = time.time()
         elapsed = now - self.last_refill
         self.tokens = min(
@@ -71,7 +72,7 @@ class TokenBucket:
 
 @dataclass
 class RateLimitConfig:
-    """Rate Limit 설정
+    """Rate Limit 설정.
 
     Attributes:
         requests_per_minute: 분당 요청 수
@@ -83,17 +84,17 @@ class RateLimitConfig:
 
     @property
     def capacity(self) -> float:
-        """버킷 용량 (버스트 포함)"""
+        """버킷 용량 (버스트 포함)."""
         return self.requests_per_minute * self.burst_multiplier
 
     @property
     def refill_rate(self) -> float:
-        """초당 토큰 보충 속도"""
+        """초당 토큰 보충 속도."""
         return self.requests_per_minute / 60.0
 
 
 class RateLimiter:
-    """Rate Limiter
+    """Rate Limiter.
 
     클라이언트별 요청 속도를 제한합니다.
 
@@ -122,7 +123,7 @@ class RateLimiter:
         burst_multiplier: float = BURST_MULTIPLIER,
         trusted_proxies: set | None = None,
     ) -> None:
-        """Rate Limiter 초기화
+        """Rate Limiter 초기화.
 
         Args:
             default_limit: 기본 분당 요청 수
@@ -130,7 +131,7 @@ class RateLimiter:
             burst_multiplier: 버스트 허용 배수
             trusted_proxies: 신뢰할 수 있는 프록시 IP 목록 (X-Forwarded-For 허용)
         """
-        self._configs: Dict[str, RateLimitConfig] = {
+        self._configs: dict[str, RateLimitConfig] = {
             "default": RateLimitConfig(default_limit, burst_multiplier),
             "n8n": RateLimitConfig(n8n_limit, burst_multiplier),
         }
@@ -142,7 +143,7 @@ class RateLimiter:
         )
 
         # 클라이언트별 버킷 저장소
-        self._buckets: Dict[str, Dict[str, TokenBucket]] = defaultdict(dict)
+        self._buckets: dict[str, dict[str, TokenBucket]] = defaultdict(dict)
 
         # 정리 락
         self._cleanup_lock = asyncio.Lock()
@@ -155,7 +156,7 @@ class RateLimiter:
         )
 
     def _get_client_id(self, request: Request) -> str:
-        """클라이언트 식별자 추출
+        """클라이언트 식별자 추출.
 
         신뢰할 수 있는 프록시에서 온 요청만 X-Forwarded-For를 사용합니다.
         그 외에는 직접 연결 IP를 사용하여 헤더 위조를 방지합니다.
@@ -194,7 +195,7 @@ class RateLimiter:
         return "unknown"
 
     def _get_config_type(self, path: str) -> str:
-        """경로에 따른 설정 타입 결정
+        """경로에 따른 설정 타입 결정.
 
         Args:
             path: 요청 경로
@@ -207,7 +208,7 @@ class RateLimiter:
         return "default"
 
     def _get_bucket(self, client_id: str, config_type: str) -> TokenBucket:
-        """클라이언트의 토큰 버킷 조회/생성
+        """클라이언트의 토큰 버킷 조회/생성.
 
         Args:
             client_id: 클라이언트 식별자
@@ -228,8 +229,8 @@ class RateLimiter:
     async def check_rate_limit(
         self,
         request: Request,
-    ) -> Tuple[bool, float]:
-        """요청 속도 제한 확인
+    ) -> tuple[bool, float]:
+        """요청 속도 제한 확인.
 
         Args:
             request: FastAPI Request
@@ -255,7 +256,7 @@ class RateLimiter:
         return allowed, retry_after
 
     async def _maybe_cleanup(self) -> None:
-        """오래된 버킷 정리 (주기적)"""
+        """오래된 버킷 정리 (주기적)."""
         now = time.time()
         if now - self._last_cleanup < self._cleanup_interval:
             return
@@ -277,19 +278,18 @@ class RateLimiter:
             ]
 
             for client_id in stale_clients:
-                try:
+                with contextlib.suppress(KeyError):
                     del self._buckets[client_id]
-                except KeyError:
-                    # 다른 코루틴이 이미 삭제했을 수 있음
-                    pass
 
             if stale_clients:
-                self._log.debug(f"Rate limiter 정리: {len(stale_clients)}개 클라이언트 제거")
+                self._log.debug(
+                    f"Rate limiter 정리: {len(stale_clients)}개 클라이언트 제거"
+                )
 
             self._last_cleanup = now
 
-    def get_limits_for_path(self, path: str) -> Dict[str, Any]:
-        """경로에 대한 제한 정보 반환
+    def get_limits_for_path(self, path: str) -> dict[str, Any]:
+        """경로에 대한 제한 정보 반환.
 
         Args:
             path: 요청 경로
@@ -311,7 +311,7 @@ class RateLimiter:
         requests_per_minute: int,
         burst_multiplier: float = 1.5,
     ) -> None:
-        """커스텀 제한 추가
+        """커스텀 제한 추가.
 
         Args:
             name: 설정 이름
@@ -323,7 +323,7 @@ class RateLimiter:
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Rate Limit 미들웨어
+    """Rate Limit 미들웨어.
 
     FastAPI 앱에 적용하여 모든 요청에 대해 속도 제한을 적용합니다.
 
@@ -339,7 +339,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         limiter: RateLimiter | None = None,
         exclude_paths: list | None = None,
     ) -> None:
-        """미들웨어 초기화
+        """미들웨어 초기화.
 
         Args:
             app: FastAPI 앱
@@ -359,7 +359,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._log = logger.bind(module="rate_limit_middleware")
 
     async def dispatch(self, request: Request, call_next: Any) -> Any:
-        """요청 처리
+        """요청 처리.
 
         Args:
             request: FastAPI Request
@@ -403,7 +403,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return response
 
     def _is_excluded(self, path: str) -> bool:
-        """경로가 제외 대상인지 확인
+        """경로가 제외 대상인지 확인.
 
         Args:
             path: 요청 경로

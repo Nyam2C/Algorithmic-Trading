@@ -1,1 +1,1 @@
-"""Storage module for trade history and statistics"""
+"""Storage module for trade history and statistics."""

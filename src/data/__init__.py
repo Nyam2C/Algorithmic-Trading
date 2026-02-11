@@ -1,5 +1,4 @@
-"""Data processing and technical indicators
-"""
+"""Data processing and technical indicators."""
 from .indicators import (
     analyze_market,
     calculate_atr,

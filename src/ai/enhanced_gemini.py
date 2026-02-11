@@ -1,10 +1,9 @@
-"""Enhanced Gemini AI client with memory integration
+"""Enhanced Gemini AI client with memory integration.
 
 Phase 4: AI 메모리 시스템 - 과거 거래 분석을 프롬프트에 주입
 기존 GeminiSignalGenerator를 확장하여 메모리 컨텍스트 지원
 """
 from pathlib import Path
-from typing import Dict
 
 from google.genai.errors import ClientError, ServerError
 from loguru import logger
@@ -15,7 +14,7 @@ from src.utils.retry import async_retry
 
 
 class EnhancedGeminiSignalGenerator(GeminiSignalGenerator):
-    """메모리 주입된 Gemini 시그널 생성기
+    """메모리 주입된 Gemini 시그널 생성기.
 
     과거 거래 분석 결과를 AI 프롬프트에 주입하여
     데이터 기반 의사결정을 지원합니다.
@@ -45,7 +44,7 @@ class EnhancedGeminiSignalGenerator(GeminiSignalGenerator):
         memory_enabled: bool = True,
         memory_days: int = 7,
     ):
-        """Enhanced Gemini 클라이언트 초기화
+        """Enhanced Gemini 클라이언트 초기화.
 
         Args:
             api_key: Gemini API 키
@@ -75,11 +74,11 @@ class EnhancedGeminiSignalGenerator(GeminiSignalGenerator):
 
     @property
     def memory_enabled(self) -> bool:
-        """메모리 기능 활성화 여부"""
+        """메모리 기능 활성화 여부."""
         return self._memory_enabled and self.context_builder is not None
 
     def _load_memory_prompt(self) -> str:
-        """메모리 시스템 프롬프트 로드
+        """메모리 시스템 프롬프트 로드.
 
         Returns:
             메모리 시스템 프롬프트 내용
@@ -87,9 +86,8 @@ class EnhancedGeminiSignalGenerator(GeminiSignalGenerator):
         try:
             prompt_dir = Path(__file__).parent / "prompts"
             prompt_path = prompt_dir / "memory_system.txt"
-            with open(prompt_path, encoding="utf-8") as f:
-                content = f.read()
-            return content
+            with prompt_path.open(encoding="utf-8") as f:
+                return f.read()
         except FileNotFoundError:
             self._log.warning("메모리 시스템 프롬프트 파일 없음 - 기본 프롬프트 사용")
             return self._get_default_memory_prompt()
@@ -98,7 +96,7 @@ class EnhancedGeminiSignalGenerator(GeminiSignalGenerator):
             return self._get_default_memory_prompt()
 
     def _get_default_memory_prompt(self) -> str:
-        """기본 메모리 프롬프트 반환"""
+        """기본 메모리 프롬프트 반환."""
         return """You are a Bitcoin futures trading analyst with MEMORY of past trades.
 Review past trade statistics before making decisions.
 If current conditions match historically successful patterns, increase confidence.
@@ -106,7 +104,7 @@ If current conditions match historically failed patterns, output WAIT.
 Output ONLY: LONG, SHORT, or WAIT."""
 
     def set_context_builder(self, builder: AIMemoryContextBuilder) -> None:
-        """컨텍스트 빌더 설정
+        """컨텍스트 빌더 설정.
 
         Args:
             builder: AIMemoryContextBuilder 인스턴스
@@ -123,10 +121,10 @@ Output ONLY: LONG, SHORT, or WAIT."""
     )
     async def get_signal_with_memory(
         self,
-        market_data: Dict,
+        market_data: dict,
         bot_id: str | None = None,
     ) -> str:
-        """메모리 포함 시그널 생성
+        """메모리 포함 시그널 생성.
 
         과거 거래 분석 결과를 프롬프트에 포함하여 시그널 생성
 
@@ -200,10 +198,10 @@ Output ONLY: LONG, SHORT, or WAIT."""
 
     def _build_prompt_with_memory(
         self,
-        market_data: Dict,
+        market_data: dict,
         memory_context: MemoryContext | None,
     ) -> str:
-        """메모리 포함 프롬프트 빌드
+        """메모리 포함 프롬프트 빌드.
 
         Args:
             market_data: 시장 데이터
@@ -227,12 +225,11 @@ Output ONLY: LONG, SHORT, or WAIT."""
         market_prompt = self._build_market_prompt(market_data)
 
         # 4. 전체 프롬프트 조합
-        full_prompt = f"{system_prompt}{memory_section}\n{market_prompt}"
+        return f"{system_prompt}{memory_section}\n{market_prompt}"
 
-        return full_prompt
 
-    async def get_signal(self, market_data: Dict) -> str:
-        """시그널 생성 (기존 호환성 유지)
+    async def get_signal(self, market_data: dict) -> str:
+        """시그널 생성 (기존 호환성 유지).
 
         메모리 없이 기존 방식으로 시그널 생성
 

@@ -1,4 +1,4 @@
-"""n8n 웹훅 라우트
+"""n8n 웹훅 라우트.
 
 n8n과의 통합을 위한 웹훅 엔드포인트입니다.
 Phase 4.1: API 키 인증 추가
@@ -25,12 +25,13 @@ async def receive_signal(
     manager: MultiBotManager = Depends(get_bot_manager),
     _: str = Depends(verify_n8n_api_key),
 ) -> SuccessResponse:
-    """외부 시그널 수신
+    """외부 시그널 수신.
 
     n8n이나 다른 외부 시스템에서 보내는 트레이딩 시그널을 수신합니다.
 
     Args:
         payload: 시그널 페이로드
+        manager: MultiBotManager 인스턴스 (DI)
     """
     logger.info(
         f"n8n 시그널 수신: {payload.signal} from {payload.source}"
@@ -67,7 +68,7 @@ async def receive_signal(
 
     else:
         # 전체 봇에 시그널 주입
-        for bot_name, bot in manager.bots.items():
+        for bot_name, _bot in manager.bots.items():
             # TODO: bot.inject_signal(signal_data) 호출로 실제 시그널 주입
             logger.info(
                 f"시그널 주입: {bot_name} <- {payload.signal} "
@@ -89,17 +90,18 @@ async def receive_signal(
 
 
 @router.post("/command", response_model=SuccessResponse)
-async def receive_command(
+async def receive_command(  # noqa: PLR0912
     payload: N8NCommandPayload,
     manager: MultiBotManager = Depends(get_bot_manager),
     _: str = Depends(verify_n8n_api_key),
 ) -> SuccessResponse:
-    """외부 명령 수신
+    """외부 명령 수신.
 
     n8n이나 다른 외부 시스템에서 보내는 봇 제어 명령을 수신합니다.
 
     Args:
         payload: 명령 페이로드
+        manager: MultiBotManager 인스턴스 (DI)
     """
     logger.info(
         f"n8n 명령 수신: {payload.command}"
@@ -148,10 +150,10 @@ async def receive_command(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
-        )
+        ) from e
     except Exception as e:
         logger.error(f"명령 실행 에러: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
-        )
+        ) from e

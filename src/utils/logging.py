@@ -1,8 +1,9 @@
-"""JSON 구조화 로깅 모듈
+"""JSON 구조화 로깅 모듈.
 
 CloudWatch, Loki 호환 JSON 포맷 로깅을 제공합니다.
 민감정보 마스킹 기능을 포함합니다.
 """
+import contextlib
 import json
 import re
 import sys
@@ -14,18 +15,49 @@ from loguru import logger
 
 # 민감정보 패턴
 SENSITIVE_PATTERNS = [
-    (re.compile(r"(api[_-]?key)[\"']?\s*[:=]\s*[\"']?([a-zA-Z0-9]{8,})", re.I), r"\1=***MASKED***"),
-    (re.compile(r"(secret[_-]?key)[\"']?\s*[:=]\s*[\"']?([a-zA-Z0-9]{8,})", re.I), r"\1=***MASKED***"),
-    (re.compile(r"(password)[\"']?\s*[:=]\s*[\"']?([^\s\"']+)", re.I), r"\1=***MASKED***"),
-    (re.compile(r"(token)[\"']?\s*[:=]\s*[\"']?([a-zA-Z0-9_\-.]{20,})", re.I), r"\1=***MASKED***"),
-    (re.compile(r"(webhook[_-]?url)[\"']?\s*[:=]\s*[\"']?(https?://[^\s\"']+)", re.I), r"\1=***MASKED***"),
+    (
+        re.compile(
+            r"(api[_-]?key)[\"']?\s*[:=]\s*[\"']?([a-zA-Z0-9]{8,})",
+            re.I,
+        ),
+        r"\1=***MASKED***",
+    ),
+    (
+        re.compile(
+            r"(secret[_-]?key)[\"']?\s*[:=]\s*[\"']?([a-zA-Z0-9]{8,})",
+            re.I,
+        ),
+        r"\1=***MASKED***",
+    ),
+    (
+        re.compile(
+            r"(password)[\"']?\s*[:=]\s*[\"']?([^\s\"']+)",
+            re.I,
+        ),
+        r"\1=***MASKED***",
+    ),
+    (
+        re.compile(
+            r"(token)[\"']?\s*[:=]\s*[\"']?([a-zA-Z0-9_\-.]{20,})",
+            re.I,
+        ),
+        r"\1=***MASKED***",
+    ),
+    (
+        re.compile(
+            r"(webhook[_-]?url)[\"']?\s*[:=]\s*[\"']?"
+            r"(https?://[^\s\"']+)",
+            re.I,
+        ),
+        r"\1=***MASKED***",
+    ),
     # Binance API Key 패턴: hex-only 64자 (일반 UUID/해시와 구별)
     (re.compile(r"[a-fA-F0-9]{64}"), "***MASKED_KEY***"),
 ]
 
 
 def mask_sensitive_data(text: str) -> str:
-    """민감정보 마스킹
+    """민감정보 마스킹.
 
     API 키, 시크릿, 비밀번호 등을 마스킹합니다.
 
@@ -42,7 +74,7 @@ def mask_sensitive_data(text: str) -> str:
 
 
 def mask_dict_sensitive_data(data: dict[str, Any]) -> dict[str, Any]:
-    """딕셔너리 내 민감정보 마스킹
+    """딕셔너리 내 민감정보 마스킹.
 
     Args:
         data: 마스킹할 딕셔너리
@@ -77,13 +109,13 @@ def mask_dict_sensitive_data(data: dict[str, Any]) -> dict[str, Any]:
 
 
 class JSONFormatter:
-    """JSON 로그 포매터
+    """JSON 로그 포매터.
 
     CloudWatch, Loki 호환 JSON 포맷으로 로그를 출력합니다.
     """
 
     def __init__(self, mask_sensitive: bool = True):
-        """초기화
+        """초기화.
 
         Args:
             mask_sensitive: 민감정보 마스킹 여부
@@ -91,7 +123,7 @@ class JSONFormatter:
         self.mask_sensitive = mask_sensitive
 
     def __call__(self, record: dict[str, Any]) -> str:
-        """로그 레코드를 JSON 문자열로 변환
+        """로그 레코드를 JSON 문자열로 변환.
 
         Args:
             record: loguru 로그 레코드
@@ -101,7 +133,12 @@ class JSONFormatter:
         """
         # 기본 필드
         log_entry = {
-            "timestamp": record["time"].astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "timestamp": (
+                record["time"]
+                .astimezone(timezone.utc)
+                .strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+                + "Z"
+            ),
             "level": record["level"].name,
             "logger": record["name"] or "root",
             "message": record["message"],
@@ -149,7 +186,7 @@ def setup_json_logging(
     log_dir: str = "logs",
     preserve_handlers: bool = False,
 ) -> None:
-    """JSON 구조화 로깅 설정
+    """JSON 구조화 로깅 설정.
 
     Args:
         log_level: 로그 레벨 (DEBUG, INFO, WARNING, ERROR)
@@ -162,11 +199,9 @@ def setup_json_logging(
     if not preserve_handlers:
         # 기존 핸들러 제거 (기본 핸들러만 제거하는 것이 안전하지만,
         # loguru는 핸들러 ID 기반이므로 기본 핸들러(ID=0)만 제거 시도)
-        try:
-            logger.remove(0)  # 기본 stderr 핸들러만 제거
-        except ValueError:
-            # 이미 제거된 경우 무시
-            pass
+        # 기본 stderr 핸들러(ID=0)만 제거, 이미 제거된 경우 무시
+        with contextlib.suppress(ValueError):
+            logger.remove(0)
 
     json_formatter = JSONFormatter(mask_sensitive=mask_sensitive)
 
@@ -182,7 +217,12 @@ def setup_json_logging(
         # Human-readable stdout 로깅 (개발용)
         logger.add(
             sys.stdout,
-            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+            format=(
+                "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+                "<level>{level: <8}</level> | "
+                "<cyan>{name}</cyan>:<cyan>{function}</cyan>"
+                ":<cyan>{line}</cyan> - <level>{message}</level>"
+            ),
             level=log_level,
             colorize=True,
         )
@@ -213,11 +253,15 @@ def setup_json_logging(
             serialize=False,
         )
 
-    logger.info("JSON 구조화 로깅 설정 완료", log_level=log_level, json_stdout=enable_json_stdout)
+    logger.info(
+        "JSON 구조화 로깅 설정 완료",
+        log_level=log_level,
+        json_stdout=enable_json_stdout,
+    )
 
 
 def get_structured_logger(name: str, **context: Any) -> Any:
-    """컨텍스트가 바인딩된 로거 반환
+    """컨텍스트가 바인딩된 로거 반환.
 
     Args:
         name: 로거 이름
@@ -238,24 +282,24 @@ _json_logging_enabled = False
 
 
 def is_json_logging_enabled() -> bool:
-    """JSON 로깅 활성화 여부 반환"""
+    """JSON 로깅 활성화 여부 반환."""
     return _json_logging_enabled
 
 
 def enable_json_logging() -> None:
-    """JSON 로깅 활성화"""
-    global _json_logging_enabled
+    """JSON 로깅 활성화."""
+    global _json_logging_enabled  # noqa: PLW0603
     _json_logging_enabled = True
 
 
 def disable_json_logging() -> None:
-    """JSON 로깅 비활성화"""
-    global _json_logging_enabled
+    """JSON 로깅 비활성화."""
+    global _json_logging_enabled  # noqa: PLW0603
     _json_logging_enabled = False
 
 
 def setup_logging_from_env() -> None:
-    """환경변수 기반 로깅 설정
+    """환경변수 기반 로깅 설정.
 
     환경변수:
         - LOG_LEVEL: 로그 레벨 (기본: INFO)
@@ -264,7 +308,7 @@ def setup_logging_from_env() -> None:
         - MASK_SENSITIVE: 민감정보 마스킹 (기본: true)
         - LOG_DIR: 로그 디렉토리 (기본: logs)
     """
-    import os
+    import os  # noqa: PLC0415
 
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
     enable_json = os.getenv("ENABLE_JSON_LOGGING", "true").lower() == "true"

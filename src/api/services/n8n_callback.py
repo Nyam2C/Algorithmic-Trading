@@ -1,4 +1,4 @@
-"""n8n 콜백 서비스 모듈
+"""n8n 콜백 서비스 모듈.
 
 n8n 웹훅으로 이벤트 콜백을 발송합니다.
 Phase 4.1: aiohttp 세션 재사용 및 URL 마스킹
@@ -11,9 +11,14 @@ from loguru import logger
 
 from src.api.schemas.n8n import N8NCallbackPayload
 
+# HTTP 상태 코드 범위 상수
+CALLBACK_TIMEOUT = 30
+HTTP_OK = 200
+HTTP_REDIRECT = 300
+
 
 class CallbackResult(Enum):
-    """콜백 발송 결과
+    """콜백 발송 결과.
 
     콜백 비활성화, 성공, 실패를 구분합니다.
     """
@@ -24,7 +29,7 @@ class CallbackResult(Enum):
 
 
 class N8NCallbackService:
-    """n8n 콜백 서비스
+    """n8n 콜백 서비스.
 
     n8n 웹훅 URL로 이벤트 콜백을 발송합니다.
 
@@ -38,7 +43,7 @@ class N8NCallbackService:
     """
 
     def __init__(self, webhook_url: str | None = None) -> None:
-        """n8n 콜백 서비스 초기화
+        """n8n 콜백 서비스 초기화.
 
         Args:
             webhook_url: n8n 웹훅 URL (없으면 비활성화)
@@ -49,13 +54,17 @@ class N8NCallbackService:
 
         if self.is_enabled:
             # URL 마스킹 (보안)
-            masked_url = webhook_url[:30] + "***" if webhook_url and len(webhook_url) > 30 else webhook_url
+            masked_url = (
+                webhook_url[:CALLBACK_TIMEOUT] + "***"
+                if webhook_url and len(webhook_url) > CALLBACK_TIMEOUT
+                else webhook_url
+            )
             logger.info(f"n8n 콜백 서비스 활성화: {masked_url}")
         else:
             logger.info("n8n 콜백 서비스 비활성화 (URL 없음)")
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """세션 반환 (재사용)
+        """세션 반환 (재사용).
 
         세션이 없거나 닫혀있으면 새로 생성합니다.
 
@@ -69,7 +78,7 @@ class N8NCallbackService:
         return self._session
 
     async def close(self) -> None:
-        """세션 종료
+        """세션 종료.
 
         서비스 종료 시 호출하여 리소스를 정리합니다.
         """
@@ -79,7 +88,7 @@ class N8NCallbackService:
             logger.debug("n8n 콜백 서비스 세션 종료")
 
     async def send_callback(self, payload: N8NCallbackPayload) -> CallbackResult:
-        """콜백 발송
+        """콜백 발송.
 
         Args:
             payload: 콜백 페이로드
@@ -101,7 +110,7 @@ class N8NCallbackService:
                 json=payload.model_dump(mode="json"),
                 headers={"Content-Type": "application/json"},
             ) as response:
-                if response.status >= 200 and response.status < 300:
+                if response.status >= HTTP_OK and response.status < HTTP_REDIRECT:
                     logger.debug(
                         f"n8n 콜백 발송 성공: {payload.event_type} "
                         f"(bot={payload.bot_name})"
@@ -127,7 +136,7 @@ class N8NCallbackService:
         confidence: float = 1.0,
         metadata: dict[str, Any] | None = None,
     ) -> CallbackResult:
-        """시그널 콜백 발송
+        """시그널 콜백 발송.
 
         Args:
             bot_name: 봇 이름
@@ -161,7 +170,7 @@ class N8NCallbackService:
         quantity: float | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> CallbackResult:
-        """거래 콜백 발송
+        """거래 콜백 발송.
 
         Args:
             bot_name: 봇 이름
@@ -201,7 +210,7 @@ class N8NCallbackService:
         error: Exception,
         context: str | None = None,
     ) -> CallbackResult:
-        """에러 콜백 발송
+        """에러 콜백 발송.
 
         Args:
             bot_name: 봇 이름
@@ -227,7 +236,7 @@ class N8NCallbackService:
         bot_name: str,
         status: dict[str, Any],
     ) -> CallbackResult:
-        """상태 콜백 발송
+        """상태 콜백 발송.
 
         Args:
             bot_name: 봇 이름

@@ -1,4 +1,4 @@
-"""봇 API 스키마
+"""봇 API 스키마.
 
 봇 CRUD API의 요청/응답 모델을 정의합니다.
 """
@@ -20,7 +20,7 @@ ALLOWED_SYMBOLS = frozenset({
 
 
 class BotCreateRequest(BaseModel):
-    """봇 생성 요청
+    """봇 생성 요청.
 
     Attributes:
         bot_name: 봇 이름 (고유)
@@ -44,7 +44,7 @@ class BotCreateRequest(BaseModel):
     @field_validator("symbol")
     @classmethod
     def validate_symbol(cls, v: str) -> str:
-        """거래 심볼 화이트리스트 검증"""
+        """거래 심볼 화이트리스트 검증."""
         v = v.upper()
         if v not in ALLOWED_SYMBOLS:
             raise ValueError(
@@ -78,7 +78,7 @@ class BotCreateRequest(BaseModel):
 
 
 class BotUpdateRequest(BaseModel):
-    """봇 설정 수정 요청
+    """봇 설정 수정 요청.
 
     모든 필드는 선택이며, 지정된 필드만 업데이트됩니다.
     """
@@ -110,7 +110,7 @@ class BotUpdateRequest(BaseModel):
 
 
 class BotResponse(BaseModel):
-    """봇 정보 응답
+    """봇 정보 응답.
 
     봇의 설정 및 현재 상태를 포함합니다.
     """
@@ -132,7 +132,7 @@ class BotResponse(BaseModel):
 
 
 class BotStateResponse(BaseModel):
-    """봇 상태 응답
+    """봇 상태 응답.
 
     봇의 현재 실행 상태 및 포지션 정보를 포함합니다.
     """
@@ -155,7 +155,7 @@ class BotStateResponse(BaseModel):
 
 
 class BotListResponse(BaseModel):
-    """봇 목록 응답"""
+    """봇 목록 응답."""
 
     total_bots: int = Field(..., description="전체 봇 수")
     running_bots: int = Field(..., description="실행 중인 봇 수")

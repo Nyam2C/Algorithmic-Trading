@@ -1,4 +1,4 @@
-"""봇 서비스 모듈
+"""봇 서비스 모듈.
 
 봇 CRUD 및 제어 로직을 처리합니다.
 """
@@ -16,7 +16,7 @@ from src.bot_manager import MultiBotManager
 
 
 class BotNotFoundError(ValueError):
-    """봇을 찾을 수 없을 때 발생하는 예외"""
+    """봇을 찾을 수 없을 때 발생하는 예외."""
 
     def __init__(self, bot_name: str) -> None:
         self.bot_name = bot_name
@@ -24,7 +24,7 @@ class BotNotFoundError(ValueError):
 
 
 class BotAlreadyExistsError(ValueError):
-    """동일한 이름의 봇이 이미 존재할 때 발생하는 예외"""
+    """동일한 이름의 봇이 이미 존재할 때 발생하는 예외."""
 
     def __init__(self, bot_name: str) -> None:
         self.bot_name = bot_name
@@ -32,7 +32,7 @@ class BotAlreadyExistsError(ValueError):
 
 
 class BotRunningError(ValueError):
-    """실행 중인 봇에 대한 잘못된 작업 시 발생하는 예외"""
+    """실행 중인 봇에 대한 잘못된 작업 시 발생하는 예외."""
 
     def __init__(self, bot_name: str, action: str = "delete") -> None:
         self.bot_name = bot_name
@@ -43,7 +43,7 @@ class BotRunningError(ValueError):
 
 
 class BotService:
-    """봇 서비스
+    """봇 서비스.
 
     봇 CRUD 및 제어 로직을 제공합니다.
 
@@ -52,7 +52,7 @@ class BotService:
     """
 
     def __init__(self, manager: MultiBotManager) -> None:
-        """봇 서비스 초기화
+        """봇 서비스 초기화.
 
         Args:
             manager: MultiBotManager 인스턴스
@@ -64,7 +64,7 @@ class BotService:
     # =========================================================================
 
     def list_bots(self) -> dict[str, Any]:
-        """봇 목록 조회
+        """봇 목록 조회.
 
         Returns:
             봇 목록 정보
@@ -97,7 +97,7 @@ class BotService:
         }
 
     def get_bot_state(self, bot_name: str) -> dict[str, Any]:
-        """봇 상태 조회
+        """봇 상태 조회.
 
         Args:
             bot_name: 봇 이름
@@ -119,7 +119,7 @@ class BotService:
     # =========================================================================
 
     def create_bot(self, request: BotCreateRequest) -> dict[str, Any]:
-        """봇 생성
+        """봇 생성.
 
         Args:
             request: 봇 생성 요청
@@ -173,10 +173,10 @@ class BotService:
     # 수정
     # =========================================================================
 
-    def update_bot(
+    def update_bot(  # noqa: PLR0912
         self, bot_name: str, request: BotUpdateRequest
     ) -> dict[str, Any]:
-        """봇 설정 수정
+        """봇 설정 수정.
 
         Args:
             bot_name: 봇 이름
@@ -251,7 +251,7 @@ class BotService:
     # =========================================================================
 
     def delete_bot(self, bot_name: str) -> None:
-        """봇 삭제
+        """봇 삭제.
 
         Args:
             bot_name: 봇 이름
@@ -275,7 +275,7 @@ class BotService:
     # =========================================================================
 
     async def start_bot(self, bot_name: str) -> None:
-        """봇 시작
+        """봇 시작.
 
         Args:
             bot_name: 봇 이름
@@ -291,7 +291,7 @@ class BotService:
         logger.info(f"봇 시작됨: {bot_name}")
 
     async def stop_bot(self, bot_name: str) -> None:
-        """봇 정지
+        """봇 정지.
 
         Args:
             bot_name: 봇 이름
@@ -307,7 +307,7 @@ class BotService:
         logger.info(f"봇 정지됨: {bot_name}")
 
     def pause_bot(self, bot_name: str) -> None:
-        """봇 일시정지
+        """봇 일시정지.
 
         Args:
             bot_name: 봇 이름
@@ -323,7 +323,7 @@ class BotService:
         logger.info(f"봇 일시정지됨: {bot_name}")
 
     def resume_bot(self, bot_name: str) -> None:
-        """봇 재개
+        """봇 재개.
 
         Args:
             bot_name: 봇 이름
@@ -339,7 +339,7 @@ class BotService:
         logger.info(f"봇 재개됨: {bot_name}")
 
     def emergency_close(self, bot_name: str) -> None:
-        """긴급 청산
+        """긴급 청산.
 
         Args:
             bot_name: 봇 이름
@@ -359,7 +359,7 @@ class BotService:
     # =========================================================================
 
     async def start_all(self) -> int:
-        """전체 봇 시작
+        """전체 봇 시작.
 
         Returns:
             시작된 봇 수
@@ -370,7 +370,7 @@ class BotService:
         return started
 
     async def stop_all(self) -> int:
-        """전체 봇 정지
+        """전체 봇 정지.
 
         Returns:
             정지된 봇 수

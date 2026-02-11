@@ -1,5 +1,6 @@
-"""High-Win Survival System - Main Entry Point
-멀티봇 통합 진입점
+"""High-Win Survival System - Main Entry Point.
+
+멀티봇 통합 진입점.
 
 하나의 프로세스에서 실행:
 - MultiBotManager: 봇 생명주기 관리
@@ -7,6 +8,7 @@
 - Discord 봇: 원격 제어
 """
 import asyncio
+import contextlib
 import os
 import signal
 import sys
@@ -33,7 +35,7 @@ from src.utils.logging import setup_logging_from_env
 
 
 def setup_logging() -> None:
-    """Configure structured JSON logging for Loki/Promtail
+    """Configure structured JSON logging for Loki/Promtail.
 
     환경변수 ENABLE_JSON_LOGGING=true 시 JSON 로깅,
     그렇지 않으면 기존 텍스트 로깅을 사용합니다.
@@ -50,14 +52,22 @@ def setup_logging() -> None:
 
     logger.add(
         sys.stdout,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        format=(
+            "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+            "<level>{level: <8}</level> | "
+            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+            "<level>{message}</level>"
+        ),
         level="INFO",
         colorize=True,
     )
 
     logger.add(
         "logs/bot.log",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+        format=(
+            "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
+            "{name}:{function}:{line} - {message}"
+        ),
         level="DEBUG",
         rotation="100 MB",
         retention="30 days",
@@ -67,7 +77,10 @@ def setup_logging() -> None:
 
     logger.add(
         "logs/error.log",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+        format=(
+            "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
+            "{name}:{function}:{line} - {message}"
+        ),
         level="ERROR",
         rotation="10 MB",
         retention="30 days",
@@ -83,7 +96,7 @@ async def send_discord_embed(
     color: int,
     fields: list | None = None,
 ) -> bool:
-    """Send Discord embed message
+    """Send Discord embed message.
 
     Args:
         webhook_url: Discord webhook URL
@@ -112,9 +125,11 @@ async def send_discord_embed(
     payload = {"embeds": [embed], "username": "Trading Bot"}
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(webhook_url, json=payload) as resp:
-                if resp.status == 204:
+        async with aiohttp.ClientSession() as session, session.post(
+            webhook_url, json=payload
+        ) as resp:
+                http_no_content = 204
+                if resp.status == http_no_content:
                     logger.debug("Discord embed sent successfully")
                     return True
                 logger.error(f"Discord webhook failed: {resp.status}")
@@ -124,15 +139,17 @@ async def send_discord_embed(
         return False
 
 
-async def run_embedded_api(app, host: str = "0.0.0.0", port: int = 8000) -> None:
-    """FastAPI 서버를 내장 모드로 실행 (non-blocking)
+async def run_embedded_api(
+    app, host: str = "0.0.0.0", port: int = 8000  # noqa: S104
+) -> None:
+    """FastAPI 서버를 내장 모드로 실행 (non-blocking).
 
     Args:
         app: FastAPI 앱 인스턴스
         host: 바인딩 호스트
         port: 포트 번호
     """
-    import uvicorn
+    import uvicorn  # noqa: PLC0415
 
     config = uvicorn.Config(app, host=host, port=port, log_level="info")
     server = uvicorn.Server(config)
@@ -140,7 +157,7 @@ async def run_embedded_api(app, host: str = "0.0.0.0", port: int = 8000) -> None
 
 
 async def main() -> None:
-    """통합 메인 진입점
+    """통합 메인 진입점.
 
     MultiBotManager + FastAPI + Discord 봇을 하나의 프로세스에서 실행합니다.
     """
@@ -196,7 +213,7 @@ async def main() -> None:
     )
 
     # 5. 봇 설정 로드 (YAML 우선, 없으면 환경변수 fallback)
-    yaml_bot_configs, yaml_global = load_bots_from_yaml_optional()
+    yaml_bot_configs, _yaml_global = load_bots_from_yaml_optional()
 
     if yaml_bot_configs:
         # YAML 설정 기반 멀티봇 추가
@@ -225,7 +242,9 @@ async def main() -> None:
             is_active=True,
         )
         manager.add_bot(default_bot_config)
-        logger.info(f"기본 봇 추가: {config.bot_name} - 환경변수 기반 ({config.symbol})")
+        logger.info(
+            f"기본 봇 추가: {config.bot_name} - 환경변수 기반 ({config.symbol})"
+        )
 
     # 6. 공유 상태 (Discord 봇 호환성)
     bot_state = {
@@ -243,7 +262,7 @@ async def main() -> None:
 
     # 7. FastAPI 앱 생성 (MultiBotManager 주입)
     api_app = create_app(bot_manager=manager)
-    api_host = os.getenv("API_HOST", "0.0.0.0")
+    api_host = os.getenv("API_HOST", "0.0.0.0")  # noqa: S104
     api_port = int(os.getenv("API_PORT", "8000"))
 
     # 8. 모든 태스크 생성
@@ -259,7 +278,7 @@ async def main() -> None:
 
     # Discord 봇 태스크
     discord_task: asyncio.Task | None = None
-    if config.discord_bot_token and config.discord_bot_token != "your_bot_token_here":
+    if config.discord_bot_token and config.discord_bot_token != "your_bot_token_here":  # noqa: S105
         try:
             discord_task = asyncio.create_task(
                 start_discord_bot(
@@ -304,7 +323,7 @@ async def main() -> None:
     # 10. 종료 처리
     shutdown_event = asyncio.Event()
 
-    def handle_shutdown(signum, frame):
+    def handle_shutdown(signum, _frame):
         logger.info(f"Received signal {signum}, initiating shutdown...")
         shutdown_event.set()
 
@@ -326,10 +345,8 @@ async def main() -> None:
         for task in tasks:
             if not task.done():
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
         # Redis 연결 해제
         if redis_manager and redis_manager.is_connected:

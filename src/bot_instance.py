@@ -1,4 +1,4 @@
-"""개별 봇 인스턴스 모듈
+"""개별 봇 인스턴스 모듈.
 
 각 봇의 트레이딩 루프 로직을 캡슐화한 BotInstance 클래스.
 기존 main.py의 trading_loop 로직을 분리하여 멀티봇 실행 지원.
@@ -35,7 +35,7 @@ OnErrorCallback = Callable[[str, Exception], Awaitable[None]]
 
 
 class BotInstance:
-    """개별 봇 인스턴스
+    """개별 봇 인스턴스.
 
     각 봇의 트레이딩 루프를 독립적으로 실행하는 클래스입니다.
     BotConfig를 기반으로 설정되며, 멀티봇 환경에서 여러 인스턴스가
@@ -66,7 +66,9 @@ class BotInstance:
         # 의존성 주입 (테스트용)
         binance_client: BinanceTestnetClient | None = None,
         trade_db: TradeHistoryDB | None = None,
-        redis_state_manager: Union[RedisStateManager, DummyRedisStateManager] | None = None,
+        redis_state_manager: (
+            Union[RedisStateManager, DummyRedisStateManager] | None
+        ) = None,
         # Phase 4: AI 메모리 시스템
         enhanced_gemini: EnhancedGeminiSignalGenerator | None = None,
         use_memory_signals: bool = False,
@@ -75,7 +77,7 @@ class BotInstance:
         on_trade_callback: OnTradeCallback | None = None,
         on_error_callback: OnErrorCallback | None = None,
     ) -> None:
-        """봇 인스턴스 초기화
+        """봇 인스턴스 초기화.
 
         Args:
             config: 봇 설정
@@ -164,22 +166,22 @@ class BotInstance:
 
     @property
     def bot_name(self) -> str:
-        """봇 이름"""
+        """봇 이름."""
         return self.config.bot_name
 
     @property
     def symbol(self) -> str:
-        """거래 심볼"""
+        """거래 심볼."""
         return self.config.symbol
 
     @property
     def is_running(self) -> bool:
-        """실행 중 여부"""
+        """실행 중 여부."""
         return self._is_running
 
     @property
     def is_paused(self) -> bool:
-        """일시정지 여부"""
+        """일시정지 여부."""
         return self._is_paused
 
     # =========================================================================
@@ -187,7 +189,7 @@ class BotInstance:
     # =========================================================================
 
     def get_state(self) -> dict[str, Any]:
-        """현재 봇 상태 반환
+        """현재 봇 상태 반환.
 
         Returns:
             봇 상태 딕셔너리
@@ -215,17 +217,17 @@ class BotInstance:
         }
 
     def pause(self) -> None:
-        """봇 일시정지"""
+        """봇 일시정지."""
         self._is_paused = True
         self._log.info("봇 일시정지됨")
 
     def resume(self) -> None:
-        """봇 재개"""
+        """봇 재개."""
         self._is_paused = False
         self._log.info("봇 재개됨")
 
     def request_emergency_close(self) -> None:
-        """긴급 포지션 청산 요청"""
+        """긴급 포지션 청산 요청."""
         self._emergency_close = True
         self._log.warning("긴급 청산 요청됨")
 
@@ -235,11 +237,11 @@ class BotInstance:
 
     @property
     def memory_signals_enabled(self) -> bool:
-        """메모리 기반 시그널 활성화 여부"""
+        """메모리 기반 시그널 활성화 여부."""
         return self._use_memory_signals and self._enhanced_gemini is not None
 
     def enable_memory_signals(self) -> bool:
-        """메모리 기반 시그널 활성화
+        """메모리 기반 시그널 활성화.
 
         Returns:
             활성화 성공 여부
@@ -253,7 +255,7 @@ class BotInstance:
         return True
 
     def disable_memory_signals(self) -> None:
-        """메모리 기반 시그널 비활성화"""
+        """메모리 기반 시그널 비활성화."""
         self._use_memory_signals = False
         self._log.info("메모리 기반 시그널 비활성화됨")
 
@@ -261,7 +263,7 @@ class BotInstance:
         self,
         gemini: EnhancedGeminiSignalGenerator,
     ) -> None:
-        """EnhancedGeminiSignalGenerator 설정
+        """EnhancedGeminiSignalGenerator 설정.
 
         Args:
             gemini: EnhancedGeminiSignalGenerator 인스턴스
@@ -274,7 +276,7 @@ class BotInstance:
     # =========================================================================
 
     async def _sync_state_to_redis(self) -> None:
-        """현재 상태를 Redis에 동기화"""
+        """현재 상태를 Redis에 동기화."""
         if self._redis_state_manager is None:
             return
 
@@ -293,7 +295,7 @@ class BotInstance:
             self._log.warning(f"Redis 상태 동기화 실패: {e}")
 
     async def _restore_state_from_redis(self) -> bool:
-        """Redis에서 상태 복구
+        """Redis에서 상태 복구.
 
         Returns:
             복구 성공 여부
@@ -315,7 +317,9 @@ class BotInstance:
                 )
 
             # 포지션 복구
-            saved_position = await self._redis_state_manager.load_position(self.bot_name)
+            saved_position = await self._redis_state_manager.load_position(
+                self.bot_name
+            )
             if saved_position:
                 self._current_position = saved_position
                 self._log.info(
@@ -333,7 +337,7 @@ class BotInstance:
     def set_redis_state_manager(
         self, manager: Union[RedisStateManager, DummyRedisStateManager]
     ) -> None:
-        """Redis 상태 관리자 설정
+        """Redis 상태 관리자 설정.
 
         Args:
             manager: Redis 상태 관리자
@@ -345,7 +349,7 @@ class BotInstance:
     # =========================================================================
 
     async def _initialize(self) -> None:
-        """봇 초기화 (클라이언트 및 DB 연결)"""
+        """봇 초기화 (클라이언트 및 DB 연결)."""
         # Binance 클라이언트 초기화
         if self._binance_client is None:
             self._binance_client = BinanceTestnetClient(
@@ -426,7 +430,7 @@ class BotInstance:
         self._log.info("봇 초기화 완료")
 
     async def _cleanup(self) -> None:
-        """봇 정리 (연결 해제)"""
+        """봇 정리 (연결 해제)."""
         # Redis 상태 업데이트
         if self._redis_state_manager:
             await self._sync_state_to_redis()
@@ -442,7 +446,7 @@ class BotInstance:
     # =========================================================================
 
     async def _fetch_market_data(self) -> dict[str, Any]:
-        """시장 데이터 수집
+        """시장 데이터 수집.
 
         Returns:
             시장 데이터 딕셔너리
@@ -453,7 +457,7 @@ class BotInstance:
         # 현재 가격
         current_price = await self._binance_client.get_current_price(self.symbol)
 
-        # Klines (캔들스틱)
+        # 캔들스틱 데이터 조회
         klines = await self._binance_client.get_klines(self.symbol, limit=24)
 
         # 24시간 티커
@@ -477,7 +481,7 @@ class BotInstance:
     # =========================================================================
 
     def _generate_signal(self, market_data: dict[str, Any]) -> str:
-        """시그널 생성 (규칙 기반)
+        """시그널 생성 (규칙 기반).
 
         Args:
             market_data: 시장 데이터
@@ -498,7 +502,7 @@ class BotInstance:
         return signal
 
     async def _generate_signal_with_memory(self, market_data: dict[str, Any]) -> str:
-        """메모리 기반 시그널 생성 (Phase 4)
+        """메모리 기반 시그널 생성 (Phase 4).
 
         과거 거래 분석 결과를 AI 프롬프트에 주입하여 시그널 생성
 
@@ -543,7 +547,7 @@ class BotInstance:
     async def _open_position(
         self, signal: str, current_price: float, entry_atr: float | None = None
     ) -> dict | None:
-        """포지션 오픈
+        """포지션 오픈.
 
         Args:
             signal: 시그널 ("LONG" or "SHORT")
@@ -584,7 +588,7 @@ class BotInstance:
         current_price: float,
         exit_reason: str,
     ) -> dict | None:
-        """포지션 클로즈
+        """포지션 클로즈.
 
         Args:
             current_price: 현재 가격
@@ -659,7 +663,7 @@ class BotInstance:
     # =========================================================================
 
     async def _notify_signal(self, signal: str, price: float) -> None:
-        """시그널 콜백 호출"""
+        """시그널 콜백 호출."""
         if self._on_signal_callback:
             try:
                 await self._on_signal_callback(self.bot_name, signal, price)
@@ -673,7 +677,7 @@ class BotInstance:
         price: float,
         pnl: float | None,
     ) -> None:
-        """거래 콜백 호출"""
+        """거래 콜백 호출."""
         if self._on_trade_callback:
             try:
                 await self._on_trade_callback(self.bot_name, action, side, price, pnl)
@@ -681,7 +685,7 @@ class BotInstance:
                 self._log.error(f"거래 콜백 에러: {e}")
 
     async def _notify_error(self, error: Exception) -> None:
-        """에러 콜백 호출"""
+        """에러 콜백 호출."""
         if self._on_error_callback:
             try:
                 await self._on_error_callback(self.bot_name, error)
@@ -689,7 +693,7 @@ class BotInstance:
                 self._log.error(f"에러 콜백 에러: {e}")
 
     async def _notify_risk_halt(self, reason: str) -> None:
-        """리스크 한도 도달 알림 (Phase 5.2)"""
+        """리스크 한도 도달 알림 (Phase 5.2)."""
         self._log.warning(f"[RISK HALT] {self.bot_name}: {reason}")
         # 에러 콜백을 통해 알림 (Discord 등에서 처리)
         if self._on_error_callback:
@@ -704,7 +708,7 @@ class BotInstance:
     # =========================================================================
 
     async def _execute_single_loop(self) -> None:
-        """단일 트레이딩 루프 실행"""
+        """단일 트레이딩 루프 실행."""
         self._loop_count += 1
         self._log.info(f"루프 #{self._loop_count} 시작")
 
@@ -762,14 +766,18 @@ class BotInstance:
             )
 
             # Timecut 체크
-            if self._executor.current_position:
-                if self._executor.check_timecut(self._executor.current_position):
+            if (
+                self._executor.current_position
+                and self._executor.check_timecut(self._executor.current_position)
+            ):
                     self._log.info("Timecut 조건 충족")
                     await self._close_position(current_price, "TIME_CUT")
                     return
 
             # TP/SL 체크 (Phase 6.1: ATR 기반 동적 TP/SL 지원)
-            exit_reason = await self._executor.check_tp_sl_dynamic(position, current_price)
+            exit_reason = await self._executor.check_tp_sl_dynamic(
+                position, current_price
+            )
             if exit_reason:
                 self._log.info(f"종료 조건 충족: {exit_reason}")
                 await self._close_position(current_price, exit_reason)
@@ -799,7 +807,7 @@ class BotInstance:
             await self._open_position(signal, current_price, entry_atr)
 
     async def _run_loop(self) -> None:
-        """메인 트레이딩 루프"""
+        """메인 트레이딩 루프."""
         self._is_running = True
         self._uptime_start = datetime.now()
         self._log.info("트레이딩 루프 시작")
@@ -825,7 +833,7 @@ class BotInstance:
     # =========================================================================
 
     async def start(self) -> None:
-        """봇 시작"""
+        """봇 시작."""
         self._log.info("봇 시작 중...")
 
         try:
@@ -837,6 +845,6 @@ class BotInstance:
             await self._cleanup()
 
     async def stop(self) -> None:
-        """봇 정지"""
+        """봇 정지."""
         self._log.info("봇 정지 요청")
         self._is_running = False

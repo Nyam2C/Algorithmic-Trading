@@ -1,6 +1,4 @@
-"""Technical indicators calculation using ta library
-"""
-from typing import Dict, Tuple
+"""Technical indicators calculation using ta library."""
 
 import pandas as pd
 from loguru import logger
@@ -8,9 +6,17 @@ from ta.momentum import RSIIndicator
 from ta.trend import SMAIndicator
 from ta.volatility import AverageTrueRange
 
+# 지표 분석 상수
+RSI_TREND_THRESHOLD = 2
+RSI_TREND_THRESHOLD_NEG = -2
+HIGH_VOLATILITY_THRESHOLD = 1.5
+LOW_VOLATILITY_THRESHOLD = 0.5
+BB_STD_MULTIPLIER = 2
+MIN_RSI_SAMPLES = 2
+
 
 def calculate_rsi(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    """Calculate RSI (Relative Strength Index)
+    """Calculate RSI (Relative Strength Index).
 
     Args:
         df: DataFrame with 'close' column
@@ -30,9 +36,9 @@ def calculate_rsi(df: pd.DataFrame, period: int = 14) -> pd.Series:
 
 
 def calculate_ma(
-    df: pd.DataFrame, periods: list = [7, 25, 99]
-) -> Dict[str, pd.Series]:
-    """Calculate Simple Moving Averages
+    df: pd.DataFrame, periods: list | None = None
+) -> dict[str, pd.Series]:
+    """Calculate Simple Moving Averages.
 
     Args:
         df: DataFrame with 'close' column
@@ -41,6 +47,8 @@ def calculate_ma(
     Returns:
         Dictionary of MA series
     """
+    if periods is None:
+        periods = [7, 25, 99]
     try:
         mas = {}
         for period in periods:
@@ -57,7 +65,7 @@ def calculate_ma(
 
 
 def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    """Calculate ATR (Average True Range)
+    """Calculate ATR (Average True Range).
 
     Args:
         df: DataFrame with 'high', 'low', 'close' columns
@@ -79,7 +87,7 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
 
 
 def calculate_volume_ratio(df: pd.DataFrame) -> float:
-    """Calculate current volume ratio vs average
+    """Calculate current volume ratio vs average.
 
     Args:
         df: DataFrame with 'volume' column
@@ -99,7 +107,7 @@ def calculate_volume_ratio(df: pd.DataFrame) -> float:
 
 
 def analyze_rsi_trend(rsi_series: pd.Series, window: int = 3) -> str:
-    """Analyze RSI trend
+    """Analyze RSI trend.
 
     Args:
         rsi_series: RSI values
@@ -109,24 +117,24 @@ def analyze_rsi_trend(rsi_series: pd.Series, window: int = 3) -> str:
         "rising", "falling", or "flat"
     """
     recent_rsi = rsi_series.tail(window)
-    if len(recent_rsi) < 2:
+    if len(recent_rsi) < MIN_RSI_SAMPLES:
         return "flat"
 
     first = recent_rsi.iloc[0]
     last = recent_rsi.iloc[-1]
     diff = last - first
 
-    if diff > 2:
+    if diff > RSI_TREND_THRESHOLD:
         return "rising"
-    if diff < -2:
+    if diff < RSI_TREND_THRESHOLD_NEG:
         return "falling"
     return "flat"
 
 
 def calculate_price_vs_ma(
     current_price: float, ma_value: float
-) -> Tuple[float, str]:
-    """Calculate price position relative to MA
+) -> tuple[float, str]:
+    """Calculate price position relative to MA.
 
     Args:
         current_price: Current price
@@ -140,8 +148,8 @@ def calculate_price_vs_ma(
     return pct_diff, position
 
 
-def analyze_candle_pattern(df: pd.DataFrame) -> Dict:
-    """Analyze recent candle patterns
+def analyze_candle_pattern(df: pd.DataFrame) -> dict:
+    """Analyze recent candle patterns.
 
     Args:
         df: DataFrame with OHLCV data
@@ -176,9 +184,9 @@ def analyze_candle_pattern(df: pd.DataFrame) -> Dict:
 
 
 def analyze_market(
-    df: pd.DataFrame, ticker_24h: Dict, current_price: float
-) -> Dict:
-    """Comprehensive market analysis
+    df: pd.DataFrame, ticker_24h: dict, current_price: float
+) -> dict:
+    """Comprehensive market analysis.
 
     Args:
         df: Candlestick DataFrame
@@ -217,13 +225,19 @@ def analyze_market(
         # Volume analysis
         volume_ratio = calculate_volume_ratio(df)
         volume_trend = (
-            "increasing" if df["volume"].iloc[-1] > df["volume"].iloc[-6] else "decreasing"
+            "increasing"
+            if df["volume"].iloc[-1] > df["volume"].iloc[-6]
+            else "decreasing"
         )
 
         # ATR percentage
         atr_pct = (atr / current_price) * 100
         volatility_state = (
-            "high" if atr_pct > 1.5 else "low" if atr_pct < 0.5 else "normal"
+            "high"
+            if atr_pct > HIGH_VOLATILITY_THRESHOLD
+            else "low"
+            if atr_pct < LOW_VOLATILITY_THRESHOLD
+            else "normal"
         )
 
         # Candle pattern

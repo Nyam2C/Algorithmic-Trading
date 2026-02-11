@@ -1,4 +1,4 @@
-"""백테스트 엔진
+"""백테스트 엔진.
 
 Phase 6.5: 백테스트 프레임워크
 - 전략 시뮬레이션
@@ -12,7 +12,7 @@ Phase 6.2: 백테스트 현실화
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
 import pandas as pd
 from loguru import logger
@@ -24,10 +24,25 @@ from src.backtest.slippage import (
 )
 from src.data.indicators import calculate_rsi as _indicators_calculate_rsi
 
+# 백테스트 상수
+DEFAULT_RISK_PCT = 0.02
+DEFAULT_SL_PCT = 0.015
+MAX_SLIPPAGE = 0.001
+PNL_PRECISION = 8
+PCT_MULTIPLIER = 100
+MA_PERIOD_SHORT = 7
+MA_PERIOD_MEDIUM = 25
+MA_PERIOD_LONG = 99
+MIN_CANDLES_FOR_RSI = 15
+MIN_CANDLES_FOR_MARKET = 25
+MIN_CANDLES_FOR_MACD = 26
+MIN_CANDLES_FOR_BB = 20
+MIN_TRADES_FOR_SHARPE = 2
+
 
 @dataclass
 class BacktestConfig:
-    """백테스트 설정
+    """백테스트 설정.
 
     Attributes:
         initial_capital: 초기 자본
@@ -54,7 +69,7 @@ class BacktestConfig:
 
 @dataclass
 class Trade:
-    """거래 기록
+    """거래 기록.
 
     Attributes:
         entry_time: 진입 시간
@@ -78,7 +93,7 @@ class Trade:
     pnl: float | None = None
 
     def calculate_pnl(self) -> None:
-        """PnL 계산 (레버리지 포함)"""
+        """PnL 계산 (레버리지 포함)."""
         if self.exit_price is None:
             return
 
@@ -89,7 +104,7 @@ class Trade:
         self.pnl = price_diff * self.quantity * self.leverage
 
     def is_winner(self) -> bool:
-        """승리 여부"""
+        """승리 여부."""
         if self.pnl is None:
             return False
         return self.pnl > 0
@@ -97,7 +112,7 @@ class Trade:
 
 @dataclass
 class BacktestResult:
-    """백테스트 결과
+    """백테스트 결과.
 
     Attributes:
         trades: 거래 목록
@@ -111,7 +126,7 @@ class BacktestResult:
         max_drawdown: 최대 드로다운
         sharpe_ratio: 샤프 비율
     """
-    trades: List[Trade]
+    trades: list[Trade]
     initial_capital: float
     final_capital: float
     total_trades: int = 0
@@ -121,10 +136,10 @@ class BacktestResult:
     total_pnl: float = 0.0
     max_drawdown: float = 0.0
     sharpe_ratio: float = 0.0
-    equity_curve: List[float] = field(default_factory=list)
+    equity_curve: list[float] = field(default_factory=list)
 
     def calculate_metrics(self) -> None:
-        """메트릭 계산"""
+        """메트릭 계산."""
         self.total_trades = len(self.trades)
 
         if self.total_trades == 0:
@@ -139,12 +154,12 @@ class BacktestResult:
         self.sharpe_ratio = self._calculate_sharpe_ratio()
 
     def _calculate_sharpe_ratio(self) -> float:
-        """Sharpe ratio 계산
+        """Sharpe ratio 계산.
 
         Sharpe = mean(returns) / std(returns) * sqrt(periods_per_year)
         5분봉 기준: 연간 약 105,120 봉 (365 * 24 * 60 / 5)
         """
-        if len(self.trades) < 2:
+        if len(self.trades) < MIN_TRADES_FOR_SHARPE:
             return 0.0
 
         returns = [t.pnl or 0 for t in self.trades]
@@ -160,12 +175,11 @@ class BacktestResult:
         # 5분봉 기준 연간 기간 수 (보수적 추정: 일간 252 거래일 기반)
         # 거래 빈도에 따라 조정 가능하므로, 거래 수 기반으로 연간화
         periods_per_year = 252  # 일간 기준
-        sharpe = (mean_return / std_return) * math.sqrt(periods_per_year)
+        return (mean_return / std_return) * math.sqrt(periods_per_year)
 
-        return sharpe
 
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환"""
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리로 변환."""
         return {
             "total_trades": self.total_trades,
             "winning_trades": self.winning_trades,
@@ -174,17 +188,22 @@ class BacktestResult:
             "total_pnl": round(self.total_pnl, 2),
             "initial_capital": self.initial_capital,
             "final_capital": round(self.final_capital, 2),
-            "return_pct": round((self.final_capital - self.initial_capital) / self.initial_capital * 100, 2),
+            "return_pct": round(
+                (self.final_capital - self.initial_capital)
+                / self.initial_capital
+                * PCT_MULTIPLIER,
+                2,
+            ),
             "max_drawdown": round(self.max_drawdown * 100, 2),
         }
 
 
 # 전략 함수 타입: (candle, market_data) -> signal
-StrategyFunc = Callable[[Dict, Dict], str]
+StrategyFunc = Callable[[dict, dict], str]
 
 
 class BacktestEngine:
-    """백테스트 엔진
+    """백테스트 엔진.
 
     과거 데이터로 전략을 시뮬레이션합니다.
 
@@ -203,10 +222,10 @@ class BacktestEngine:
     def __init__(
         self,
         config: BacktestConfig,
-        data: List[Dict],
+        data: list[dict],
         slippage_model: SlippageModel | None = None,
     ) -> None:
-        """엔진 초기화
+        """엔진 초기화.
 
         Args:
             config: 백테스트 설정
@@ -217,8 +236,8 @@ class BacktestEngine:
         self.data = data
         self.capital = config.initial_capital
         self.position: Trade | None = None
-        self.trades: List[Trade] = []
-        self.equity_curve: List[float] = [config.initial_capital]
+        self.trades: list[Trade] = []
+        self.equity_curve: list[float] = [config.initial_capital]
 
         # Phase 6.2: 슬리피지 모델
         self.slippage_model = slippage_model or (
@@ -235,14 +254,14 @@ class BacktestEngine:
         )
 
     def _calculate_avg_volume(self) -> float:
-        """평균 거래량 계산"""
+        """평균 거래량 계산."""
         volumes = [c.get("volume", 0) for c in self.data if c.get("volume", 0) > 0]
         if volumes:
             return sum(volumes) / len(volumes)
         return 10000.0  # 기본값
 
     def run(self, strategy: StrategyFunc) -> BacktestResult:
-        """백테스트 실행
+        """백테스트 실행.
 
         Args:
             strategy: 전략 함수 (candle, market_data) -> "LONG" | "SHORT" | "WAIT"
@@ -299,45 +318,45 @@ class BacktestEngine:
 
         return result
 
-    def _prepare_market_data(self, index: int) -> Dict:
-        """시장 데이터 준비
+    def _prepare_market_data(self, index: int) -> dict:
+        """시장 데이터 준비.
 
         Phase 6.2: RSI, ATR, MACD, BB 지표 추가
         """
-        if index < 25:
+        if index < MIN_CANDLES_FOR_MARKET:
             return {}
 
         # 최근 데이터 슬라이스
         window = self.data[max(0, index - 99):index + 1]
         closes = [c["close"] for c in window]
 
-        market_data: Dict[str, Any] = {}
+        market_data: dict[str, Any] = {}
 
         # Moving Averages
-        if len(closes) >= 7:
-            market_data["ma_7"] = sum(closes[-7:]) / 7
-        if len(closes) >= 25:
-            market_data["ma_25"] = sum(closes[-25:]) / 25
-        if len(closes) >= 99:
-            market_data["ma_99"] = sum(closes[-99:]) / 99
+        if len(closes) >= MA_PERIOD_SHORT:
+            market_data["ma_7"] = sum(closes[-7:]) / MA_PERIOD_SHORT
+        if len(closes) >= MA_PERIOD_MEDIUM:
+            market_data["ma_25"] = sum(closes[-25:]) / MA_PERIOD_MEDIUM
+        if len(closes) >= MA_PERIOD_LONG:
+            market_data["ma_99"] = sum(closes[-99:]) / MA_PERIOD_LONG
 
         # RSI (14 periods)
-        if len(closes) >= 15:
+        if len(closes) >= MIN_CANDLES_FOR_RSI:
             market_data["rsi"] = self._calculate_rsi(closes[-15:])
 
         # ATR (14 periods)
-        if len(window) >= 15:
+        if len(window) >= MIN_CANDLES_FOR_RSI:
             market_data["atr"] = self._calculate_atr(window[-15:])
             if closes[-1] > 0:
                 market_data["atr_pct"] = (market_data["atr"] / closes[-1]) * 100
 
-        # MACD (12, 26, 9)
-        if len(closes) >= 26:
+        # MACD calculation
+        if len(closes) >= MIN_CANDLES_FOR_MACD:
             macd_data = self._calculate_macd(closes)
             market_data.update(macd_data)
 
         # Bollinger Bands (20, 2)
-        if len(closes) >= 20:
+        if len(closes) >= MIN_CANDLES_FOR_BB:
             bb_data = self._calculate_bollinger_bands(closes[-20:])
             market_data.update(bb_data)
 
@@ -347,8 +366,8 @@ class BacktestEngine:
 
         return market_data
 
-    def _calculate_rsi(self, closes: List[float], period: int = 14) -> float:
-        """RSI 계산 (indicators.py와 동일한 로직 사용)"""
+    def _calculate_rsi(self, closes: list[float], period: int = 14) -> float:
+        """RSI 계산 (indicators.py와 동일한 로직 사용)."""
         if len(closes) < period + 1:
             return 50.0
 
@@ -362,9 +381,9 @@ class BacktestEngine:
         except Exception:
             return 50.0
 
-    def _calculate_atr(self, candles: List[Dict], period: int = 14) -> float:
-        """ATR 계산"""
-        if len(candles) < 2:
+    def _calculate_atr(self, candles: list[dict], period: int = 14) -> float:
+        """ATR 계산."""
+        if len(candles) < MIN_TRADES_FOR_SHARPE:
             return 0.0
 
         true_ranges = []
@@ -387,17 +406,17 @@ class BacktestEngine:
 
     def _calculate_macd(
         self,
-        closes: List[float],
+        closes: list[float],
         fast: int = 12,
         slow: int = 26,
         signal: int = 9,
-    ) -> Dict[str, float]:
-        """MACD 계산"""
+    ) -> dict[str, float]:
+        """MACD 계산."""
         if len(closes) < slow:
             return {}
 
         # EMA 계산 함수
-        def ema(data: List[float], period: int) -> List[float]:
+        def ema(data: list[float], period: int) -> list[float]:
             if len(data) < period:
                 return []
             k = 2 / (period + 1)
@@ -436,11 +455,11 @@ class BacktestEngine:
 
     def _calculate_bollinger_bands(
         self,
-        closes: List[float],
+        closes: list[float],
         period: int = 20,
         std_dev: float = 2.0,
-    ) -> Dict[str, float]:
-        """볼린저 밴드 계산"""
+    ) -> dict[str, float]:
+        """볼린저 밴드 계산."""
         if len(closes) < period:
             return {}
 
@@ -460,12 +479,14 @@ class BacktestEngine:
             "bb_width": (upper - lower) / sma if sma > 0 else 0,
         }
 
-    def _open_position(self, candle: Dict, side: str) -> None:
-        """포지션 진입
+    def _open_position(self, candle: dict, side: str) -> None:
+        """포지션 진입.
 
         Phase 6.2: 슬리피지 적용
         """
-        position_value = self.capital * self.config.position_size_pct * self.config.leverage
+        position_value = (
+            self.capital * self.config.position_size_pct * self.config.leverage
+        )
 
         # Phase 6.2: 슬리피지 적용
         if self.slippage_model and self.config.use_slippage:
@@ -495,8 +516,8 @@ class BacktestEngine:
 
         logger.debug(f"진입: {side} @ {entry_price:.2f}, qty={quantity:.4f}")
 
-    def _close_position(self, candle: Dict, exit_reason: str) -> None:
-        """포지션 청산
+    def _close_position(self, candle: dict, exit_reason: str) -> None:
+        """포지션 청산.
 
         Phase 6.2: 현실적인 청산 가격 적용
         """
@@ -538,8 +559,10 @@ class BacktestEngine:
         self.trades.append(self.position)
         self.position = None
 
-    def _check_exit(self, candle: Dict, bars: int) -> str | None:
-        """청산 조건 체크
+    def _check_exit(  # noqa: PLR0912
+        self, candle: dict, bars: int
+    ) -> str | None:
+        """청산 조건 체크.
 
         Phase 6.2: High/Low 기반 현실적 TP/SL 체크
         """
@@ -615,7 +638,7 @@ class BacktestEngine:
         return None
 
     def _calculate_max_drawdown(self) -> float:
-        """최대 드로다운 계산"""
+        """최대 드로다운 계산."""
         if not self.equity_curve:
             return 0.0
 

@@ -1,4 +1,4 @@
-"""거래 이력 분석기 (TradeHistoryAnalyzer)
+"""거래 이력 분석기 (TradeHistoryAnalyzer).
 
 Phase 4: AI 메모리 시스템 - 과거 거래 성과 분석
 거래 이력을 분석하여 AI에게 "기억"으로 제공할 통계와 패턴을 생성
@@ -11,7 +11,7 @@ Phase 6.2: 통계적 신뢰도 개선
 import math
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 from loguru import logger
 
@@ -27,11 +27,12 @@ MIN_SAMPLE_SIZE_RELAXED = 10  # 완화된 최소 샘플 (참고용)
 
 # Z-score for 95% confidence
 Z_95 = 1.96
+Z_95_CONFIDENCE = 0.95
 
 
 @dataclass
 class StatisticalInsight:
-    """통계적 인사이트
+    """통계적 인사이트.
 
     Phase 6.2: 신뢰도 정보가 포함된 인사이트
 
@@ -55,8 +56,8 @@ class StatisticalInsight:
     is_statistically_significant: bool = False
     p_value: float | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환"""
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리로 변환."""
         return asdict(self)
 
     @classmethod
@@ -66,7 +67,7 @@ class StatisticalInsight:
         total: int,
         baseline: float = 0.5,
     ) -> "StatisticalInsight":
-        """승률에서 통계적 인사이트 생성
+        """승률에서 통계적 인사이트 생성.
 
         Args:
             wins: 승리 수
@@ -129,15 +130,15 @@ class StatisticalInsight:
 
 
 def _normal_cdf(x: float) -> float:
-    """표준 정규 분포 CDF (근사값)"""
+    """표준 정규 분포 CDF (근사값)."""
     return 0.5 * (1 + math.erf(x / math.sqrt(2)))
 
 
 def calculate_confidence_interval(
-    values: List[float],
+    values: list[float],
     confidence: float = 0.95,
 ) -> tuple:
-    """평균의 신뢰 구간 계산
+    """평균의 신뢰 구간 계산.
 
     Args:
         values: 값 리스트
@@ -163,7 +164,7 @@ def calculate_confidence_interval(
     std_error = std_dev / math.sqrt(n)
 
     # t-분포 대신 z-score 사용 (n >= 30 가정)
-    z = Z_95 if confidence == 0.95 else 1.645  # 90%
+    z = Z_95 if confidence == Z_95_CONFIDENCE else 1.645  # 90%
 
     margin = z * std_error
     lower = mean - margin
@@ -174,7 +175,7 @@ def calculate_confidence_interval(
 
 @dataclass
 class TradingStats:
-    """종합 거래 통계
+    """종합 거래 통계.
 
     전체 거래 성과를 요약하는 데이터 클래스
     """
@@ -198,7 +199,7 @@ class TradingStats:
 
     @classmethod
     def empty(cls) -> "TradingStats":
-        """빈 통계 반환"""
+        """빈 통계 반환."""
         return cls(
             total_trades=0,
             winning_trades=0,
@@ -218,14 +219,14 @@ class TradingStats:
             short_win_rate=0.0,
         )
 
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환"""
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리로 변환."""
         return asdict(self)
 
 
 @dataclass
 class ExitReasonStats:
-    """청산 사유별 통계"""
+    """청산 사유별 통계."""
 
     exit_reason: str
     side: str
@@ -236,14 +237,14 @@ class ExitReasonStats:
     total_pnl: float
     avg_duration_minutes: float
 
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환"""
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리로 변환."""
         return asdict(self)
 
 
 @dataclass
 class RSIConditionStats:
-    """RSI 조건별 통계"""
+    """RSI 조건별 통계."""
 
     rsi_zone: str  # oversold, low, neutral, high, overbought
     side: str
@@ -255,14 +256,14 @@ class RSIConditionStats:
     total_pnl: float
     avg_duration_minutes: float
 
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환"""
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리로 변환."""
         return asdict(self)
 
 
 @dataclass
 class TimeBasedStats:
-    """시간대별 통계"""
+    """시간대별 통계."""
 
     hour_of_day: int
     side: str
@@ -273,14 +274,14 @@ class TimeBasedStats:
     avg_pnl: float
     total_pnl: float
 
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환"""
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리로 변환."""
         return asdict(self)
 
 
 @dataclass
 class PatternInsight:
-    """패턴 인사이트
+    """패턴 인사이트.
 
     분석된 성공/실패 패턴 정보
 
@@ -301,8 +302,8 @@ class PatternInsight:
     win_rate_upper: float = 0.0  # 95% CI 상한
     is_statistically_significant: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환"""
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리로 변환."""
         return asdict(self)
 
     @classmethod
@@ -317,7 +318,7 @@ class PatternInsight:
         avg_pnl: float,
         recommendation: str,
     ) -> "PatternInsight":
-        """신뢰도 정보가 포함된 인사이트 생성
+        """신뢰도 정보가 포함된 인사이트 생성.
 
         Args:
             pattern_type: 패턴 타입
@@ -359,7 +360,7 @@ class PatternInsight:
 
 
 class TradeHistoryAnalyzer:
-    """거래 이력 분석기
+    """거래 이력 분석기.
 
     PostgreSQL에 저장된 거래 이력을 분석하여 통계와 패턴을 생성합니다.
     AI 메모리 컨텍스트 생성에 필요한 데이터를 제공합니다.
@@ -371,7 +372,7 @@ class TradeHistoryAnalyzer:
     """
 
     def __init__(self, db: TradeHistoryDB) -> None:
-        """분석기 초기화
+        """분석기 초기화.
 
         Args:
             db: TradeHistoryDB 인스턴스
@@ -384,7 +385,7 @@ class TradeHistoryAnalyzer:
         bot_id: str | None = None,
         days: int = 7,
     ) -> TradingStats:
-        """전체 거래 통계 조회
+        """전체 거래 통계 조회.
 
         Args:
             bot_id: 봇 ID (선택, 미지정 시 전체)
@@ -437,15 +438,15 @@ class TradeHistoryAnalyzer:
         self,
         bot_id: str | None = None,
         days: int = 7,
-    ) -> List[ExitReasonStats]:
-        """청산 사유별 통계 조회
+    ) -> list[ExitReasonStats]:
+        """청산 사유별 통계 조회.
 
         Args:
             bot_id: 봇 ID (선택)
             days: 조회 기간 (일)
 
         Returns:
-            List[ExitReasonStats]: 청산 사유별 통계 목록
+            list[ExitReasonStats]: 청산 사유별 통계 목록
         """
         if self.db.pool is None:
             raise RuntimeError("Database pool not initialized. Call connect() first.")
@@ -481,15 +482,15 @@ class TradeHistoryAnalyzer:
         self,
         bot_id: str | None = None,
         days: int = 7,
-    ) -> List[RSIConditionStats]:
-        """RSI 조건별 통계 조회
+    ) -> list[RSIConditionStats]:
+        """RSI 조건별 통계 조회.
 
         Args:
             bot_id: 봇 ID (선택)
             days: 조회 기간 (일)
 
         Returns:
-            List[RSIConditionStats]: RSI 조건별 통계 목록
+            list[RSIConditionStats]: RSI 조건별 통계 목록
         """
         if self.db.pool is None:
             raise RuntimeError("Database pool not initialized. Call connect() first.")
@@ -526,15 +527,15 @@ class TradeHistoryAnalyzer:
         self,
         bot_id: str | None = None,
         days: int = 7,
-    ) -> List[TimeBasedStats]:
-        """시간대별 통계 조회
+    ) -> list[TimeBasedStats]:
+        """시간대별 통계 조회.
 
         Args:
             bot_id: 봇 ID (선택)
             days: 조회 기간 (일)
 
         Returns:
-            List[TimeBasedStats]: 시간대별 통계 목록
+            list[TimeBasedStats]: 시간대별 통계 목록
         """
         if self.db.pool is None:
             raise RuntimeError("Database pool not initialized. Call connect() first.")
@@ -570,8 +571,8 @@ class TradeHistoryAnalyzer:
         self,
         limit: int = 10,
         bot_id: str | None = None,
-    ) -> Dict[str, Any]:
-        """최근 거래 요약 조회
+    ) -> dict[str, Any]:
+        """최근 거래 요약 조회.
 
         Args:
             limit: 조회할 거래 수
@@ -611,8 +612,8 @@ class TradeHistoryAnalyzer:
     async def get_current_streak(
         self,
         bot_id: str | None = None,
-    ) -> Dict[str, Any]:
-        """현재 연승/연패 조회
+    ) -> dict[str, Any]:
+        """현재 연승/연패 조회.
 
         Args:
             bot_id: 봇 ID (선택)
@@ -656,8 +657,8 @@ class TradeHistoryAnalyzer:
         recommendation_suffix: str,
         require_significance: bool,
         sort_key: Callable,
-    ) -> List[PatternInsight]:
-        """패턴 분석 공통 로직
+    ) -> list[PatternInsight]:
+        """패턴 분석 공통 로직.
 
         RSI 조건별/시간대별 통계를 필터링하고 인사이트를 생성합니다.
 
@@ -671,9 +672,9 @@ class TradeHistoryAnalyzer:
             sort_key: 정렬 키 함수
 
         Returns:
-            List[PatternInsight]: 패턴 인사이트 목록
+            list[PatternInsight]: 패턴 인사이트 목록
         """
-        insights: List[PatternInsight] = []
+        insights: list[PatternInsight] = []
 
         # RSI 조건별 분석
         rsi_stats = await self.get_rsi_condition_stats(
@@ -754,8 +755,8 @@ class TradeHistoryAnalyzer:
         min_sample_size: int = MIN_SAMPLE_SIZE,  # Phase 6.2: 5 → 30
         min_win_rate: float = 70.0,
         require_significance: bool = False,
-    ) -> List[PatternInsight]:
-        """패턴 인사이트 생성
+    ) -> list[PatternInsight]:
+        """패턴 인사이트 생성.
 
         높은 승률을 보이는 조건들을 분석하여 인사이트 생성
 
@@ -769,7 +770,7 @@ class TradeHistoryAnalyzer:
             require_significance: 통계적 유의성 필수 여부
 
         Returns:
-            List[PatternInsight]: 패턴 인사이트 목록
+            list[PatternInsight]: 패턴 인사이트 목록
         """
         return await self._analyze_patterns(
             bot_id=bot_id,
@@ -788,8 +789,8 @@ class TradeHistoryAnalyzer:
         min_sample_size: int = MIN_SAMPLE_SIZE,  # Phase 6.2: 5 → 30
         max_win_rate: float = 40.0,
         require_significance: bool = False,
-    ) -> List[PatternInsight]:
-        """피해야 할 패턴 분석
+    ) -> list[PatternInsight]:
+        """피해야 할 패턴 분석.
 
         낮은 승률을 보이는 조건들을 분석
 
@@ -803,7 +804,7 @@ class TradeHistoryAnalyzer:
             require_significance: 통계적 유의성 필수 여부
 
         Returns:
-            List[PatternInsight]: 피해야 할 패턴 목록
+            list[PatternInsight]: 피해야 할 패턴 목록
         """
         return await self._analyze_patterns(
             bot_id=bot_id,
@@ -816,7 +817,7 @@ class TradeHistoryAnalyzer:
         )
 
     def _get_rsi_zone_description(self, zone: str) -> str:
-        """RSI 구간 한글 설명 반환"""
+        """RSI 구간 한글 설명 반환."""
         zone_descriptions = {
             "oversold": "RSI 30 이하 (과매도)",
             "low": "RSI 30-40 (저점)",

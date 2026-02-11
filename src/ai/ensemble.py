@@ -1,4 +1,4 @@
-"""AI 앙상블 시스템
+"""AI 앙상블 시스템.
 
 Phase 6.3: 다중 신호 소스 앙상블
 - Gemini AI, 규칙 기반, 스코어링 신호 결합
@@ -7,13 +7,13 @@ Phase 6.3: 다중 신호 소스 앙상블
 """
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from loguru import logger
 
 
 class SignalSource(Enum):
-    """신호 소스 종류"""
+    """신호 소스 종류."""
 
     GEMINI_AI = "gemini"
     RULE_BASED = "rule_based"
@@ -23,7 +23,7 @@ class SignalSource(Enum):
 
 @dataclass
 class IndividualSignal:
-    """개별 신호
+    """개별 신호.
 
     Attributes:
         source: 신호 소스
@@ -40,7 +40,7 @@ class IndividualSignal:
     weight: float = 1.0
 
     def weighted_vote(self) -> float:
-        """가중 투표 값 반환
+        """가중 투표 값 반환.
 
         Returns:
             LONG: +weight, SHORT: -weight, WAIT: 0
@@ -54,7 +54,7 @@ class IndividualSignal:
 
 @dataclass
 class EnsembleResult:
-    """앙상블 결과
+    """앙상블 결과.
 
     Attributes:
         final_signal: 최종 신호
@@ -65,13 +65,13 @@ class EnsembleResult:
     """
 
     final_signal: str
-    individual_signals: List[IndividualSignal]
+    individual_signals: list[IndividualSignal]
     consensus_ratio: float = 0.0
     weighted_score: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환"""
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리로 변환."""
         return {
             "final_signal": self.final_signal,
             "individual_signals": [
@@ -91,7 +91,7 @@ class EnsembleResult:
 
 
 class EnsembleSignalGenerator:
-    """앙상블 신호 생성기
+    """앙상블 신호 생성기.
 
     여러 신호 소스를 결합하여 최종 신호를 생성합니다.
 
@@ -114,7 +114,7 @@ class EnsembleSignalGenerator:
 
     def __init__(
         self,
-        weights: Dict[SignalSource, float] | None = None,
+        weights: dict[SignalSource, float] | None = None,
         consensus_threshold: float = CONSENSUS_THRESHOLD,
         weighted_threshold: float = WEIGHTED_THRESHOLD,
         # 의존성 주입
@@ -122,7 +122,7 @@ class EnsembleSignalGenerator:
         rule_based_generator: Any | None = None,
         scoring_generator: Any | None = None,
     ) -> None:
-        """앙상블 생성기 초기화
+        """앙상블 생성기 초기화.
 
         Args:
             weights: 소스별 가중치
@@ -146,23 +146,23 @@ class EnsembleSignalGenerator:
         )
 
     def set_gemini_generator(self, generator: Any) -> None:
-        """Gemini 생성기 설정"""
+        """Gemini 생성기 설정."""
         self._gemini = generator
 
     def set_rule_based_generator(self, generator: Any) -> None:
-        """규칙 기반 생성기 설정"""
+        """규칙 기반 생성기 설정."""
         self._rule_based = generator
 
     def set_scoring_generator(self, generator: Any) -> None:
-        """스코어링 생성기 설정"""
+        """스코어링 생성기 설정."""
         self._scoring = generator
 
     async def generate_ensemble_signal(
         self,
-        market_data: Dict[str, Any],
+        market_data: dict[str, Any],
         bot_id: str = "",
     ) -> EnsembleResult:
-        """앙상블 신호 생성
+        """앙상블 신호 생성.
 
         Args:
             market_data: 시장 데이터
@@ -171,7 +171,7 @@ class EnsembleSignalGenerator:
         Returns:
             EnsembleResult
         """
-        individual_signals: List[IndividualSignal] = []
+        individual_signals: list[IndividualSignal] = []
 
         # 1. 각 소스에서 신호 수집
         # Gemini AI
@@ -231,10 +231,11 @@ class EnsembleSignalGenerator:
         return result
 
     async def _get_gemini_signal(
-        self, market_data: Dict[str, Any]
+        self, market_data: dict[str, Any]
     ) -> IndividualSignal:
-        """Gemini 신호 가져오기"""
-        assert self._gemini is not None, "Gemini generator is required"
+        """Gemini 신호 가져오기."""
+        if self._gemini is None:
+            raise RuntimeError("Gemini generator is required")
         # get_signal_with_reason 사용 시도
         if hasattr(self._gemini, "get_signal_with_reason"):
             signal, reason = await self._gemini.get_signal_with_reason(market_data)
@@ -251,10 +252,11 @@ class EnsembleSignalGenerator:
         )
 
     def _get_rule_based_signal(
-        self, market_data: Dict[str, Any]
+        self, market_data: dict[str, Any]
     ) -> IndividualSignal:
-        """규칙 기반 신호 가져오기"""
-        assert self._rule_based is not None, "Rule-based generator is required"
+        """규칙 기반 신호 가져오기."""
+        if self._rule_based is None:
+            raise RuntimeError("Rule-based generator is required")
         signal = self._rule_based.get_signal(market_data)
 
         return IndividualSignal(
@@ -266,10 +268,11 @@ class EnsembleSignalGenerator:
         )
 
     def _get_scoring_signal(
-        self, market_data: Dict[str, Any]
+        self, market_data: dict[str, Any]
     ) -> IndividualSignal:
-        """스코어링 신호 가져오기"""
-        assert self._scoring is not None, "Scoring generator is required"
+        """스코어링 신호 가져오기."""
+        if self._scoring is None:
+            raise RuntimeError("Scoring generator is required")
         # calculate_score 사용 시도
         if hasattr(self._scoring, "calculate_score"):
             result = self._scoring.calculate_score(market_data)
@@ -291,9 +294,9 @@ class EnsembleSignalGenerator:
 
     def _weighted_vote(
         self,
-        signals: List[IndividualSignal],
-    ) -> Tuple[str, float, float]:
-        """가중 투표
+        signals: list[IndividualSignal],
+    ) -> tuple[str, float, float]:
+        """가중 투표.
 
         Args:
             signals: 개별 신호 목록
@@ -338,8 +341,8 @@ class EnsembleSignalGenerator:
         # 3. 합의 실패 -> WAIT
         return "WAIT", weighted_score, consensus_ratio
 
-    def get_signal(self, market_data: Dict[str, Any]) -> str:
-        """동기 신호 반환 (규칙 기반 + 스코어링만 사용)
+    def get_signal(self, market_data: dict[str, Any]) -> str:
+        """동기 신호 반환 (규칙 기반 + 스코어링만 사용).
 
         Args:
             market_data: 시장 데이터
@@ -347,7 +350,7 @@ class EnsembleSignalGenerator:
         Returns:
             신호
         """
-        signals: List[IndividualSignal] = []
+        signals: list[IndividualSignal] = []
 
         if self._rule_based:
             signals.append(self._get_rule_based_signal(market_data))
@@ -363,10 +366,10 @@ class EnsembleSignalGenerator:
 
     async def get_signal_async(
         self,
-        market_data: Dict[str, Any],
+        market_data: dict[str, Any],
         bot_id: str = "",
     ) -> str:
-        """비동기 신호 반환 (Gemini 포함)
+        """비동기 신호 반환 (Gemini 포함).
 
         Args:
             market_data: 시장 데이터

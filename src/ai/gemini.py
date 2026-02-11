@@ -1,4 +1,4 @@
-"""Gemini AI client for trading signal generation
+"""Gemini AI client for trading signal generation.
 
 Phase 6.1: 신호 생성 이유 로깅 추가
 - Temperature 0.1 → 0.3 (더 다양한 응답)
@@ -7,7 +7,6 @@ Phase 6.1: 신호 생성 이유 로깅 추가
 """
 import json
 from pathlib import Path
-from typing import Dict, Tuple
 
 from google import genai
 from google.genai.errors import ClientError, ServerError
@@ -17,7 +16,7 @@ from src.utils.retry import async_retry
 
 
 class GeminiSignalGenerator:
-    """Generate trading signals using Gemini AI
+    """Generate trading signals using Gemini AI.
 
     Phase 6.1: 신호 생성 이유 포함 응답 지원
     """
@@ -31,7 +30,7 @@ class GeminiSignalGenerator:
         model: str = "gemini-2.0-flash-exp",
         temperature: float = DEFAULT_TEMPERATURE,
     ):
-        """Initialize Gemini client
+        """Initialize Gemini client.
 
         Args:
             api_key: Gemini API key
@@ -45,12 +44,14 @@ class GeminiSignalGenerator:
         # Load prompts
         self.system_prompt = self._load_prompt("system.txt")
         self.analysis_template = self._load_prompt("analysis.txt")
-        self.analysis_with_reason_template = self._load_prompt("analysis_with_reason.txt")
+        self.analysis_with_reason_template = self._load_prompt(
+            "analysis_with_reason.txt"
+        )
 
         logger.info(f"Gemini client initialized (model: {model}, temp: {temperature})")
 
     def _load_prompt(self, filename: str) -> str:
-        """Load prompt from file
+        """Load prompt from file.
 
         Args:
             filename: Prompt filename (system.txt, analysis.txt, etc.)
@@ -61,22 +62,24 @@ class GeminiSignalGenerator:
         try:
             prompt_dir = Path(__file__).parent / "prompts"
             prompt_path = prompt_dir / filename
-            with open(prompt_path, encoding="utf-8") as f:
+            with open(prompt_path, encoding="utf-8") as f:  # noqa: PTH123
                 content = f.read()
             logger.debug(f"Loaded prompt: {filename}")
             return content
         except FileNotFoundError:
             # analysis_with_reason.txt가 없으면 기본 템플릿 사용
             if filename == "analysis_with_reason.txt":
-                logger.warning(f"Prompt {filename} not found, using default analysis.txt")
+                logger.warning(
+                    f"Prompt {filename} not found, using default analysis.txt"
+                )
                 return self._load_prompt("analysis.txt")
             raise
         except Exception as e:
             logger.error(f"Failed to load prompt {filename}: {e}")
             raise
 
-    def _format_market_data(self, market_data: Dict) -> Dict[str, str | int]:
-        """시장 데이터를 템플릿 변수 형식으로 포맷팅
+    def _format_market_data(self, market_data: dict) -> dict[str, str | int]:
+        """시장 데이터를 템플릿 변수 형식으로 포맷팅.
 
         Args:
             market_data: Dictionary with market indicators
@@ -124,8 +127,8 @@ class GeminiSignalGenerator:
             "dist_support_pct": f"{market_data['dist_support_pct']:+.2f}",
         }
 
-    def _build_market_prompt(self, market_data: Dict) -> str:
-        """Build market analysis prompt from data
+    def _build_market_prompt(self, market_data: dict) -> str:
+        """Build market analysis prompt from data.
 
         Args:
             market_data: Dictionary with market indicators
@@ -153,8 +156,8 @@ class GeminiSignalGenerator:
         backoff=2.0,
         exceptions=(ClientError, ServerError, ConnectionError, TimeoutError),
     )
-    async def get_signal(self, market_data: Dict) -> str:
-        """Generate trading signal from market data (with retry)
+    async def get_signal(self, market_data: dict) -> str:
+        """Generate trading signal from market data (with retry).
 
         Args:
             market_data: Dictionary with market indicators
@@ -201,8 +204,8 @@ class GeminiSignalGenerator:
             logger.warning("Defaulting to WAIT due to error")
             return "WAIT"
 
-    def get_signal_sync(self, market_data: Dict) -> str:
-        """Synchronous version of get_signal (for testing)
+    def get_signal_sync(self, market_data: dict) -> str:
+        """Synchronous version of get_signal (for testing).
 
         Args:
             market_data: Dictionary with market indicators
@@ -253,8 +256,8 @@ class GeminiSignalGenerator:
     # Phase 6.1: 신호 생성 이유 포함 메서드
     # =========================================================================
 
-    def _build_market_prompt_with_reason(self, market_data: Dict) -> str:
-        """Build market analysis prompt with reason format
+    def _build_market_prompt_with_reason(self, market_data: dict) -> str:
+        """Build market analysis prompt with reason format.
 
         Args:
             market_data: Dictionary with market indicators
@@ -276,8 +279,8 @@ class GeminiSignalGenerator:
             logger.error(f"Failed to build market prompt with reason: {e}")
             raise
 
-    def _parse_signal_with_reason(self, response_text: str) -> Tuple[str, str]:
-        """Parse JSON response to extract signal and reason
+    def _parse_signal_with_reason(self, response_text: str) -> tuple[str, str]:
+        """Parse JSON response to extract signal and reason.
 
         Args:
             response_text: Raw response from Gemini
@@ -332,8 +335,8 @@ class GeminiSignalGenerator:
         backoff=2.0,
         exceptions=(ClientError, ServerError, ConnectionError, TimeoutError),
     )
-    async def get_signal_with_reason(self, market_data: Dict) -> Tuple[str, str]:
-        """Generate trading signal with reasoning (with retry)
+    async def get_signal_with_reason(self, market_data: dict) -> tuple[str, str]:
+        """Generate trading signal with reasoning (with retry).
 
         Phase 6.1: 신호와 함께 이유도 반환
 
@@ -377,8 +380,8 @@ class GeminiSignalGenerator:
             logger.warning("Defaulting to WAIT due to error")
             return "WAIT", f"API 오류: {str(e)[:50]}"
 
-    def get_signal_with_reason_sync(self, market_data: Dict) -> Tuple[str, str]:
-        """Synchronous version of get_signal_with_reason (for testing)
+    def get_signal_with_reason_sync(self, market_data: dict) -> tuple[str, str]:
+        """Synchronous version of get_signal_with_reason (for testing).
 
         Args:
             market_data: Dictionary with market indicators

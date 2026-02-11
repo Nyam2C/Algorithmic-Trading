@@ -1,17 +1,16 @@
-"""마켓 레짐 감지 모듈
+"""마켓 레짐 감지 모듈.
 
 Phase 6.2: 마켓 레짐 감지 (횡보 vs 추세)
 - MA 정렬과 ATR로 시장 상태 분류
 - 횡보장에서는 진입 회피
 """
 from enum import Enum
-from typing import Dict
 
 from loguru import logger
 
 
 class MarketRegime(Enum):
-    """마켓 레짐 (시장 상태)"""
+    """마켓 레짐 (시장 상태)."""
     STRONG_UPTREND = "strong_uptrend"      # 강한 상승 추세
     WEAK_UPTREND = "weak_uptrend"          # 약한 상승 추세
     RANGING = "ranging"                     # 횡보장 (레인지)
@@ -21,7 +20,7 @@ class MarketRegime(Enum):
 
 
 class RegimeDetector:
-    """마켓 레짐 감지기
+    """마켓 레짐 감지기.
 
     이동평균(MA)과 ATR을 사용하여 현재 시장 상태를 분류합니다.
 
@@ -46,7 +45,7 @@ class RegimeDetector:
         atr_strong_threshold: float = 1.0,  # 1%
         atr_weak_threshold: float = 0.5,    # 0.5%
     ) -> None:
-        """레짐 감지기 초기화
+        """레짐 감지기 초기화.
 
         Args:
             atr_strong_threshold: 강한 추세 ATR 비율 임계값 (%)
@@ -60,8 +59,8 @@ class RegimeDetector:
             f"weak_threshold={atr_weak_threshold}%"
         )
 
-    def detect(self, market_data: Dict) -> MarketRegime:
-        """마켓 레짐 감지
+    def detect(self, market_data: dict) -> MarketRegime:
+        """마켓 레짐 감지.
 
         Args:
             market_data: 시장 데이터 (ma_7, ma_25, ma_99, atr, price 등)
@@ -91,7 +90,8 @@ class RegimeDetector:
                 atr_pct = market_data.get("atr_pct", 0.0)
 
             # MA 정렬 확인 (mypy: None 체크는 위에서 완료)
-            assert ma_7 is not None and ma_25 is not None and ma_99 is not None
+            if ma_7 is None or ma_25 is None or ma_99 is None:
+                raise RuntimeError("MA values must not be None")
             is_bullish_aligned = ma_7 > ma_25 > ma_99  # 상승 정렬
             is_bearish_aligned = ma_7 < ma_25 < ma_99  # 하락 정렬
 
@@ -102,7 +102,8 @@ class RegimeDetector:
 
             logger.info(
                 f"마켓 레짐: {regime.value} "
-                f"(MA7={ma_7:.2f}, MA25={ma_25:.2f}, MA99={ma_99:.2f}, ATR%={atr_pct:.2f}%)"
+                f"(MA7={ma_7:.2f}, MA25={ma_25:.2f}, "
+                f"MA99={ma_99:.2f}, ATR%={atr_pct:.2f}%)"
             )
 
             return regime
@@ -117,7 +118,7 @@ class RegimeDetector:
         is_bearish_aligned: bool,
         atr_pct: float,
     ) -> MarketRegime:
-        """레짐 결정 로직
+        """레짐 결정 로직.
 
         Args:
             is_bullish_aligned: MA 상승 정렬 여부
@@ -148,7 +149,7 @@ class RegimeDetector:
         regime: MarketRegime,
         allow_weak_trend: bool = True,
     ) -> str:
-        """레짐에 따라 시그널 필터링
+        """레짐에 따라 시그널 필터링.
 
         Args:
             signal: 원본 시그널 ("LONG", "SHORT", "WAIT")
@@ -172,8 +173,10 @@ class RegimeDetector:
             return "WAIT"
 
         # 약한 추세 허용 여부
-        if not allow_weak_trend:
-            if regime in (MarketRegime.WEAK_UPTREND, MarketRegime.WEAK_DOWNTREND):
+        if not allow_weak_trend and regime in (
+            MarketRegime.WEAK_UPTREND,
+            MarketRegime.WEAK_DOWNTREND,
+        ):
                 logger.info(f"약한 추세 - {signal} 시그널 무시 → WAIT")
                 return "WAIT"
 
@@ -190,8 +193,8 @@ class RegimeDetector:
         # 추세 방향과 일치하는 시그널은 허용
         return signal
 
-    def get_regime_info(self, regime: MarketRegime) -> Dict:
-        """레짐 정보 반환
+    def get_regime_info(self, regime: MarketRegime) -> dict:
+        """레짐 정보 반환.
 
         Args:
             regime: 마켓 레짐

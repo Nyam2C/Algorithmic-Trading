@@ -1,4 +1,4 @@
-"""신호 추적 시스템 (SignalTracker)
+"""신호 추적 시스템 (SignalTracker).
 
 Phase 6.1: 신호 추적 시스템
 - 모든 AI/규칙 기반 신호 기록
@@ -7,7 +7,7 @@ Phase 6.1: 신호 추적 시스템
 """
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any
 from uuid import uuid4
 
 from loguru import logger
@@ -15,7 +15,7 @@ from loguru import logger
 
 @dataclass
 class SignalRecord:
-    """신호 기록
+    """신호 기록.
 
     개별 신호의 모든 정보를 저장하는 데이터 클래스
 
@@ -36,7 +36,7 @@ class SignalRecord:
     bot_id: str
     signal: str  # LONG, SHORT, WAIT
     source: str  # rule_based, gemini, memory_gemini, ensemble
-    market_conditions: Dict[str, Any] = field(default_factory=dict)
+    market_conditions: dict[str, Any] = field(default_factory=dict)
     trade_result: str | None = None  # win, loss, None
     pnl: float | None = None
     reason: str | None = None
@@ -47,10 +47,10 @@ class SignalRecord:
         bot_id: str,
         signal: str,
         source: str,
-        market_conditions: Dict[str, Any] | None = None,
+        market_conditions: dict[str, Any] | None = None,
         reason: str | None = None,
     ) -> "SignalRecord":
-        """신호 기록 생성
+        """신호 기록 생성.
 
         Args:
             bot_id: 봇 ID
@@ -72,14 +72,14 @@ class SignalRecord:
             reason=reason,
         )
 
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환"""
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리로 변환."""
         data = asdict(self)
         data["timestamp"] = self.timestamp.isoformat()
         return data
 
     def update_result(self, result: str, pnl: float) -> None:
-        """거래 결과 업데이트
+        """거래 결과 업데이트.
 
         Args:
             result: 결과 (win, loss)
@@ -91,7 +91,7 @@ class SignalRecord:
 
 @dataclass
 class SignalStats:
-    """신호 통계
+    """신호 통계.
 
     신호 성과 요약 통계
 
@@ -118,13 +118,13 @@ class SignalStats:
     worst_pnl: float = 0.0
 
     def calculate(self) -> None:
-        """통계 계산"""
+        """통계 계산."""
         if self.traded_signals > 0:
             self.win_rate = (self.wins / self.traded_signals) * 100
             self.avg_pnl = self.total_pnl / self.traded_signals
 
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환"""
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리로 변환."""
         return {
             "total_signals": self.total_signals,
             "traded_signals": self.traded_signals,
@@ -139,7 +139,7 @@ class SignalStats:
 
 
 class SignalTracker:
-    """신호 추적기
+    """신호 추적기.
 
     모든 신호를 기록하고 성과를 추적합니다.
 
@@ -157,18 +157,18 @@ class SignalTracker:
     """
 
     def __init__(self, db_pool: Any | None = None) -> None:
-        """추적기 초기화
+        """추적기 초기화.
 
         Args:
             db_pool: asyncpg 연결 풀 (PostgreSQL)
         """
         self.db_pool = db_pool
-        self._in_memory_signals: Dict[str, SignalRecord] = {}
+        self._in_memory_signals: dict[str, SignalRecord] = {}
         self._log = logger.bind(module="signal_tracker")
         self._log.info("SignalTracker 초기화 완료")
 
     def set_db_pool(self, pool: Any) -> None:
-        """DB 연결 풀 설정
+        """DB 연결 풀 설정.
 
         Args:
             pool: asyncpg 연결 풀
@@ -181,10 +181,10 @@ class SignalTracker:
         bot_id: str,
         signal: str,
         source: str,
-        market_conditions: Dict[str, Any] | None = None,
+        market_conditions: dict[str, Any] | None = None,
         reason: str | None = None,
     ) -> str:
-        """신호 기록
+        """신호 기록.
 
         Args:
             bot_id: 봇 ID
@@ -221,10 +221,11 @@ class SignalTracker:
         return record.signal_id
 
     async def _save_to_db(self, record: SignalRecord) -> None:
-        """DB에 신호 저장"""
-        import json
+        """DB에 신호 저장."""
+        import json  # noqa: PLC0415
 
-        assert self.db_pool is not None, "db_pool is required for DB operations"
+        if self.db_pool is None:
+            raise RuntimeError("db_pool is required for DB operations")
         async with self.db_pool.acquire() as conn:
             await conn.execute(
                 """
@@ -248,7 +249,7 @@ class SignalTracker:
         result: str,
         pnl: float,
     ) -> bool:
-        """신호 결과 업데이트
+        """신호 결과 업데이트.
 
         Args:
             signal_id: 신호 ID
@@ -290,7 +291,7 @@ class SignalTracker:
         source: str | None = None,
         days: int = 7,
     ) -> SignalStats:
-        """신호 통계 조회
+        """신호 통계 조회.
 
         Args:
             bot_id: 봇 ID (선택)
@@ -315,14 +316,15 @@ class SignalTracker:
         source: str | None,
         days: int,
     ) -> SignalStats:
-        """DB에서 통계 조회"""
-        assert self.db_pool is not None, "db_pool is required for DB operations"
+        """DB에서 통계 조회."""
+        if self.db_pool is None:
+            raise RuntimeError("db_pool is required for DB operations")
         cutoff = datetime.now() - timedelta(days=days)
 
         async with self.db_pool.acquire() as conn:
             # 동적 쿼리 빌드
             conditions = ["timestamp >= $1"]
-            params: List[Any] = [cutoff]
+            params: list[Any] = [cutoff]
             param_idx = 2
 
             if bot_id:
@@ -336,19 +338,20 @@ class SignalTracker:
 
             where_clause = " AND ".join(conditions)
 
+            query = (
+                f"SELECT"  # noqa: S608
+                f" COUNT(*) as total_signals,"
+                f" COUNT(*) FILTER (WHERE trade_result IS NOT NULL) as traded_signals,"
+                f" COUNT(*) FILTER (WHERE trade_result = 'win') as wins,"
+                f" COUNT(*) FILTER (WHERE trade_result = 'loss') as losses,"
+                f" COALESCE(SUM(pnl), 0) as total_pnl,"
+                f" COALESCE(MAX(pnl), 0) as best_pnl,"
+                f" COALESCE(MIN(pnl), 0) as worst_pnl"
+                f" FROM signal_history"
+                f" WHERE {where_clause}"
+            )
             row = await conn.fetchrow(
-                f"""
-                SELECT
-                    COUNT(*) as total_signals,
-                    COUNT(*) FILTER (WHERE trade_result IS NOT NULL) as traded_signals,
-                    COUNT(*) FILTER (WHERE trade_result = 'win') as wins,
-                    COUNT(*) FILTER (WHERE trade_result = 'loss') as losses,
-                    COALESCE(SUM(pnl), 0) as total_pnl,
-                    COALESCE(MAX(pnl), 0) as best_pnl,
-                    COALESCE(MIN(pnl), 0) as worst_pnl
-                FROM signal_history
-                WHERE {where_clause}
-                """,
+                query,
                 *params,
             )
 
@@ -370,7 +373,7 @@ class SignalTracker:
         source: str | None,
         days: int,
     ) -> SignalStats:
-        """인메모리 통계 계산"""
+        """인메모리 통계 계산."""
         cutoff = datetime.now() - timedelta(days=days)
         stats = SignalStats()
 
@@ -406,8 +409,8 @@ class SignalTracker:
         self,
         days: int = 7,
         bot_id: str | None = None,
-    ) -> Dict[str, float]:
-        """소스별 승률 조회
+    ) -> dict[str, float]:
+        """소스별 승률 조회.
 
         Args:
             days: 조회 기간 (일)
@@ -429,9 +432,10 @@ class SignalTracker:
         self,
         days: int,
         bot_id: str | None,
-    ) -> Dict[str, float]:
-        """DB에서 소스별 승률 조회"""
-        assert self.db_pool is not None, "db_pool is required for DB operations"
+    ) -> dict[str, float]:
+        """DB에서 소스별 승률 조회."""
+        if self.db_pool is None:
+            raise RuntimeError("db_pool is required for DB operations")
         cutoff = datetime.now() - timedelta(days=days)
 
         async with self.db_pool.acquire() as conn:
@@ -463,7 +467,7 @@ class SignalTracker:
                     cutoff,
                 )
 
-            result: Dict[str, float] = {}
+            result: dict[str, float] = {}
             for row in rows:
                 traded = row["traded"]
                 wins = row["wins"]
@@ -478,10 +482,10 @@ class SignalTracker:
         self,
         days: int,
         bot_id: str | None,
-    ) -> Dict[str, float]:
-        """인메모리 소스별 승률 계산"""
+    ) -> dict[str, float]:
+        """인메모리 소스별 승률 계산."""
         cutoff = datetime.now() - timedelta(days=days)
-        source_stats: Dict[str, Dict[str, int]] = {}
+        source_stats: dict[str, dict[str, int]] = {}
 
         for record in self._in_memory_signals.values():
             if record.timestamp < cutoff:
@@ -498,7 +502,7 @@ class SignalTracker:
             if record.trade_result == "win":
                 source_stats[record.source]["wins"] += 1
 
-        result: Dict[str, float] = {}
+        result: dict[str, float] = {}
         for source, stats in source_stats.items():
             if stats["traded"] > 0:
                 result[source] = round((stats["wins"] / stats["traded"]) * 100, 2)
@@ -511,8 +515,8 @@ class SignalTracker:
         self,
         bot_id: str | None = None,
         limit: int = 20,
-    ) -> List[Dict[str, Any]]:
-        """최근 신호 목록 조회
+    ) -> list[dict[str, Any]]:
+        """최근 신호 목록 조회.
 
         Args:
             bot_id: 봇 ID (선택)
@@ -542,9 +546,10 @@ class SignalTracker:
         self,
         bot_id: str | None,
         limit: int,
-    ) -> List[Dict[str, Any]]:
-        """DB에서 최근 신호 조회"""
-        assert self.db_pool is not None, "db_pool is required for DB operations"
+    ) -> list[dict[str, Any]]:
+        """DB에서 최근 신호 조회."""
+        if self.db_pool is None:
+            raise RuntimeError("db_pool is required for DB operations")
         async with self.db_pool.acquire() as conn:
             if bot_id:
                 rows = await conn.fetch(
@@ -589,7 +594,7 @@ class SignalTracker:
             ]
 
     async def cleanup_old_signals(self, days: int = 30) -> int:
-        """오래된 신호 정리
+        """오래된 신호 정리.
 
         Args:
             days: 보관 기간 (일)

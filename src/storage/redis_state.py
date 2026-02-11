@@ -1,4 +1,4 @@
-"""Redis 상태 관리 모듈
+"""Redis 상태 관리 모듈.
 
 봇 상태, 포지션 정보를 Redis에 영구 저장하여
 컨테이너 재시작 시 복구할 수 있도록 합니다.
@@ -34,7 +34,7 @@ _LIST_PREFIX = "__list__"
 
 
 class RedisStateManager:
-    """Redis 상태 관리자
+    """Redis 상태 관리자.
 
     봇 상태와 포지션 정보를 Redis에 저장하고 복구합니다.
     컨테이너 재시작 시에도 상태를 유지할 수 있습니다.
@@ -56,7 +56,7 @@ class RedisStateManager:
         redis_db: int = 0,
         key_prefix: str = KEY_PREFIX,
     ) -> None:
-        """초기화
+        """초기화.
 
         Args:
             redis_url: Redis 연결 URL
@@ -76,7 +76,7 @@ class RedisStateManager:
 
     @property
     def is_connected(self) -> bool:
-        """Redis 연결 상태
+        """Redis 연결 상태.
 
         클라이언트 객체 존재 여부만 확인합니다.
         실제 연결 상태 확인은 ping() 메서드를 사용하세요.
@@ -88,7 +88,7 @@ class RedisStateManager:
     # =========================================================================
 
     async def connect(self) -> None:
-        """Redis 연결"""
+        """Redis 연결."""
         if self._client is not None:
             self._log.warning("이미 Redis에 연결되어 있습니다")
             return
@@ -109,14 +109,14 @@ class RedisStateManager:
             raise
 
     async def disconnect(self) -> None:
-        """Redis 연결 해제"""
+        """Redis 연결 해제."""
         if self._client is not None:
             await self._client.close()
             self._client = None
             self._log.info("Redis 연결 해제")
 
     async def ping(self) -> bool:
-        """Redis 연결 상태 확인
+        """Redis 연결 상태 확인.
 
         Returns:
             연결 성공 여부
@@ -135,15 +135,15 @@ class RedisStateManager:
     # =========================================================================
 
     def _get_state_key(self, bot_name: str) -> str:
-        """봇 상태 키 생성"""
+        """봇 상태 키 생성."""
         return f"{self._key_prefix}:bot:{bot_name}:state"
 
     def _get_position_key(self, bot_name: str) -> str:
-        """봇 포지션 키 생성"""
+        """봇 포지션 키 생성."""
         return f"{self._key_prefix}:bot:{bot_name}:position"
 
     async def save_bot_state(self, bot_name: str, state: dict[str, Any]) -> bool:
-        """봇 상태 저장
+        """봇 상태 저장.
 
         Args:
             bot_name: 봇 이름
@@ -174,7 +174,7 @@ class RedisStateManager:
             return False
 
     async def load_bot_state(self, bot_name: str) -> dict[str, Any] | None:
-        """봇 상태 로드
+        """봇 상태 로드.
 
         Args:
             bot_name: 봇 이름
@@ -204,7 +204,7 @@ class RedisStateManager:
             return None
 
     async def delete_bot_state(self, bot_name: str) -> bool:
-        """봇 상태 삭제
+        """봇 상태 삭제.
 
         Args:
             bot_name: 봇 이름
@@ -229,7 +229,7 @@ class RedisStateManager:
     # =========================================================================
 
     async def save_position(self, bot_name: str, position: dict[str, Any]) -> bool:
-        """포지션 저장
+        """포지션 저장.
 
         Args:
             bot_name: 봇 이름
@@ -258,7 +258,7 @@ class RedisStateManager:
             return False
 
     async def load_position(self, bot_name: str) -> dict[str, Any] | None:
-        """포지션 로드
+        """포지션 로드.
 
         Args:
             bot_name: 봇 이름
@@ -286,7 +286,7 @@ class RedisStateManager:
             return None
 
     async def delete_position(self, bot_name: str) -> bool:
-        """포지션 삭제
+        """포지션 삭제.
 
         Args:
             bot_name: 봇 이름
@@ -311,7 +311,7 @@ class RedisStateManager:
     # =========================================================================
 
     async def register_bot(self, bot_name: str) -> bool:
-        """봇 등록
+        """봇 등록.
 
         Args:
             bot_name: 봇 이름
@@ -332,7 +332,7 @@ class RedisStateManager:
             return False
 
     async def unregister_bot(self, bot_name: str) -> bool:
-        """봇 등록 해제
+        """봇 등록 해제.
 
         Args:
             bot_name: 봇 이름
@@ -359,7 +359,7 @@ class RedisStateManager:
             return False
 
     async def get_registered_bots(self) -> list[str]:
-        """등록된 봇 목록
+        """등록된 봇 목록.
 
         Returns:
             봇 이름 리스트
@@ -380,7 +380,7 @@ class RedisStateManager:
     # =========================================================================
 
     async def set_bot_running(self, bot_name: str) -> bool:
-        """봇 실행 상태로 설정
+        """봇 실행 상태로 설정.
 
         Args:
             bot_name: 봇 이름
@@ -401,7 +401,7 @@ class RedisStateManager:
             return False
 
     async def set_bot_stopped(self, bot_name: str) -> bool:
-        """봇 정지 상태로 설정
+        """봇 정지 상태로 설정.
 
         Args:
             bot_name: 봇 이름
@@ -422,7 +422,7 @@ class RedisStateManager:
             return False
 
     async def get_running_bots(self) -> list[str]:
-        """실행 중인 봇 목록
+        """실행 중인 봇 목록.
 
         Returns:
             봇 이름 리스트
@@ -439,7 +439,7 @@ class RedisStateManager:
             return []
 
     async def clear_running_bots(self) -> bool:
-        """실행 중인 봇 목록 초기화 (서버 시작 시 호출)
+        """실행 중인 봇 목록 초기화 (서버 시작 시 호출).
 
         Returns:
             초기화 성공 여부
@@ -461,7 +461,7 @@ class RedisStateManager:
     # =========================================================================
 
     def _serialize_state(self, state: dict[str, Any]) -> dict[str, str]:
-        """상태 딕셔너리를 Redis 저장용으로 직렬화
+        """상태 딕셔너리를 Redis 저장용으로 직렬화.
 
         Args:
             state: 상태 딕셔너리
@@ -495,7 +495,7 @@ class RedisStateManager:
         return result
 
     def _deserialize_state(self, state: dict[str, str]) -> dict[str, Any]:
-        """Redis에서 로드된 상태를 역직렬화
+        """Redis에서 로드된 상태를 역직렬화.
 
         Args:
             state: 문자열 딕셔너리
@@ -526,7 +526,7 @@ class RedisStateManager:
 
 # Fallback을 위한 더미 매니저
 class DummyRedisStateManager:
-    """Redis 연결 실패 시 사용되는 더미 매니저
+    """Redis 연결 실패 시 사용되는 더미 매니저.
 
     모든 연산이 성공하지만 실제 저장은 하지 않습니다.
     """
@@ -548,37 +548,37 @@ class DummyRedisStateManager:
     async def ping(self) -> bool:
         return False
 
-    async def save_bot_state(self, bot_name: str, state: dict[str, Any]) -> bool:
+    async def save_bot_state(self, _bot_name: str, _state: dict[str, Any]) -> bool:
         return True
 
-    async def load_bot_state(self, bot_name: str) -> dict[str, Any] | None:
+    async def load_bot_state(self, _bot_name: str) -> dict[str, Any] | None:
         return None
 
-    async def delete_bot_state(self, bot_name: str) -> bool:
+    async def delete_bot_state(self, _bot_name: str) -> bool:
         return True
 
-    async def save_position(self, bot_name: str, position: dict[str, Any]) -> bool:
+    async def save_position(self, _bot_name: str, _position: dict[str, Any]) -> bool:
         return True
 
-    async def load_position(self, bot_name: str) -> dict[str, Any] | None:
+    async def load_position(self, _bot_name: str) -> dict[str, Any] | None:
         return None
 
-    async def delete_position(self, bot_name: str) -> bool:
+    async def delete_position(self, _bot_name: str) -> bool:
         return True
 
-    async def register_bot(self, bot_name: str) -> bool:
+    async def register_bot(self, _bot_name: str) -> bool:
         return True
 
-    async def unregister_bot(self, bot_name: str) -> bool:
+    async def unregister_bot(self, _bot_name: str) -> bool:
         return True
 
     async def get_registered_bots(self) -> list[str]:
         return []
 
-    async def set_bot_running(self, bot_name: str) -> bool:
+    async def set_bot_running(self, _bot_name: str) -> bool:
         return True
 
-    async def set_bot_stopped(self, bot_name: str) -> bool:
+    async def set_bot_stopped(self, _bot_name: str) -> bool:
         return True
 
     async def get_running_bots(self) -> list[str]:
@@ -594,7 +594,7 @@ async def create_redis_manager(
     redis_db: int = 0,
     fallback_on_error: bool = True,
 ) -> RedisStateManager | DummyRedisStateManager:
-    """Redis 상태 관리자 생성
+    """Redis 상태 관리자 생성.
 
     연결 실패 시 fallback_on_error가 True이면 더미 매니저를 반환합니다.
 

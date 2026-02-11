@@ -1,4 +1,4 @@
-"""n8n 웹훅 스키마
+"""n8n 웹훅 스키마.
 
 n8n과의 통합을 위한 페이로드 모델을 정의합니다.
 """
@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 
 class N8NSignalPayload(BaseModel):
-    """n8n 시그널 페이로드
+    """n8n 시그널 페이로드.
 
     외부 시스템에서 보내는 트레이딩 시그널입니다.
 
@@ -33,7 +33,7 @@ class N8NSignalPayload(BaseModel):
 
 
 class N8NCommandPayload(BaseModel):
-    """n8n 명령 페이로드
+    """n8n 명령 페이로드.
 
     외부 시스템에서 보내는 봇 제어 명령입니다.
 
@@ -53,7 +53,7 @@ class N8NCommandPayload(BaseModel):
 
 
 class N8NCallbackPayload(BaseModel):
-    """n8n 콜백 페이로드
+    """n8n 콜백 페이로드.
 
     n8n으로 보내는 이벤트 콜백입니다.
 

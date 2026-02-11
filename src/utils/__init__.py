@@ -1,5 +1,4 @@
-"""유틸리티 모듈
-"""
+"""유틸리티 모듈."""
 from src.utils.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerConfig,

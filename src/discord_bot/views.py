@@ -1,4 +1,4 @@
-"""Discord UI Views
+"""Discord UI Views.
 
 버튼 및 인터랙티브 UI 컴포넌트를 정의합니다.
 
@@ -9,7 +9,7 @@
 """
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any
 
 import discord
 from loguru import logger
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 
 class ConfirmationView(discord.ui.View):
-    """확인 대화상자 (위험한 작업용)
+    """확인 대화상자 (위험한 작업용).
 
     일시정지, 재시작, 긴급청산 등 확인이 필요한 작업에 사용됩니다.
 
@@ -46,11 +46,11 @@ class ConfirmationView(discord.ui.View):
         self,
         action: str,
         bot_state: dict,
-        action_data: Dict[str, Any] | None = None,
+        action_data: dict[str, Any] | None = None,
         timeout: int = Timeouts.CONFIRMATION_VIEW,
         original_user_id: int | None = None,
     ):
-        """ConfirmationView 초기화
+        """ConfirmationView 초기화.
 
         Args:
             action: 작업 유형 ("pause", "resume", "emergency")
@@ -74,12 +74,16 @@ class ConfirmationView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """확인 버튼 (권한 체크 포함)"""
+        """확인 버튼 (권한 체크 포함)."""
         try:
             # 원래 명령어를 실행한 사용자만 확인 버튼을 클릭할 수 있음
-            if self.original_user_id is not None and interaction.user.id != self.original_user_id:
+            if (
+                self.original_user_id is not None
+                and interaction.user.id != self.original_user_id
+            ):
                 await interaction.response.send_message(
-                    "🚫 이 확인 버튼은 원래 명령어를 실행한 사용자만 클릭할 수 있습니다.",
+                    "🚫 이 확인 버튼은 원래 명령어를"
+                    " 실행한 사용자만 클릭할 수 있습니다.",
                     ephemeral=True,
                 )
                 logger.warning(
@@ -92,9 +96,12 @@ class ConfirmationView(discord.ui.View):
             required_level = self.ACTION_PERMISSION_LEVELS.get(
                 self.action, PermissionLevel.ADMIN
             )
-            if not check_permission(interaction, required_level, self._permission_config):
+            if not check_permission(
+                interaction, required_level, self._permission_config
+            ):
                 await interaction.response.send_message(
-                    f"🚫 권한이 없습니다. 이 작업은 **{required_level.name}** 이상의 권한이 필요합니다.",
+                    "🚫 권한이 없습니다. 이 작업은"
+                    f" **{required_level.name}** 이상의 권한이 필요합니다.",
                     ephemeral=True,
                 )
                 logger.warning(
@@ -126,9 +133,12 @@ class ConfirmationView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """취소 버튼"""
+        """취소 버튼."""
         # 원래 명령어를 실행한 사용자만 취소할 수 있음
-        if self.original_user_id is not None and interaction.user.id != self.original_user_id:
+        if (
+            self.original_user_id is not None
+            and interaction.user.id != self.original_user_id
+        ):
             await interaction.response.send_message(
                 "🚫 이 취소 버튼은 원래 명령어를 실행한 사용자만 클릭할 수 있습니다.",
                 ephemeral=True,
@@ -143,19 +153,20 @@ class ConfirmationView(discord.ui.View):
         self.stop()
 
     async def _handle_pause(self, interaction: discord.Interaction):
-        """일시정지 처리"""
+        """일시정지 처리."""
         self.bot_state["is_paused"] = True
         self.bot_state["paused_by"] = str(interaction.user)
         self.bot_state["paused_at"] = datetime.now()
 
         await interaction.response.send_message(
-            f"{Messages.BOT_PAUSED}\n새 포지션 진입이 중지됩니다. 기존 포지션은 계속 관리됩니다.",
+            f"{Messages.BOT_PAUSED}\n새 포지션 진입이 중지됩니다."
+            " 기존 포지션은 계속 관리됩니다.",
             ephemeral=True
         )
         logger.warning(f"봇 일시정지: {interaction.user}")
 
     async def _handle_resume(self, interaction: discord.Interaction):
-        """재시작 처리"""
+        """재시작 처리."""
         was_paused = self.bot_state.get("is_paused", False)
         self.bot_state["is_paused"] = False
         self.bot_state["resumed_by"] = str(interaction.user)
@@ -176,7 +187,7 @@ class ConfirmationView(discord.ui.View):
         logger.info(f"봇 재시작: {interaction.user}")
 
     async def _handle_emergency(self, interaction: discord.Interaction):
-        """긴급 청산 처리"""
+        """긴급 청산 처리."""
         position = self.bot_state.get("position")
 
         if not position or not position.get("side"):
@@ -207,7 +218,7 @@ class ConfirmationView(discord.ui.View):
 
 
 class DashboardView(discord.ui.View):
-    """대시보드 메인 UI (7개 버튼)
+    """대시보드 메인 UI (7개 버튼).
 
     정보 조회 버튼 (Row 0): 상태, 포지션, 통계, 내역 - VIEWER 권한
     제어 버튼 (Row 1): 일시정지, 재시작, 긴급청산 - TRADER/ADMIN 권한
@@ -221,7 +232,7 @@ class DashboardView(discord.ui.View):
         bot_client: "TradingBotClient",
         timeout: int = Timeouts.DASHBOARD_VIEW
     ):
-        """DashboardView 초기화
+        """DashboardView 초기화.
 
         Args:
             bot_client: TradingBotClient 인스턴스
@@ -231,10 +242,10 @@ class DashboardView(discord.ui.View):
         self.bot_client = bot_client
         self._permission_config = get_permission_config()
         # 사용자별 마지막 클릭 시간 (user_id -> timestamp)
-        self._last_interaction: Dict[int, float] = {}
+        self._last_interaction: dict[int, float] = {}
 
     def _check_cooldown(self, user_id: int) -> bool:
-        """사용자 쿨다운 확인
+        """사용자 쿨다운 확인.
 
         Args:
             user_id: Discord 사용자 ID
@@ -259,7 +270,7 @@ class DashboardView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """상태 조회 버튼"""
+        """상태 조회 버튼."""
         if not self._check_cooldown(interaction.user.id):
             await interaction.response.send_message(
                 "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
@@ -280,7 +291,7 @@ class DashboardView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """포지션 조회 버튼"""
+        """포지션 조회 버튼."""
         if not self._check_cooldown(interaction.user.id):
             await interaction.response.send_message(
                 "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
@@ -301,7 +312,7 @@ class DashboardView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """통계 조회 버튼"""
+        """통계 조회 버튼."""
         if not self._check_cooldown(interaction.user.id):
             await interaction.response.send_message(
                 "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
@@ -322,7 +333,7 @@ class DashboardView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """거래 내역 버튼"""
+        """거래 내역 버튼."""
         if not self._check_cooldown(interaction.user.id):
             await interaction.response.send_message(
                 "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
@@ -347,7 +358,7 @@ class DashboardView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """일시정지 버튼 (확인 필요) - TRADER 권한 필요"""
+        """일시정지 버튼 (확인 필요) - TRADER 권한 필요."""
         if not self._check_cooldown(interaction.user.id):
             await interaction.response.send_message(
                 "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
@@ -359,7 +370,8 @@ class DashboardView(discord.ui.View):
                 interaction, PermissionLevel.TRADER, self._permission_config
             ):
                 await interaction.response.send_message(
-                    "🚫 권한이 없습니다. 이 버튼은 **TRADER** 이상의 권한이 필요합니다.",
+                    "🚫 권한이 없습니다. 이 버튼은"
+                    " **TRADER** 이상의 권한이 필요합니다.",
                     ephemeral=True,
                 )
                 logger.warning(f"권한 부족 (일시정지 버튼): {interaction.user}")
@@ -408,7 +420,7 @@ class DashboardView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """재시작 버튼 (확인 필요) - TRADER 권한 필요"""
+        """재시작 버튼 (확인 필요) - TRADER 권한 필요."""
         if not self._check_cooldown(interaction.user.id):
             await interaction.response.send_message(
                 "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
@@ -420,7 +432,8 @@ class DashboardView(discord.ui.View):
                 interaction, PermissionLevel.TRADER, self._permission_config
             ):
                 await interaction.response.send_message(
-                    "🚫 권한이 없습니다. 이 버튼은 **TRADER** 이상의 권한이 필요합니다.",
+                    "🚫 권한이 없습니다. 이 버튼은"
+                    " **TRADER** 이상의 권한이 필요합니다.",
                     ephemeral=True,
                 )
                 logger.warning(f"권한 부족 (재시작 버튼): {interaction.user}")
@@ -469,7 +482,7 @@ class DashboardView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """긴급청산 버튼 (확인 필요) - ADMIN 권한 필요"""
+        """긴급청산 버튼 (확인 필요) - ADMIN 권한 필요."""
         if not self._check_cooldown(interaction.user.id):
             await interaction.response.send_message(
                 "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
@@ -512,7 +525,11 @@ class DashboardView(discord.ui.View):
             emoji = Emojis.LONG if side == "LONG" else Emojis.SHORT
             embed.add_field(name=f"{emoji} 포지션", value=f"{side}", inline=True)
             embed.add_field(name="💵 진입가", value=f"${entry_price:,.2f}", inline=True)
-            embed.add_field(name="📊 현재가", value=f"${current_price:,.2f}", inline=True)
+            embed.add_field(
+                name="📊 현재가",
+                value=f"${current_price:,.2f}",
+                inline=True,
+            )
             embed.add_field(
                 name="⚠️ 안내",
                 value=(

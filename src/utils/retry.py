@@ -1,10 +1,9 @@
-"""Retry decorator with exponential backoff for API calls
-"""
+"""Retry decorator with exponential backoff for API calls."""
 import asyncio
 import functools
 import random
 from collections.abc import Callable
-from typing import Any, ParamSpec, Tuple, Type, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
 from loguru import logger
 
@@ -16,10 +15,10 @@ def async_retry(
     max_attempts: int = 3,
     delay: float = 1.0,
     backoff: float = 2.0,
-    exceptions: Tuple[Type[Exception], ...] = (Exception,),
+    exceptions: tuple[type[Exception], ...] = (Exception,),
     jitter: bool = False,
 ) -> Callable[[Callable[P, Any]], Callable[P, Any]]:
-    """Async retry decorator with exponential backoff
+    """Async retry decorator with exponential backoff.
 
     Args:
         max_attempts: Maximum number of retry attempts
@@ -56,7 +55,8 @@ def async_retry(
                         raise
 
                     logger.warning(
-                        f"{func.__name__} attempt {attempt}/{max_attempts} failed: {e}. "
+                        f"{func.__name__} attempt {attempt}/{max_attempts} "
+                        f"failed: {e}. "
                         f"Retrying in {current_delay:.1f}s..."
                     )
 
@@ -71,6 +71,7 @@ def async_retry(
             # This should never be reached, but just in case
             if last_exception:
                 raise last_exception
+            return None
 
         return wrapper  # type: ignore[return-value]
 
@@ -81,10 +82,10 @@ def sync_retry(
     max_attempts: int = 3,
     delay: float = 1.0,
     backoff: float = 2.0,
-    exceptions: Tuple[Type[Exception], ...] = (Exception,),
+    exceptions: tuple[type[Exception], ...] = (Exception,),
     jitter: bool = False,
 ) -> Callable[[Callable[P, Any]], Callable[P, Any]]:
-    """Sync retry decorator with exponential backoff
+    """Sync retry decorator with exponential backoff.
 
     Args:
         max_attempts: Maximum number of retry attempts
@@ -102,7 +103,7 @@ def sync_retry(
     def decorator(func: Callable[P, Any]) -> Callable[P, Any]:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            import time
+            import time  # noqa: PLC0415
 
             # 이벤트 루프 내에서 호출 시 경고 (time.sleep이 루프를 블로킹함)
             try:
@@ -133,7 +134,8 @@ def sync_retry(
                         raise
 
                     logger.warning(
-                        f"{func.__name__} attempt {attempt}/{max_attempts} failed: {e}. "
+                        f"{func.__name__} attempt {attempt}/{max_attempts} "
+                        f"failed: {e}. "
                         f"Retrying in {current_delay:.1f}s..."
                     )
 
@@ -148,6 +150,7 @@ def sync_retry(
             # This should never be reached, but just in case
             if last_exception:
                 raise last_exception
+            return None
 
         return wrapper  # type: ignore[return-value]
 

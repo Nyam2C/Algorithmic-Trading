@@ -1,4 +1,4 @@
-"""FastAPI 의존성 주입 모듈
+"""FastAPI 의존성 주입 모듈.
 
 MultiBotManager 및 기타 의존성을 주입합니다.
 Phase 4: TradeHistoryAnalyzer 의존성 추가
@@ -27,17 +27,17 @@ _signal_tracker: Any | None = None  # SignalTracker 타입
 
 
 def set_bot_manager(manager: MultiBotManager) -> None:
-    """MultiBotManager 인스턴스 설정
+    """MultiBotManager 인스턴스 설정.
 
     Args:
         manager: MultiBotManager 인스턴스
     """
-    global _bot_manager
+    global _bot_manager  # noqa: PLW0603
     _bot_manager = manager
 
 
 def get_bot_manager() -> MultiBotManager:
-    """MultiBotManager 인스턴스 반환
+    """MultiBotManager 인스턴스 반환.
 
     Returns:
         MultiBotManager 인스턴스
@@ -51,7 +51,7 @@ def get_bot_manager() -> MultiBotManager:
 
 
 def get_bot_manager_optional() -> MultiBotManager | None:
-    """MultiBotManager 인스턴스 반환 (Optional)
+    """MultiBotManager 인스턴스 반환 (Optional).
 
     Returns:
         MultiBotManager 인스턴스 또는 None
@@ -60,17 +60,17 @@ def get_bot_manager_optional() -> MultiBotManager | None:
 
 
 def set_api_config(config: APIConfig) -> None:
-    """API 설정 저장
+    """API 설정 저장.
 
     Args:
         config: APIConfig 인스턴스
     """
-    global _api_config
+    global _api_config  # noqa: PLW0603
     _api_config = config
 
 
 def get_api_config() -> APIConfig:
-    """API 설정 반환
+    """API 설정 반환.
 
     Returns:
         APIConfig 인스턴스
@@ -83,17 +83,18 @@ def get_api_config() -> APIConfig:
 def set_redis_state_manager(
     manager: Union[RedisStateManager, DummyRedisStateManager]
 ) -> None:
-    """Redis 상태 관리자 설정
+    """Redis 상태 관리자 설정.
 
     Args:
         manager: Redis 상태 관리자 인스턴스
     """
-    global _redis_state_manager
+    global _redis_state_manager  # noqa: PLW0603
     _redis_state_manager = manager
 
 
-def get_redis_state_manager() -> Union[RedisStateManager, DummyRedisStateManager] | None:
-    """Redis 상태 관리자 반환
+def get_redis_state_manager(
+) -> Union[RedisStateManager, DummyRedisStateManager] | None:
+    """Redis 상태 관리자 반환.
 
     Returns:
         Redis 상태 관리자 인스턴스 또는 None
@@ -102,7 +103,7 @@ def get_redis_state_manager() -> Union[RedisStateManager, DummyRedisStateManager
 
 
 async def check_redis_health() -> bool:
-    """Redis 연결 상태 확인
+    """Redis 연결 상태 확인.
 
     Returns:
         연결 성공 여부
@@ -122,17 +123,17 @@ async def check_redis_health() -> bool:
 
 
 def set_trade_analyzer(analyzer: TradeHistoryAnalyzer) -> None:
-    """TradeHistoryAnalyzer 인스턴스 설정
+    """TradeHistoryAnalyzer 인스턴스 설정.
 
     Args:
         analyzer: TradeHistoryAnalyzer 인스턴스
     """
-    global _trade_analyzer
+    global _trade_analyzer  # noqa: PLW0603
     _trade_analyzer = analyzer
 
 
 def get_trade_analyzer() -> TradeHistoryAnalyzer | None:
-    """TradeHistoryAnalyzer 인스턴스 반환
+    """TradeHistoryAnalyzer 인스턴스 반환.
 
     Returns:
         TradeHistoryAnalyzer 인스턴스 또는 None
@@ -149,7 +150,7 @@ async def verify_n8n_api_key(
     request: Request,
     x_n8n_api_key: str = Header(..., alias="X-N8N-API-Key"),
 ) -> str:
-    """n8n 웹훅 API 키 검증
+    """n8n 웹훅 API 키 검증.
 
     Args:
         request: FastAPI Request 객체 (보안 감사 로그용)
@@ -184,7 +185,7 @@ async def verify_api_key(
     request: Request,
     x_api_key: str = Header(..., alias="X-API-Key"),
 ) -> str:
-    """일반 API 키 검증
+    """일반 API 키 검증.
 
     Args:
         request: FastAPI Request 객체 (보안 감사 로그용)
@@ -221,17 +222,17 @@ async def verify_api_key(
 
 
 def set_signal_tracker(tracker: Any) -> None:
-    """SignalTracker 인스턴스 설정
+    """SignalTracker 인스턴스 설정.
 
     Args:
         tracker: SignalTracker 인스턴스
     """
-    global _signal_tracker
+    global _signal_tracker  # noqa: PLW0603
     _signal_tracker = tracker
 
 
 def get_signal_tracker() -> Any:
-    """SignalTracker 인스턴스 반환
+    """SignalTracker 인스턴스 반환.
 
     Returns:
         SignalTracker 인스턴스
@@ -245,7 +246,7 @@ def get_signal_tracker() -> Any:
 
 
 def get_optional_signal_tracker() -> Any | None:
-    """SignalTracker 인스턴스 반환 (Optional)
+    """SignalTracker 인스턴스 반환 (Optional).
 
     Returns:
         SignalTracker 인스턴스 또는 None

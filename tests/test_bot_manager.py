@@ -225,7 +225,7 @@ class TestMultiBotManager:
 
             manager.pause_all()
 
-            for name, instance in manager.bots.items():
+            for _name, instance in manager.bots.items():
                 assert instance.is_paused is True
 
         def test_전체_봇_resume(self, manager, bot_configs: list) -> None:
@@ -237,7 +237,7 @@ class TestMultiBotManager:
             manager.pause_all()
             manager.resume_all()
 
-            for name, instance in manager.bots.items():
+            for _name, instance in manager.bots.items():
                 assert instance.is_paused is False
 
     # ===== 시작/정지 테스트 =====
@@ -293,12 +293,12 @@ class TestMultiBotManager:
                     manager.add_bot(config)
 
             # 각 봇의 start 모킹
-            for name, instance in manager.bots.items():
+            for _name, instance in manager.bots.items():
                 instance.start = AsyncMock()
 
             await manager.start_all()
 
-            for name, instance in manager.bots.items():
+            for _name, instance in manager.bots.items():
                 instance.start.assert_called_once()
 
         @pytest.mark.asyncio
@@ -309,12 +309,12 @@ class TestMultiBotManager:
                     manager.add_bot(config)
 
             # 각 봇의 stop 모킹
-            for name, instance in manager.bots.items():
+            for _name, instance in manager.bots.items():
                 instance.stop = AsyncMock()
 
             await manager.stop_all()
 
-            for name, instance in manager.bots.items():
+            for _name, instance in manager.bots.items():
                 instance.stop.assert_called_once()
 
     # ===== 통계 테스트 =====

@@ -1,4 +1,4 @@
-"""Trading executor for opening and closing positions
+"""Trading executor for opening and closing positions.
 
 Phase 5: 리스크 관리 강화
 - 실제 잔고 기반 포지션 사이징
@@ -6,7 +6,6 @@ Phase 5: 리스크 관리 강화
 """
 import asyncio
 from datetime import datetime, timedelta
-from typing import Dict
 
 from binance.enums import (
     SIDE_BUY,
@@ -16,7 +15,7 @@ from loguru import logger
 
 
 class TradingExecutor:
-    """Execute trades on Binance Futures
+    """Execute trades on Binance Futures.
 
     Phase 5: 리스크 관리 기능 추가
     - 실제 잔고 기반 포지션 사이징 (use_real_balance 옵션)
@@ -24,7 +23,7 @@ class TradingExecutor:
     """
 
     def __init__(self, binance_client, config):
-        """Initialize trading executor
+        """Initialize trading executor.
 
         Args:
             binance_client: BinanceTestnetClient instance
@@ -32,7 +31,7 @@ class TradingExecutor:
         """
         self.client = binance_client
         self.config = config
-        self.current_position: Dict | None = None
+        self.current_position: dict | None = None
 
         # Phase 5: 잔고 캐싱
         self._cached_balance: float | None = None
@@ -42,7 +41,7 @@ class TradingExecutor:
         logger.info("Trading executor initialized")
 
     async def setup_leverage(self) -> bool:
-        """Set leverage for the trading symbol
+        """Set leverage for the trading symbol.
 
         Returns:
             True if successful
@@ -61,7 +60,7 @@ class TradingExecutor:
             return False
 
     async def _get_available_balance(self) -> float:
-        """Get available USDT balance with caching
+        """Get available USDT balance with caching.
 
         Returns:
             Available balance in USDT
@@ -72,7 +71,8 @@ class TradingExecutor:
         if (
             self._cached_balance is not None
             and self._balance_cache_time is not None
-            and (now - self._balance_cache_time).total_seconds() < self._balance_cache_ttl_seconds
+            and (now - self._balance_cache_time).total_seconds()
+            < self._balance_cache_ttl_seconds
         ):
             return self._cached_balance
 
@@ -91,12 +91,14 @@ class TradingExecutor:
                 return self._cached_balance
             raise
 
-    def _calculate_position_size(self, current_price: float, capital: float | None = None) -> float:
-        """Calculate position size based on configuration (동기 버전 - 테스트 호환)
+    def _calculate_position_size(
+        self, current_price: float, capital: float | None = None
+    ) -> float:
+        """Calculate position size based on configuration (동기 버전 - 테스트 호환).
 
         Args:
             current_price: Current market price
-            capital: Capital to use (None = use default 1000.0 for backward compatibility)
+            capital: Capital to use (None = default 1000.0)
 
         Returns:
             Position quantity in base asset
@@ -115,14 +117,17 @@ class TradingExecutor:
         quantity = round(quantity, 3)
 
         logger.info(
-            f"Position size calculated: {quantity} @ ${current_price:,.2f} "
-            f"= ${position_value:,.2f} (capital=${capital:,.2f}, {self.config.leverage}x leverage)"
+            f"Position size calculated: {quantity} "
+            f"@ ${current_price:,.2f} = ${position_value:,.2f} "
+            f"(capital=${capital:,.2f}, {self.config.leverage}x leverage)"
         )
 
         return quantity
 
-    async def _calculate_position_size_with_balance(self, current_price: float) -> float:
-        """Calculate position size based on real account balance (비동기 버전)
+    async def _calculate_position_size_with_balance(
+        self, current_price: float
+    ) -> float:
+        """Calculate position size based on real account balance (비동기 버전).
 
         Phase 5.1: 실제 잔고 기반 포지션 사이징
 
@@ -151,10 +156,10 @@ class TradingExecutor:
         signal: str,
         current_price: float,
         entry_atr: float | None = None,
-        order_type: str = "MARKET",
+        order_type: str = "MARKET",  # noqa: ARG002
         use_maker: bool = False,
-    ) -> Dict | None:
-        """포지션 오픈 공통 로직
+    ) -> dict | None:
+        """포지션 오픈 공통 로직.
 
         포지션 체크, 레버리지 설정, 사이징, 주문 생성, 포지션 저장을 처리합니다.
 
@@ -190,9 +195,14 @@ class TradingExecutor:
 
         # Create order based on type
         if use_maker:
-            order = await self._create_maker_order(signal, side, quantity, current_price)
+            order = await self._create_maker_order(
+                signal, side, quantity, current_price
+            )
         else:
-            logger.info(f"Opening {signal} position: {side} {quantity} {self.config.symbol}")
+            logger.info(
+                f"Opening {signal} position: {side} {quantity} "
+                f"{self.config.symbol}"
+            )
             order = await self.client.create_market_order(
                 symbol=self.config.symbol,
                 side=side,
@@ -219,7 +229,7 @@ class TradingExecutor:
 
     async def _create_maker_order(
         self, signal: str, side: str, quantity: float, current_price: float
-    ) -> Dict:
+    ) -> dict:
         """Maker (limit) 주문 생성. 미체결 시 Market 주문으로 fallback.
 
         Args:
@@ -242,7 +252,8 @@ class TradingExecutor:
 
         # Create limit order
         logger.info(
-            f"Opening {signal} position (MAKER): {side} {quantity} {self.config.symbol} @ ${limit_price:,.2f}"
+            f"Opening {signal} position (MAKER): {side} "
+            f"{quantity} {self.config.symbol} @ ${limit_price:,.2f}"
         )
         order = await self.client.create_limit_order(
             symbol=self.config.symbol,
@@ -256,10 +267,13 @@ class TradingExecutor:
 
         if not filled:
             logger.warning(
-                "Limit order not filled within timeout, cancelling and using market order"
+                "Limit order not filled within timeout, "
+                "cancelling and using market order"
             )
             # Cancel unfilled order
-            await self.client.cancel_order(self.config.symbol, order["orderId"])
+            await self.client.cancel_order(
+                self.config.symbol, order["orderId"]
+            )
 
             # Fallback to market order
             order = await self.client.create_market_order(
@@ -273,8 +287,8 @@ class TradingExecutor:
 
     async def open_position(
         self, signal: str, current_price: float, entry_atr: float | None = None
-    ) -> Dict | None:
-        """Open a new position based on signal
+    ) -> dict | None:
+        """Open a new position based on signal.
 
         Args:
             signal: "LONG" or "SHORT"
@@ -299,8 +313,8 @@ class TradingExecutor:
     async def open_position_maker(
         self, signal: str, current_price: float, use_maker: bool = True,
         entry_atr: float | None = None
-    ) -> Dict | None:
-        """Open a new position using Maker order (limit order)
+    ) -> dict | None:
+        """Open a new position using Maker order (limit order).
 
         Args:
             signal: "LONG" or "SHORT"
@@ -326,7 +340,7 @@ class TradingExecutor:
     async def _wait_for_fill(
         self, order_id: int, timeout: int = 30, check_interval: int = 2
     ) -> bool:
-        """Wait for order to be filled
+        """Wait for order to be filled.
 
         Args:
             order_id: Order ID to check
@@ -361,8 +375,8 @@ class TradingExecutor:
         logger.warning(f"Order {order_id} not filled within {timeout}s")
         return False
 
-    async def close_position(self) -> Dict | None:
-        """Close current position
+    async def close_position(self) -> dict | None:
+        """Close current position.
 
         Returns:
             Order details or None if failed
@@ -390,21 +404,20 @@ class TradingExecutor:
             logger.error(f"Failed to close position: {e}")
             return None
 
-    async def get_position(self) -> Dict | None:
-        """Get current position from exchange
+    async def get_position(self) -> dict | None:
+        """Get current position from exchange.
 
         Returns:
             Position info or None if no position
         """
         try:
-            position = await self.client.get_position(self.config.symbol)
-            return position
+            return await self.client.get_position(self.config.symbol)
         except Exception as e:
             logger.error(f"Failed to get position: {e}")
             return None
 
     async def has_position(self) -> bool:
-        """Check if we currently have an open position
+        """Check if we currently have an open position.
 
         Returns:
             True if has position, False otherwise
@@ -412,8 +425,10 @@ class TradingExecutor:
         position = await self.get_position()
         return position is not None
 
-    def calculate_pnl_pct(self, entry_price: float, current_price: float, side: str) -> float:
-        """Calculate PnL percentage
+    def calculate_pnl_pct(
+        self, entry_price: float, current_price: float, side: str
+    ) -> float:
+        """Calculate PnL percentage.
 
         Args:
             entry_price: Entry price
@@ -430,8 +445,8 @@ class TradingExecutor:
 
         return pnl_pct
 
-    async def check_tp_sl(self, position: Dict, current_price: float) -> str | None:
-        """Check if TP or SL should be triggered
+    async def check_tp_sl(self, position: dict, current_price: float) -> str | None:
+        """Check if TP or SL should be triggered.
 
         Args:
             position: Position info
@@ -451,12 +466,18 @@ class TradingExecutor:
 
             # Check TP
             if pnl_pct >= self.config.take_profit_pct:
-                logger.info(f"Take profit triggered: {pnl_pct*100:.2f}% >= {self.config.take_profit_pct*100:.2f}%")
+                logger.info(
+                    f"Take profit triggered: {pnl_pct*100:.2f}% "
+                    f">= {self.config.take_profit_pct*100:.2f}%"
+                )
                 return "TP"
 
             # Check SL
             if pnl_pct <= -self.config.stop_loss_pct:
-                logger.info(f"Stop loss triggered: {pnl_pct*100:.2f}% <= -{self.config.stop_loss_pct*100:.2f}%")
+                logger.info(
+                    f"Stop loss triggered: {pnl_pct*100:.2f}% "
+                    f"<= -{self.config.stop_loss_pct*100:.2f}%"
+                )
                 return "SL"
 
             return None
@@ -466,9 +487,9 @@ class TradingExecutor:
             return None
 
     async def check_tp_sl_dynamic(
-        self, position: Dict, current_price: float
+        self, position: dict, current_price: float
     ) -> str | None:
-        """Phase 6.1: ATR 기반 동적 TP/SL 체크
+        """Phase 6.1: ATR 기반 동적 TP/SL 체크.
 
         ATR을 사용하여 시장 변동성에 따른 동적 TP/SL 레벨 설정.
 
@@ -501,16 +522,22 @@ class TradingExecutor:
                 if current_price >= tp_price:
                     pnl_pct = ((current_price - entry_price) / entry_price) * 100
                     logger.info(
-                        f"ATR TP 도달 (LONG): ${current_price:,.2f} >= ${tp_price:,.2f} "
-                        f"(ATR={entry_atr:.2f}, multiplier={atr_tp_multiplier}), PnL={pnl_pct:+.2f}%"
+                        f"ATR TP 도달 (LONG): "
+                        f"${current_price:,.2f} >= ${tp_price:,.2f} "
+                        f"(ATR={entry_atr:.2f}, "
+                        f"multiplier={atr_tp_multiplier}), "
+                        f"PnL={pnl_pct:+.2f}%"
                     )
                     return "TP"
 
                 if current_price <= sl_price:
                     pnl_pct = ((current_price - entry_price) / entry_price) * 100
                     logger.info(
-                        f"ATR SL 도달 (LONG): ${current_price:,.2f} <= ${sl_price:,.2f} "
-                        f"(ATR={entry_atr:.2f}, multiplier={atr_sl_multiplier}), PnL={pnl_pct:+.2f}%"
+                        f"ATR SL 도달 (LONG): "
+                        f"${current_price:,.2f} <= ${sl_price:,.2f} "
+                        f"(ATR={entry_atr:.2f}, "
+                        f"multiplier={atr_sl_multiplier}), "
+                        f"PnL={pnl_pct:+.2f}%"
                     )
                     return "SL"
 
@@ -521,16 +548,22 @@ class TradingExecutor:
                 if current_price <= tp_price:
                     pnl_pct = ((entry_price - current_price) / entry_price) * 100
                     logger.info(
-                        f"ATR TP 도달 (SHORT): ${current_price:,.2f} <= ${tp_price:,.2f} "
-                        f"(ATR={entry_atr:.2f}, multiplier={atr_tp_multiplier}), PnL={pnl_pct:+.2f}%"
+                        f"ATR TP 도달 (SHORT): "
+                        f"${current_price:,.2f} <= ${tp_price:,.2f} "
+                        f"(ATR={entry_atr:.2f}, "
+                        f"multiplier={atr_tp_multiplier}), "
+                        f"PnL={pnl_pct:+.2f}%"
                     )
                     return "TP"
 
                 if current_price >= sl_price:
                     pnl_pct = ((entry_price - current_price) / entry_price) * 100
                     logger.info(
-                        f"ATR SL 도달 (SHORT): ${current_price:,.2f} >= ${sl_price:,.2f} "
-                        f"(ATR={entry_atr:.2f}, multiplier={atr_sl_multiplier}), PnL={pnl_pct:+.2f}%"
+                        f"ATR SL 도달 (SHORT): "
+                        f"${current_price:,.2f} >= ${sl_price:,.2f} "
+                        f"(ATR={entry_atr:.2f}, "
+                        f"multiplier={atr_sl_multiplier}), "
+                        f"PnL={pnl_pct:+.2f}%"
                     )
                     return "SL"
 
@@ -545,8 +578,8 @@ class TradingExecutor:
             # Fallback to regular check
             return await self.check_tp_sl(position, current_price)
 
-    def check_timecut(self, position: Dict) -> bool:
-        """Check if position should be closed due to timecut (2 hours)
+    def check_timecut(self, position: dict) -> bool:
+        """Check if position should be closed due to timecut (2 hours).
 
         Args:
             position: Position info with entry_time
@@ -556,7 +589,10 @@ class TradingExecutor:
         """
         try:
             if "entry_time" not in position:
-                logger.warning("Position does not have entry_time, skipping timecut check")
+                logger.warning(
+                    "Position does not have entry_time, "
+                    "skipping timecut check"
+                )
                 return False
 
             entry_time = position["entry_time"]

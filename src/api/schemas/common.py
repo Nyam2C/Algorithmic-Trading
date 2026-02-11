@@ -1,4 +1,4 @@
-"""공통 API 응답 스키마
+"""공통 API 응답 스키마.
 
 모든 API 응답에 사용되는 공통 모델을 정의합니다.
 """
@@ -10,7 +10,7 @@ T = TypeVar("T")
 
 
 class APIResponse(BaseModel, Generic[T]):
-    """표준 API 응답
+    """표준 API 응답.
 
     Attributes:
         success: 성공 여부
@@ -24,7 +24,7 @@ class APIResponse(BaseModel, Generic[T]):
 
 
 class SuccessResponse(BaseModel):
-    """성공 응답
+    """성공 응답.
 
     간단한 성공 응답에 사용됩니다.
     """
@@ -34,7 +34,7 @@ class SuccessResponse(BaseModel):
 
 
 class ErrorResponse(BaseModel):
-    """에러 응답
+    """에러 응답.
 
     Attributes:
         success: 항상 False

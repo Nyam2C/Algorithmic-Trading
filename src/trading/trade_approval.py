@@ -1,4 +1,4 @@
-"""거래 승인 시스템
+"""거래 승인 시스템.
 
 Phase 7.4: 수동 승인 모드
 - 첫 N거래는 Discord에서 수동 승인 필요
@@ -7,14 +7,14 @@ Phase 7.4: 수동 승인 모드
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any
 from uuid import uuid4
 
 from loguru import logger
 
 
 class ApprovalStatus(Enum):
-    """승인 상태"""
+    """승인 상태."""
     PENDING = "pending"      # 대기 중
     APPROVED = "approved"    # 승인됨
     REJECTED = "rejected"    # 거부됨
@@ -23,7 +23,7 @@ class ApprovalStatus(Enum):
 
 @dataclass
 class TradeApprovalRequest:
-    """거래 승인 요청
+    """거래 승인 요청.
 
     Attributes:
         request_id: 요청 ID
@@ -49,25 +49,25 @@ class TradeApprovalRequest:
     atr: float | None = None
 
     def approve(self, user_id: str) -> None:
-        """승인"""
+        """승인."""
         self.status = ApprovalStatus.APPROVED
         self.approver_id = user_id
         logger.info(f"거래 승인됨: {self.request_id} by {user_id}")
 
     def reject(self, user_id: str, reason: str | None = None) -> None:
-        """거부"""
+        """거부."""
         self.status = ApprovalStatus.REJECTED
         self.approver_id = user_id
         self.rejection_reason = reason
         logger.info(f"거래 거부됨: {self.request_id} by {user_id}, reason={reason}")
 
     def timeout(self) -> None:
-        """시간 초과"""
+        """시간 초과."""
         self.status = ApprovalStatus.TIMEOUT
         logger.info(f"거래 승인 시간 초과: {self.request_id}")
 
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리 변환"""
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리 변환."""
         return {
             "request_id": self.request_id,
             "bot_name": self.bot_name,
@@ -86,7 +86,7 @@ class TradeApprovalRequest:
 
 
 class TradeApprovalManager:
-    """거래 승인 매니저
+    """거래 승인 매니저.
 
     첫 N거래에 대해 수동 승인을 요구합니다.
     Discord 봇과 통합하여 사용합니다.
@@ -110,7 +110,7 @@ class TradeApprovalManager:
         manual_approval_trades: int = 5,
         approval_timeout: int = 60,
     ) -> None:
-        """매니저 초기화
+        """매니저 초기화.
 
         Args:
             manual_approval_enabled: 수동 승인 활성화 여부
@@ -122,10 +122,10 @@ class TradeApprovalManager:
         self.approval_timeout = approval_timeout
 
         # 봇별 완료 거래 수
-        self._completed_trades: Dict[str, int] = {}
+        self._completed_trades: dict[str, int] = {}
 
         # 승인 요청 저장소
-        self._requests: Dict[str, TradeApprovalRequest] = {}
+        self._requests: dict[str, TradeApprovalRequest] = {}
 
         logger.debug(
             f"TradeApprovalManager 초기화: enabled={manual_approval_enabled}, "
@@ -133,11 +133,11 @@ class TradeApprovalManager:
         )
 
     def is_enabled(self) -> bool:
-        """수동 승인 활성화 여부"""
+        """수동 승인 활성화 여부."""
         return self._enabled
 
     async def requires_approval(self, bot_name: str) -> bool:
-        """승인이 필요한지 확인
+        """승인이 필요한지 확인.
 
         Args:
             bot_name: 봇 이름
@@ -152,7 +152,7 @@ class TradeApprovalManager:
         return completed < self.manual_approval_trades
 
     async def record_trade_completed(self, bot_name: str) -> None:
-        """거래 완료 기록
+        """거래 완료 기록.
 
         Args:
             bot_name: 봇 이름
@@ -171,7 +171,7 @@ class TradeApprovalManager:
         rsi: float | None = None,
         atr: float | None = None,
     ) -> TradeApprovalRequest:
-        """승인 요청 생성
+        """승인 요청 생성.
 
         Args:
             bot_name: 봇 이름
@@ -203,7 +203,7 @@ class TradeApprovalManager:
         return request
 
     async def approve(self, request_id: str, user_id: str) -> bool:
-        """요청 승인
+        """요청 승인.
 
         Args:
             request_id: 요청 ID
@@ -230,7 +230,7 @@ class TradeApprovalManager:
         user_id: str,
         reason: str | None = None,
     ) -> bool:
-        """요청 거부
+        """요청 거부.
 
         Args:
             request_id: 요청 ID
@@ -255,8 +255,8 @@ class TradeApprovalManager:
     async def get_pending_requests(
         self,
         bot_name: str | None = None,
-    ) -> List[TradeApprovalRequest]:
-        """대기 중 요청 조회
+    ) -> list[TradeApprovalRequest]:
+        """대기 중 요청 조회.
 
         Args:
             bot_name: 봇 이름으로 필터링 (선택)
@@ -275,7 +275,7 @@ class TradeApprovalManager:
         return pending
 
     async def get_request(self, request_id: str) -> TradeApprovalRequest | None:
-        """요청 조회
+        """요청 조회.
 
         Args:
             request_id: 요청 ID
@@ -285,8 +285,8 @@ class TradeApprovalManager:
         """
         return self._requests.get(request_id)
 
-    def get_stats(self) -> Dict[str, Any]:
-        """통계 조회
+    def get_stats(self) -> dict[str, Any]:
+        """통계 조회.
 
         Returns:
             통계 딕셔너리
@@ -310,7 +310,7 @@ class TradeApprovalManager:
         }
 
     def reset_bot_counter(self, bot_name: str) -> None:
-        """봇 거래 카운터 리셋
+        """봇 거래 카운터 리셋.
 
         Args:
             bot_name: 봇 이름

@@ -1,4 +1,4 @@
-"""대시보드 API
+"""대시보드 API.
 
 Phase 6.3: 실시간 대시보드
 - 시스템 개요 조회
@@ -10,7 +10,7 @@ import asyncio
 import hmac
 import os
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 from fastapi import (
     APIRouter,
@@ -32,25 +32,25 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 # ============================================================================
 
 class ConnectionManager:
-    """WebSocket 연결 관리자"""
+    """WebSocket 연결 관리자."""
 
     def __init__(self) -> None:
-        self.active_connections: List[WebSocket] = []
+        self.active_connections: list[WebSocket] = []
 
     async def connect(self, websocket: WebSocket) -> None:
-        """연결 수락"""
+        """연결 수락."""
         await websocket.accept()
         self.active_connections.append(websocket)
         logger.debug(f"WebSocket 연결: {len(self.active_connections)}개 활성")
 
     def disconnect(self, websocket: WebSocket) -> None:
-        """연결 해제"""
+        """연결 해제."""
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
         logger.debug(f"WebSocket 해제: {len(self.active_connections)}개 활성")
 
-    async def broadcast(self, message: Dict[str, Any]) -> None:
-        """모든 연결에 메시지 브로드캐스트"""
+    async def broadcast(self, message: dict[str, Any]) -> None:
+        """모든 연결에 메시지 브로드캐스트."""
         disconnected = []
 
         for connection in self.active_connections:
@@ -74,8 +74,8 @@ manager = ConnectionManager()
 @router.get("/overview")
 async def get_dashboard_overview(
     bot_manager=Depends(get_bot_manager),
-) -> Dict[str, Any]:
-    """시스템 개요 조회
+) -> dict[str, Any]:
+    """시스템 개요 조회.
 
     Returns:
         시스템 전체 상태 요약
@@ -110,7 +110,9 @@ async def get_dashboard_overview(
                 "total": len(all_bots),
                 "running": len(running_bots),
                 "paused": len(paused_bots),
-                "stopped": len(all_bots) - len(running_bots) - len(paused_bots),
+                "stopped": (
+                    len(all_bots) - len(running_bots) - len(paused_bots)
+                ),
             },
             "positions": {
                 "total": total_positions,
@@ -123,18 +125,19 @@ async def get_dashboard_overview(
 
     except Exception as e:
         logger.error(f"대시보드 개요 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/bots/{bot_name}/metrics")
 async def get_bot_metrics(
     bot_name: str,
     bot_manager=Depends(get_bot_manager),
-) -> Dict[str, Any]:
-    """봇별 상세 메트릭 조회
+) -> dict[str, Any]:
+    """봇별 상세 메트릭 조회.
 
     Args:
         bot_name: 봇 이름
+        bot_manager: MultiBotManager 인스턴스 (DI)
 
     Returns:
         봇 상세 메트릭
@@ -186,7 +189,7 @@ async def get_bot_metrics(
         raise
     except Exception as e:
         logger.error(f"봇 메트릭 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/signals/performance")
@@ -194,12 +197,13 @@ async def get_signal_performance(
     days: int = 7,
     bot_id: str | None = None,
     signal_tracker=Depends(get_optional_signal_tracker),
-) -> Dict[str, Any]:
-    """신호 성과 통계 조회
+) -> dict[str, Any]:
+    """신호 성과 통계 조회.
 
     Args:
         days: 조회 기간 (일)
         bot_id: 봇 ID (선택)
+        signal_tracker: SignalTracker 인스턴스 (DI)
 
     Returns:
         신호 성과 통계
@@ -240,14 +244,14 @@ async def get_signal_performance(
 
     except Exception as e:
         logger.error(f"신호 성과 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/bots")
 async def get_all_bots_status(
     bot_manager=Depends(get_bot_manager),
-) -> List[Dict[str, Any]]:
-    """모든 봇 상태 조회
+) -> list[dict[str, Any]]:
+    """모든 봇 상태 조회.
 
     Returns:
         봇 상태 목록
@@ -274,7 +278,7 @@ async def get_all_bots_status(
 
     except Exception as e:
         logger.error(f"봇 상태 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # ============================================================================
@@ -282,7 +286,7 @@ async def get_all_bots_status(
 # ============================================================================
 
 def _verify_ws_api_key(api_key: str | None) -> bool:
-    """WebSocket API 키 검증
+    """WebSocket API 키 검증.
 
     Args:
         api_key: 클라이언트가 전달한 API 키
@@ -306,7 +310,7 @@ async def websocket_dashboard(
     api_key: str | None = Query(default=None),
     bot_manager=Depends(get_bot_manager),
 ):
-    """실시간 대시보드 WebSocket
+    """실시간 대시보드 WebSocket.
 
     5초 간격으로 업데이트 전송.
     인증: ws://host/ws?api_key=xxx
@@ -343,8 +347,8 @@ async def websocket_dashboard(
         logger.error(f"WebSocket 오류: {e}")
 
 
-async def _get_realtime_data(bot_manager) -> Dict[str, Any]:
-    """실시간 데이터 수집"""
+async def _get_realtime_data(bot_manager) -> dict[str, Any]:
+    """실시간 데이터 수집."""
     if bot_manager is None:
         return {
             "type": "update",
@@ -395,6 +399,6 @@ async def _get_realtime_data(bot_manager) -> Dict[str, Any]:
 # 헬퍼 함수
 # ============================================================================
 
-async def broadcast_update(data: Dict[str, Any]) -> None:
-    """외부에서 브로드캐스트 호출용"""
+async def broadcast_update(data: dict[str, Any]) -> None:
+    """외부에서 브로드캐스트 호출용."""
     await manager.broadcast(data)

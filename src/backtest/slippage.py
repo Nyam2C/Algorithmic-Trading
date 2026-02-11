@@ -1,16 +1,19 @@
-"""슬리피지 모델
+"""슬리피지 모델.
 
 Phase 6.2: 백테스트 현실화
 - 볼륨 기반 슬리피지 계산
 - 변동성 영향 반영
 """
 from dataclasses import dataclass
-from typing import Dict
+
+# 슬리피지 상수
+MIN_SPREAD = 0.1
+
 
 
 @dataclass
 class SlippageModel:
-    """슬리피지 모델
+    """슬리피지 모델.
 
     실제 거래에서 발생하는 슬리피지를 시뮬레이션합니다.
 
@@ -41,7 +44,7 @@ class SlippageModel:
         avg_volume: float,
         volatility: float = 0.0,
     ) -> float:
-        """슬리피지 계산
+        """슬리피지 계산.
 
         Args:
             order_size: 주문 크기 (USD 또는 BTC)
@@ -67,9 +70,8 @@ class SlippageModel:
 
         # 최대값 제한
         max_slip = self.max_slippage_pct / 100
-        slippage = min(slippage, max_slip)
+        return min(slippage, max_slip)
 
-        return slippage
 
     def apply_to_price(
         self,
@@ -79,7 +81,7 @@ class SlippageModel:
         avg_volume: float,
         volatility: float = 0.0,
     ) -> float:
-        """가격에 슬리피지 적용
+        """가격에 슬리피지 적용.
 
         Args:
             price: 원래 가격
@@ -102,13 +104,13 @@ class SlippageModel:
 
 
 def calculate_realistic_entry_price(
-    candle: Dict,
+    candle: dict,
     side: str,
     slippage_model: SlippageModel | None = None,
     order_size: float = 1000.0,
     avg_volume: float = 10000.0,
 ) -> float:
-    """현실적인 진입 가격 계산
+    """현실적인 진입 가격 계산.
 
     종가 대신 high/low를 고려한 진입 가격
 
@@ -146,14 +148,14 @@ def calculate_realistic_entry_price(
 
 
 def calculate_realistic_exit_price(
-    candle: Dict,
+    candle: dict,
     position_side: str,
     exit_reason: str,
     entry_price: float,
     tp_pct: float = 0.01,
     sl_pct: float = 0.005,
 ) -> float:
-    """현실적인 청산 가격 계산
+    """현실적인 청산 가격 계산.
 
     TP/SL은 정확한 가격이 아닌 high/low 기준으로 체결
 

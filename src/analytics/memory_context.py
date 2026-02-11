@@ -1,4 +1,4 @@
-"""AI 메모리 컨텍스트 빌더 (AIMemoryContextBuilder)
+"""AI 메모리 컨텍스트 빌더 (AIMemoryContextBuilder).
 
 Phase 4: AI 메모리 시스템 - 과거 거래 분석을 AI 프롬프트로 변환
 과거 거래 통계와 패턴을 분석하여 AI에게 "기억"으로 제공
@@ -8,7 +8,7 @@ Phase 6.2: 통계적 신뢰도 개선
 - 신뢰도 레벨 표시 (HIGH/MEDIUM/LOW)
 """
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 from loguru import logger
 
@@ -22,10 +22,17 @@ from src.analytics.trade_analyzer import (
     TradingStats,
 )
 
+# 메모리 컨텍스트 임계값 상수
+HIGH_WIN_RATE = 70
+GREAT_WIN_RATE = 75
+LOW_WIN_RATE = 40
+VERY_LOW_WIN_RATE = 35
+MIN_SAMPLE_TRADES = 3
+
 
 @dataclass
 class MemoryContext:
-    """AI 메모리 컨텍스트
+    """AI 메모리 컨텍스트.
 
     AI 프롬프트에 주입할 과거 거래 분석 결과
 
@@ -47,7 +54,7 @@ class MemoryContext:
 
     @classmethod
     def empty(cls) -> "MemoryContext":
-        """빈 컨텍스트 반환"""
+        """빈 컨텍스트 반환."""
         return cls(
             overall_summary="",
             recent_performance="",
@@ -57,12 +64,12 @@ class MemoryContext:
             recommendations="",
         )
 
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환"""
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리로 변환."""
         return asdict(self)
 
     def to_prompt(self) -> str:
-        """AI 프롬프트 형식으로 변환
+        """AI 프롬프트 형식으로 변환.
 
         Returns:
             AI에게 전달할 메모리 컨텍스트 프롬프트
@@ -92,7 +99,7 @@ class MemoryContext:
         return "\n".join(sections)
 
     def is_empty(self) -> bool:
-        """빈 컨텍스트인지 확인"""
+        """빈 컨텍스트인지 확인."""
         return not any([
             self.overall_summary,
             self.recent_performance,
@@ -104,7 +111,7 @@ class MemoryContext:
 
 
 class AIMemoryContextBuilder:
-    """AI 메모리 컨텍스트 빌더
+    """AI 메모리 컨텍스트 빌더.
 
     TradeHistoryAnalyzer의 분석 결과를 기반으로
     AI 프롬프트에 주입할 메모리 컨텍스트를 생성합니다.
@@ -117,7 +124,7 @@ class AIMemoryContextBuilder:
     """
 
     def __init__(self, analyzer: TradeHistoryAnalyzer) -> None:
-        """빌더 초기화
+        """빌더 초기화.
 
         Args:
             analyzer: TradeHistoryAnalyzer 인스턴스
@@ -130,7 +137,7 @@ class AIMemoryContextBuilder:
         bot_id: str | None = None,
         days: int = 7,
     ) -> MemoryContext:
-        """메모리 컨텍스트 생성
+        """메모리 컨텍스트 생성.
 
         과거 거래 데이터를 분석하여 AI에게 전달할 컨텍스트 생성
 
@@ -185,7 +192,7 @@ class AIMemoryContextBuilder:
             return MemoryContext.empty()
 
     def _build_overall_summary(self, stats: TradingStats, days: int) -> str:
-        """전체 요약 생성
+        """전체 요약 생성.
 
         Args:
             stats: 거래 통계
@@ -203,10 +210,10 @@ class AIMemoryContextBuilder:
 
     def _build_recent_performance(
         self,
-        recent: Dict[str, Any],
-        streak: Dict[str, Any],
+        recent: dict[str, Any],
+        streak: dict[str, Any],
     ) -> str:
-        """최근 성과 생성
+        """최근 성과 생성.
 
         Args:
             recent: 최근 거래 요약
@@ -235,10 +242,10 @@ class AIMemoryContextBuilder:
 
     def _build_best_conditions(
         self,
-        rsi_stats: List[RSIConditionStats],
-        hourly_stats: List[TimeBasedStats],
+        rsi_stats: list[RSIConditionStats],
+        hourly_stats: list[TimeBasedStats],
     ) -> str:
-        """최적 조건 생성
+        """최적 조건 생성.
 
         Phase 6.2: 최소 샘플 수 증가, 신뢰도 레벨 표시
 
@@ -253,13 +260,18 @@ class AIMemoryContextBuilder:
 
         # Phase 6.2: RSI 최적 조건 (승률 70% 이상, 샘플 30개 이상)
         for stat in rsi_stats:
-            if stat.total_trades >= MIN_SAMPLE_SIZE and stat.win_rate >= 70:
+            if stat.total_trades >= MIN_SAMPLE_SIZE and stat.win_rate >= HIGH_WIN_RATE:
                 zone_desc = self._get_rsi_short_desc(stat.rsi_zone)
-                confidence = self._get_confidence_level(stat.winning_trades, stat.total_trades)
+                confidence = self._get_confidence_level(
+                    stat.winning_trades, stat.total_trades
+                )
                 best_conditions.append(
                     f"{stat.side} {zone_desc} (승률 {stat.win_rate:.1f}%, {confidence})"
                 )
-            elif stat.total_trades >= MIN_SAMPLE_SIZE_RELAXED and stat.win_rate >= 75:
+            elif (
+                stat.total_trades >= MIN_SAMPLE_SIZE_RELAXED
+                and stat.win_rate >= GREAT_WIN_RATE
+            ):
                 # 샘플이 적지만 승률이 높은 경우 (참고용)
                 zone_desc = self._get_rsi_short_desc(stat.rsi_zone)
                 best_conditions.append(
@@ -268,12 +280,16 @@ class AIMemoryContextBuilder:
 
         # Phase 6.2: 시간대 최적 조건 (승률 75% 이상, 샘플 30개 이상)
         for hourly_stat in hourly_stats:
-            if hourly_stat.total_trades >= MIN_SAMPLE_SIZE and hourly_stat.win_rate >= 75:
+            if (
+                hourly_stat.total_trades >= MIN_SAMPLE_SIZE
+                and hourly_stat.win_rate >= GREAT_WIN_RATE
+            ):
                 confidence = self._get_confidence_level(
                     hourly_stat.winning_trades, hourly_stat.total_trades
                 )
                 best_conditions.append(
-                    f"{hourly_stat.side} {hourly_stat.hour_of_day}시 (승률 {hourly_stat.win_rate:.1f}%, {confidence})"
+                    f"{hourly_stat.side} {hourly_stat.hour_of_day}시 "
+                    f"(승률 {hourly_stat.win_rate:.1f}%, {confidence})"
                 )
 
         if not best_conditions:
@@ -283,7 +299,7 @@ class AIMemoryContextBuilder:
         return " | ".join(best_conditions[:3])
 
     def _get_confidence_level(self, wins: int, total: int) -> str:
-        """신뢰도 레벨 계산
+        """신뢰도 레벨 계산.
 
         Phase 6.2: 통계적 신뢰도 기반 레벨 결정
 
@@ -307,10 +323,10 @@ class AIMemoryContextBuilder:
 
     def _build_worst_conditions(
         self,
-        rsi_stats: List[RSIConditionStats],
-        hourly_stats: List[TimeBasedStats],
+        rsi_stats: list[RSIConditionStats],
+        hourly_stats: list[TimeBasedStats],
     ) -> str:
-        """피해야 할 조건 생성
+        """피해야 할 조건 생성.
 
         Phase 6.2: 최소 샘플 수 증가
 
@@ -325,21 +341,27 @@ class AIMemoryContextBuilder:
 
         # Phase 6.2: RSI 최악 조건 (승률 40% 이하, 샘플 30개 이상)
         for stat in rsi_stats:
-            if stat.total_trades >= MIN_SAMPLE_SIZE and stat.win_rate <= 40:
+            if stat.total_trades >= MIN_SAMPLE_SIZE and stat.win_rate <= LOW_WIN_RATE:
                 zone_desc = self._get_rsi_short_desc(stat.rsi_zone)
-                confidence = self._get_confidence_level(stat.winning_trades, stat.total_trades)
+                confidence = self._get_confidence_level(
+                    stat.winning_trades, stat.total_trades
+                )
                 worst_conditions.append(
                     f"{stat.side} {zone_desc} (승률 {stat.win_rate:.1f}%, {confidence})"
                 )
 
         # Phase 6.2: 시간대 최악 조건 (승률 35% 이하, 샘플 30개 이상)
         for hourly_stat in hourly_stats:
-            if hourly_stat.total_trades >= MIN_SAMPLE_SIZE and hourly_stat.win_rate <= 35:
+            if (
+                hourly_stat.total_trades >= MIN_SAMPLE_SIZE
+                and hourly_stat.win_rate <= VERY_LOW_WIN_RATE
+            ):
                 confidence = self._get_confidence_level(
                     hourly_stat.winning_trades, hourly_stat.total_trades
                 )
                 worst_conditions.append(
-                    f"{hourly_stat.side} {hourly_stat.hour_of_day}시 (승률 {hourly_stat.win_rate:.1f}%, {confidence})"
+                    f"{hourly_stat.side} {hourly_stat.hour_of_day}시 "
+                    f"(승률 {hourly_stat.win_rate:.1f}%, {confidence})"
                 )
 
         if not worst_conditions:
@@ -350,9 +372,9 @@ class AIMemoryContextBuilder:
 
     def _build_timing_insights(
         self,
-        hourly_stats: List[TimeBasedStats],
+        hourly_stats: list[TimeBasedStats],
     ) -> str:
-        """타이밍 인사이트 생성
+        """타이밍 인사이트 생성.
 
         Args:
             hourly_stats: 시간대별 통계
@@ -367,8 +389,16 @@ class AIMemoryContextBuilder:
         sorted_stats = sorted(hourly_stats, key=lambda x: x.win_rate, reverse=True)
 
         # 최적/최악 시간대
-        best_hours = [s for s in sorted_stats if s.win_rate >= 70 and s.total_trades >= 3]
-        worst_hours = [s for s in sorted_stats if s.win_rate <= 35 and s.total_trades >= 3]
+        best_hours = [
+            s for s in sorted_stats
+            if s.win_rate >= HIGH_WIN_RATE
+            and s.total_trades >= MIN_SAMPLE_TRADES
+        ]
+        worst_hours = [
+            s for s in sorted_stats
+            if s.win_rate <= VERY_LOW_WIN_RATE
+            and s.total_trades >= MIN_SAMPLE_TRADES
+        ]
 
         parts = []
         if best_hours:
@@ -383,10 +413,10 @@ class AIMemoryContextBuilder:
 
     def _build_recommendations(
         self,
-        rsi_stats: List[RSIConditionStats],
-        hourly_stats: List[TimeBasedStats],
+        rsi_stats: list[RSIConditionStats],
+        hourly_stats: list[TimeBasedStats],
     ) -> str:
-        """추천 생성
+        """추천 생성.
 
         Phase 6.2: 최소 샘플 수 증가 (5 → 30)
 
@@ -401,8 +431,11 @@ class AIMemoryContextBuilder:
 
         # Phase 6.2: LONG 최적 RSI 조건 (샘플 30개 이상)
         long_rsi = [
-            s for s in rsi_stats
-            if s.side == "LONG" and s.win_rate >= 70 and s.total_trades >= MIN_SAMPLE_SIZE
+            s
+            for s in rsi_stats
+            if s.side == "LONG"
+            and s.win_rate >= HIGH_WIN_RATE
+            and s.total_trades >= MIN_SAMPLE_SIZE
         ]
         if long_rsi:
             best = max(long_rsi, key=lambda x: x.win_rate)
@@ -411,8 +444,11 @@ class AIMemoryContextBuilder:
 
         # Phase 6.2: SHORT 최적 RSI 조건 (샘플 30개 이상)
         short_rsi = [
-            s for s in rsi_stats
-            if s.side == "SHORT" and s.win_rate >= 70 and s.total_trades >= MIN_SAMPLE_SIZE
+            s
+            for s in rsi_stats
+            if s.side == "SHORT"
+            and s.win_rate >= HIGH_WIN_RATE
+            and s.total_trades >= MIN_SAMPLE_SIZE
         ]
         if short_rsi:
             best = max(short_rsi, key=lambda x: x.win_rate)
@@ -422,16 +458,18 @@ class AIMemoryContextBuilder:
         # Phase 6.2: 최적 시간대 (샘플 30개 이상)
         best_hours = [
             h for h in hourly_stats
-            if h.win_rate >= 75 and h.total_trades >= MIN_SAMPLE_SIZE
+            if h.win_rate >= GREAT_WIN_RATE and h.total_trades >= MIN_SAMPLE_SIZE
         ]
         if best_hours:
             best_hour = max(best_hours, key=lambda x: x.win_rate)
             recommendations.append(f"최적 시간: {best_hour.hour_of_day}시")
 
-        return " | ".join(recommendations) if recommendations else "충분한 패턴 데이터 없음 (30샘플 이상 필요)"
+        if not recommendations:
+            return "충분한 패턴 데이터 없음 (30샘플 이상 필요)"
+        return " | ".join(recommendations)
 
     def _get_rsi_short_desc(self, zone: str) -> str:
-        """RSI 구간 짧은 설명 반환"""
+        """RSI 구간 짧은 설명 반환."""
         zone_descriptions = {
             "oversold": "RSI<30",
             "low": "RSI 30-40",
