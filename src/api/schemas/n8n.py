@@ -1,10 +1,10 @@
-"""
-n8n 웹훅 스키마
+"""n8n 웹훅 스키마
 
 n8n과의 통합을 위한 페이로드 모델을 정의합니다.
 """
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -21,13 +21,13 @@ class N8NSignalPayload(BaseModel):
         metadata: 추가 메타데이터 (선택)
     """
 
-    bot_name: Optional[str] = Field(default=None, description="대상 봇 이름")
+    bot_name: str | None = Field(default=None, description="대상 봇 이름")
     signal: Literal["LONG", "SHORT", "WAIT", "CLOSE"] = Field(
         ..., description="시그널"
     )
     source: str = Field(default="n8n", description="시그널 소스")
     confidence: float = Field(default=1.0, ge=0, le=1, description="신뢰도")
-    metadata: Optional[dict[str, Any]] = Field(
+    metadata: dict[str, Any] | None = Field(
         default=None, description="추가 메타데이터"
     )
 
@@ -43,11 +43,11 @@ class N8NCommandPayload(BaseModel):
         parameters: 명령 파라미터 (선택)
     """
 
-    bot_name: Optional[str] = Field(default=None, description="대상 봇 이름")
+    bot_name: str | None = Field(default=None, description="대상 봇 이름")
     command: Literal[
         "start", "stop", "pause", "resume", "emergency_close"
     ] = Field(..., description="명령")
-    parameters: Optional[dict[str, Any]] = Field(
+    parameters: dict[str, Any] | None = Field(
         default=None, description="명령 파라미터"
     )
 

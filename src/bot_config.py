@@ -1,14 +1,13 @@
-"""
-멀티봇 설정 모델
+"""멀티봇 설정 모델
 
 각 봇 인스턴스의 개별 설정을 관리하는 Pydantic 모델.
 risk_level에 따른 기본값 제공 및 기존 TradingConfig와의 호환성 지원.
 """
-from typing import Optional, Any
+from typing import Any
 from uuid import UUID, uuid4
-from pydantic import BaseModel, Field, field_validator
-from loguru import logger
 
+from loguru import logger
+from pydantic import BaseModel, Field, field_validator
 
 # =============================================================================
 # 위험도별 기본값 상수
@@ -76,10 +75,10 @@ class BotConfig(BaseModel):
     risk_level: str = Field(default="medium")
 
     # 트레이딩 파라미터 (None이면 risk_level 기본값 사용)
-    leverage: Optional[int] = Field(default=None, ge=1, le=125)
-    position_size_pct: Optional[float] = Field(default=None, gt=0, le=1)
-    take_profit_pct: Optional[float] = Field(default=None, gt=0)
-    stop_loss_pct: Optional[float] = Field(default=None, gt=0)
+    leverage: int | None = Field(default=None, ge=1, le=125)
+    position_size_pct: float | None = Field(default=None, gt=0, le=1)
+    take_profit_pct: float | None = Field(default=None, gt=0)
+    stop_loss_pct: float | None = Field(default=None, gt=0)
     time_cut_minutes: int = Field(default=120, gt=0)
 
     # Phase 5.1: 실제 잔고 기반 포지션 사이징
@@ -110,15 +109,15 @@ class BotConfig(BaseModel):
     volume_threshold: float = Field(default=1.2, ge=0)
 
     # API 키 참조 (Secrets Manager 또는 환경변수 참조용)
-    binance_api_key_ref: Optional[str] = None
-    binance_secret_key_ref: Optional[str] = None
+    binance_api_key_ref: str | None = None
+    binance_secret_key_ref: str | None = None
 
     # 설정
     is_testnet: bool = Field(default=True)
     is_active: bool = Field(default=False)
 
     # 메타데이터
-    description: Optional[str] = None
+    description: str | None = None
 
     @field_validator("symbol")
     @classmethod
@@ -140,7 +139,7 @@ class BotConfig(BaseModel):
 
     @field_validator("position_size_pct")
     @classmethod
-    def warn_high_position_size(cls, v: Optional[float]) -> Optional[float]:
+    def warn_high_position_size(cls, v: float | None) -> float | None:
         """포지션 크기가 10% 초과 시 경고"""
         if v is not None and v > 0.1:
             logger.warning(f"Position size {v*100}%가 높습니다. 권장: <=10%")
@@ -194,8 +193,8 @@ class BotConfig(BaseModel):
         binance_secret_key: str,
         gemini_api_key: str,
         discord_webhook_url: str,
-        discord_bot_token: Optional[str] = None,
-        database_url: Optional[str] = None,
+        discord_bot_token: str | None = None,
+        database_url: str | None = None,
         loop_interval_seconds: int = 300,
     ):  # -> TradingConfig
         """기존 TradingConfig 형식으로 변환

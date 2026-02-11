@@ -1,5 +1,4 @@
-"""
-대시보드 API
+"""대시보드 API
 
 Phase 6.3: 실시간 대시보드
 - 시스템 개요 조회
@@ -9,7 +8,7 @@ Phase 6.3: 실시간 대시보드
 """
 import asyncio
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from loguru import logger
@@ -184,7 +183,7 @@ async def get_bot_metrics(
 @router.get("/signals/performance")
 async def get_signal_performance(
     days: int = 7,
-    bot_id: Optional[str] = None,
+    bot_id: str | None = None,
     signal_tracker=Depends(get_optional_signal_tracker),
 ) -> Dict[str, Any]:
     """신호 성과 통계 조회

@@ -1,5 +1,4 @@
-"""
-거래 이력 분석기 (TradeHistoryAnalyzer)
+"""거래 이력 분석기 (TradeHistoryAnalyzer)
 
 Phase 4: AI 메모리 시스템 - 과거 거래 성과 분석
 거래 이력을 분석하여 AI에게 "기억"으로 제공할 통계와 패턴을 생성
@@ -10,12 +9,12 @@ Phase 6.2: 통계적 신뢰도 개선
 - p-value 통계적 유의성 검정
 """
 import math
-from dataclasses import dataclass, asdict
-from typing import List, Dict, Any, Optional
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, List
+
 from loguru import logger
 
 from src.storage.trade_history import TradeHistoryDB
-
 
 # ============================================================================
 # Phase 6.2: 통계적 신뢰도 관련 상수 및 클래스
@@ -53,7 +52,7 @@ class StatisticalInsight:
     lower_bound: float = 0.0
     upper_bound: float = 0.0
     is_statistically_significant: bool = False
-    p_value: Optional[float] = None
+    p_value: float | None = None
 
     def to_dict(self) -> Dict[str, Any]:
         """딕셔너리로 변환"""
@@ -381,7 +380,7 @@ class TradeHistoryAnalyzer:
 
     async def get_overall_stats(
         self,
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
         days: int = 7,
     ) -> TradingStats:
         """전체 거래 통계 조회
@@ -435,7 +434,7 @@ class TradeHistoryAnalyzer:
 
     async def get_exit_reason_stats(
         self,
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
         days: int = 7,
     ) -> List[ExitReasonStats]:
         """청산 사유별 통계 조회
@@ -479,7 +478,7 @@ class TradeHistoryAnalyzer:
 
     async def get_rsi_condition_stats(
         self,
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
         days: int = 7,
     ) -> List[RSIConditionStats]:
         """RSI 조건별 통계 조회
@@ -524,7 +523,7 @@ class TradeHistoryAnalyzer:
 
     async def get_hourly_stats(
         self,
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
         days: int = 7,
     ) -> List[TimeBasedStats]:
         """시간대별 통계 조회
@@ -569,7 +568,7 @@ class TradeHistoryAnalyzer:
     async def get_recent_trade_summary(
         self,
         limit: int = 10,
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
     ) -> Dict[str, Any]:
         """최근 거래 요약 조회
 
@@ -610,7 +609,7 @@ class TradeHistoryAnalyzer:
 
     async def get_current_streak(
         self,
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
     ) -> Dict[str, Any]:
         """현재 연승/연패 조회
 
@@ -649,7 +648,7 @@ class TradeHistoryAnalyzer:
 
     async def get_pattern_insights(
         self,
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
         days: int = 7,
         min_sample_size: int = MIN_SAMPLE_SIZE,  # Phase 6.2: 5 → 30
         min_win_rate: float = 70.0,
@@ -727,7 +726,7 @@ class TradeHistoryAnalyzer:
 
     async def get_worst_patterns(
         self,
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
         days: int = 7,
         min_sample_size: int = MIN_SAMPLE_SIZE,  # Phase 6.2: 5 → 30
         max_win_rate: float = 40.0,

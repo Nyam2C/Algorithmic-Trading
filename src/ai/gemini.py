@@ -1,5 +1,4 @@
-"""
-Gemini AI client for trading signal generation
+"""Gemini AI client for trading signal generation
 
 Phase 6.1: 신호 생성 이유 로깅 추가
 - Temperature 0.1 → 0.3 (더 다양한 응답)
@@ -7,8 +6,9 @@ Phase 6.1: 신호 생성 이유 로깅 추가
 - JSON 형식 응답 지원
 """
 import json
-from typing import Dict, Tuple
 from pathlib import Path
+from typing import Dict, Tuple
+
 from google import genai
 from google.genai.errors import ClientError, ServerError
 from loguru import logger
@@ -31,8 +31,7 @@ class GeminiSignalGenerator:
         model: str = "gemini-2.0-flash-exp",
         temperature: float = DEFAULT_TEMPERATURE,
     ):
-        """
-        Initialize Gemini client
+        """Initialize Gemini client
 
         Args:
             api_key: Gemini API key
@@ -51,8 +50,7 @@ class GeminiSignalGenerator:
         logger.info(f"Gemini client initialized (model: {model}, temp: {temperature})")
 
     def _load_prompt(self, filename: str) -> str:
-        """
-        Load prompt from file
+        """Load prompt from file
 
         Args:
             filename: Prompt filename (system.txt, analysis.txt, etc.)
@@ -63,7 +61,7 @@ class GeminiSignalGenerator:
         try:
             prompt_dir = Path(__file__).parent / "prompts"
             prompt_path = prompt_dir / filename
-            with open(prompt_path, "r", encoding="utf-8") as f:
+            with open(prompt_path, encoding="utf-8") as f:
                 content = f.read()
             logger.debug(f"Loaded prompt: {filename}")
             return content
@@ -78,8 +76,7 @@ class GeminiSignalGenerator:
             raise
 
     def _build_market_prompt(self, market_data: Dict) -> str:
-        """
-        Build market analysis prompt from data
+        """Build market analysis prompt from data
 
         Args:
             market_data: Dictionary with market indicators
@@ -147,8 +144,7 @@ class GeminiSignalGenerator:
         exceptions=(ClientError, ServerError, ConnectionError, TimeoutError),
     )
     async def get_signal(self, market_data: Dict) -> str:
-        """
-        Generate trading signal from market data (with retry)
+        """Generate trading signal from market data (with retry)
 
         Args:
             market_data: Dictionary with market indicators
@@ -196,8 +192,7 @@ class GeminiSignalGenerator:
             return "WAIT"
 
     def get_signal_sync(self, market_data: Dict) -> str:
-        """
-        Synchronous version of get_signal (for testing)
+        """Synchronous version of get_signal (for testing)
 
         Args:
             market_data: Dictionary with market indicators
@@ -249,8 +244,7 @@ class GeminiSignalGenerator:
     # =========================================================================
 
     def _build_market_prompt_with_reason(self, market_data: Dict) -> str:
-        """
-        Build market analysis prompt with reason format
+        """Build market analysis prompt with reason format
 
         Args:
             market_data: Dictionary with market indicators
@@ -312,8 +306,7 @@ class GeminiSignalGenerator:
             raise
 
     def _parse_signal_with_reason(self, response_text: str) -> Tuple[str, str]:
-        """
-        Parse JSON response to extract signal and reason
+        """Parse JSON response to extract signal and reason
 
         Args:
             response_text: Raw response from Gemini
@@ -358,10 +351,9 @@ class GeminiSignalGenerator:
             upper_text = text.upper()
             if "LONG" in upper_text:
                 return "LONG", "JSON 파싱 실패, 텍스트에서 추출"
-            elif "SHORT" in upper_text:
+            if "SHORT" in upper_text:
                 return "SHORT", "JSON 파싱 실패, 텍스트에서 추출"
-            else:
-                return "WAIT", "JSON 파싱 실패"
+            return "WAIT", "JSON 파싱 실패"
 
     @async_retry(
         max_attempts=3,
@@ -370,8 +362,7 @@ class GeminiSignalGenerator:
         exceptions=(ClientError, ServerError, ConnectionError, TimeoutError),
     )
     async def get_signal_with_reason(self, market_data: Dict) -> Tuple[str, str]:
-        """
-        Generate trading signal with reasoning (with retry)
+        """Generate trading signal with reasoning (with retry)
 
         Phase 6.1: 신호와 함께 이유도 반환
 
@@ -416,8 +407,7 @@ class GeminiSignalGenerator:
             return "WAIT", f"API 오류: {str(e)[:50]}"
 
     def get_signal_with_reason_sync(self, market_data: Dict) -> Tuple[str, str]:
-        """
-        Synchronous version of get_signal_with_reason (for testing)
+        """Synchronous version of get_signal_with_reason (for testing)
 
         Args:
             market_data: Dictionary with market indicators

@@ -1,19 +1,19 @@
-"""
-Binance Testnet Client for futures trading
+"""Binance Testnet Client for futures trading
 
 Phase 4: AsyncClient 마이그레이션 - 비동기 클라이언트 사용
 """
-from typing import Dict, Optional
+from typing import Dict
+
+import pandas as pd
 from binance import AsyncClient
 from binance.enums import (
+    ORDER_TYPE_LIMIT,
+    ORDER_TYPE_MARKET,
     SIDE_BUY,
     SIDE_SELL,
-    ORDER_TYPE_MARKET,
-    ORDER_TYPE_LIMIT,
     TIME_IN_FORCE_GTC,
 )
 from binance.exceptions import BinanceAPIException
-import pandas as pd
 from loguru import logger
 
 from src.utils.retry import async_retry
@@ -29,8 +29,7 @@ class BinanceTestnetClient:
     """
 
     def __init__(self, api_key: str, secret_key: str, testnet: bool = True):
-        """
-        Initialize Binance client
+        """Initialize Binance client
 
         Args:
             api_key: Binance API key
@@ -40,7 +39,7 @@ class BinanceTestnetClient:
         self._api_key = api_key
         self._secret_key = secret_key
         self._testnet = testnet
-        self._client: Optional[AsyncClient] = None
+        self._client: AsyncClient | None = None
 
     async def connect(self) -> None:
         """AsyncClient 초기화 (비동기)
@@ -88,8 +87,7 @@ class BinanceTestnetClient:
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
     )
     async def get_current_price(self, symbol: str) -> float:
-        """
-        Get current price for a symbol (with retry)
+        """Get current price for a symbol (with retry)
 
         Args:
             symbol: Trading pair (e.g., "BTCUSDT")
@@ -118,8 +116,7 @@ class BinanceTestnetClient:
         interval: str = AsyncClient.KLINE_INTERVAL_5MINUTE,
         limit: int = 24,
     ) -> pd.DataFrame:
-        """
-        Get candlestick data (with retry)
+        """Get candlestick data (with retry)
 
         Args:
             symbol: Trading pair
@@ -168,8 +165,7 @@ class BinanceTestnetClient:
             raise
 
     async def get_ticker_24h(self, symbol: str) -> Dict:
-        """
-        Get 24-hour ticker statistics
+        """Get 24-hour ticker statistics
 
         Args:
             symbol: Trading pair
@@ -199,8 +195,7 @@ class BinanceTestnetClient:
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
     )
     async def set_leverage(self, symbol: str, leverage: int) -> Dict:
-        """
-        Set leverage for a symbol (with retry)
+        """Set leverage for a symbol (with retry)
 
         Args:
             symbol: Trading pair
@@ -228,8 +223,7 @@ class BinanceTestnetClient:
     async def create_market_order(
         self, symbol: str, side: str, quantity: float
     ) -> Dict:
-        """
-        Create a market order (with retry)
+        """Create a market order (with retry)
 
         Args:
             symbol: Trading pair
@@ -264,8 +258,7 @@ class BinanceTestnetClient:
     async def create_limit_order(
         self, symbol: str, side: str, quantity: float, price: float
     ) -> Dict:
-        """
-        Create a limit order (Maker order with retry)
+        """Create a limit order (Maker order with retry)
 
         Args:
             symbol: Trading pair
@@ -301,8 +294,7 @@ class BinanceTestnetClient:
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
     )
     async def get_order_status(self, symbol: str, order_id: int) -> Dict:
-        """
-        Get order status (with retry)
+        """Get order status (with retry)
 
         Args:
             symbol: Trading pair
@@ -326,8 +318,7 @@ class BinanceTestnetClient:
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
     )
     async def cancel_order(self, symbol: str, order_id: int) -> Dict:
-        """
-        Cancel an open order (with retry)
+        """Cancel an open order (with retry)
 
         Args:
             symbol: Trading pair
@@ -344,9 +335,8 @@ class BinanceTestnetClient:
             logger.error(f"Failed to cancel order {order_id}: {e}")
             raise
 
-    async def get_position(self, symbol: str) -> Optional[Dict]:
-        """
-        Get current position for a symbol
+    async def get_position(self, symbol: str) -> Dict | None:
+        """Get current position for a symbol
 
         Args:
             symbol: Trading pair
@@ -382,8 +372,7 @@ class BinanceTestnetClient:
             raise
 
     async def get_all_positions(self) -> list:
-        """
-        계정 내 모든 열린 포지션 조회
+        """계정 내 모든 열린 포지션 조회
 
         Returns:
             열린 포지션 리스트 (포지션이 없으면 빈 리스트)
@@ -443,9 +432,8 @@ class BinanceTestnetClient:
         backoff=2.0,
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
     )
-    async def close_position(self, symbol: str) -> Optional[Dict]:
-        """
-        Close current position for a symbol (with retry)
+    async def close_position(self, symbol: str) -> Dict | None:
+        """Close current position for a symbol (with retry)
 
         Args:
             symbol: Trading pair
@@ -474,8 +462,7 @@ class BinanceTestnetClient:
             raise
 
     async def get_funding_rate(self, symbol: str) -> Dict:
-        """
-        현재 펀딩비 조회
+        """현재 펀딩비 조회
 
         Args:
             symbol: 거래쌍 (예: "BTCUSDT")
@@ -500,8 +487,7 @@ class BinanceTestnetClient:
             return {"funding_rate": 0.0, "funding_time": None}
 
     async def get_long_short_ratio(self, symbol: str) -> Dict:
-        """
-        롱숏 비율 조회 (상위 트레이더 포지션 기준)
+        """롱숏 비율 조회 (상위 트레이더 포지션 기준)
 
         Args:
             symbol: 거래쌍 (예: "BTCUSDT")
@@ -532,8 +518,7 @@ class BinanceTestnetClient:
             return {"long_ratio": 0.5, "short_ratio": 0.5, "long_short_ratio": 1.0}
 
     async def get_open_interest(self, symbol: str) -> Dict:
-        """
-        미결제약정 조회
+        """미결제약정 조회
 
         Args:
             symbol: 거래쌍 (예: "BTCUSDT")
@@ -551,8 +536,7 @@ class BinanceTestnetClient:
             return {"open_interest": 0.0, "symbol": symbol}
 
     async def get_market_sentiment(self, symbol: str) -> Dict:
-        """
-        시장 심리 데이터 통합 조회 (펀딩비 + 롱숏비율 + 미결제약정)
+        """시장 심리 데이터 통합 조회 (펀딩비 + 롱숏비율 + 미결제약정)
 
         Args:
             symbol: 거래쌍 (예: "BTCUSDT")
@@ -579,8 +563,7 @@ class BinanceTestnetClient:
         return sentiment
 
     async def get_account_balance(self) -> Dict:
-        """
-        Get account balance
+        """Get account balance
 
         Returns:
             Dictionary with USDT balance info
@@ -605,9 +588,8 @@ class BinanceTestnetClient:
                     f"(Available: ${usdt_balance['available']:,.2f})"
                 )
                 return usdt_balance
-            else:
-                logger.warning("USDT balance not found")
-                return {"asset": "USDT", "balance": 0.0, "available": 0.0}
+            logger.warning("USDT balance not found")
+            return {"asset": "USDT", "balance": 0.0, "available": 0.0}
 
         except Exception as e:
             logger.error(f"Failed to get account balance: {e}")

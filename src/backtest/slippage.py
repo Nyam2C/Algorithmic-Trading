@@ -1,13 +1,11 @@
-"""
-슬리피지 모델
+"""슬리피지 모델
 
 Phase 6.2: 백테스트 현실화
 - 볼륨 기반 슬리피지 계산
 - 변동성 영향 반영
 """
 from dataclasses import dataclass
-from typing import Dict, Optional
-
+from typing import Dict
 
 
 @dataclass
@@ -99,8 +97,8 @@ class SlippageModel:
         # SHORT (매도): 가격 하락 (불리)
         if side == "LONG":
             return price * (1 + slippage_pct)
-        else:  # SHORT
-            return price * (1 - slippage_pct)
+        # SHORT
+        return price * (1 - slippage_pct)
 
 
 @dataclass
@@ -143,7 +141,7 @@ class MarketImpactModel:
 def calculate_realistic_entry_price(
     candle: Dict,
     side: str,
-    slippage_model: Optional[SlippageModel] = None,
+    slippage_model: SlippageModel | None = None,
     order_size: float = 1000.0,
     avg_volume: float = 10000.0,
 ) -> float:
@@ -220,27 +218,25 @@ def calculate_realistic_exit_price(
             if high_price >= tp_target:
                 return tp_target
             return close_price
-        elif exit_reason == "SL":
+        if exit_reason == "SL":
             # SL은 저가에 도달해야 체결
             if low_price <= sl_target:
                 return sl_target
             return close_price
-        else:
-            return close_price
+        return close_price
 
-    else:  # SHORT
-        tp_target = entry_price * (1 - tp_pct)
-        sl_target = entry_price * (1 + sl_pct)
+    # SHORT
+    tp_target = entry_price * (1 - tp_pct)
+    sl_target = entry_price * (1 + sl_pct)
 
-        if exit_reason == "TP":
-            # TP는 저가에 도달해야 체결
-            if low_price <= tp_target:
-                return tp_target
-            return close_price
-        elif exit_reason == "SL":
-            # SL은 고가에 도달해야 체결
-            if high_price >= sl_target:
-                return sl_target
-            return close_price
-        else:
-            return close_price
+    if exit_reason == "TP":
+        # TP는 저가에 도달해야 체결
+        if low_price <= tp_target:
+            return tp_target
+        return close_price
+    if exit_reason == "SL":
+        # SL은 고가에 도달해야 체결
+        if high_price >= sl_target:
+            return sl_target
+        return close_price
+    return close_price

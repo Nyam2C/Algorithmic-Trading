@@ -1,14 +1,13 @@
-"""
-신호 추적 시스템 (SignalTracker)
+"""신호 추적 시스템 (SignalTracker)
 
 Phase 6.1: 신호 추적 시스템
 - 모든 AI/규칙 기반 신호 기록
 - 신호 성과 추적 및 통계 계산
 - 소스별 승률 분석
 """
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from uuid import uuid4
 
 from loguru import logger
@@ -38,9 +37,9 @@ class SignalRecord:
     signal: str  # LONG, SHORT, WAIT
     source: str  # rule_based, gemini, memory_gemini, ensemble
     market_conditions: Dict[str, Any] = field(default_factory=dict)
-    trade_result: Optional[str] = None  # win, loss, None
-    pnl: Optional[float] = None
-    reason: Optional[str] = None
+    trade_result: str | None = None  # win, loss, None
+    pnl: float | None = None
+    reason: str | None = None
 
     @classmethod
     def create(
@@ -48,8 +47,8 @@ class SignalRecord:
         bot_id: str,
         signal: str,
         source: str,
-        market_conditions: Optional[Dict[str, Any]] = None,
-        reason: Optional[str] = None,
+        market_conditions: Dict[str, Any] | None = None,
+        reason: str | None = None,
     ) -> "SignalRecord":
         """신호 기록 생성
 
@@ -157,7 +156,7 @@ class SignalTracker:
         >>> stats = await tracker.get_signal_stats("btc-bot", "gemini", days=7)
     """
 
-    def __init__(self, db_pool: Optional[Any] = None) -> None:
+    def __init__(self, db_pool: Any | None = None) -> None:
         """추적기 초기화
 
         Args:
@@ -182,8 +181,8 @@ class SignalTracker:
         bot_id: str,
         signal: str,
         source: str,
-        market_conditions: Optional[Dict[str, Any]] = None,
-        reason: Optional[str] = None,
+        market_conditions: Dict[str, Any] | None = None,
+        reason: str | None = None,
     ) -> str:
         """신호 기록
 
@@ -287,8 +286,8 @@ class SignalTracker:
 
     async def get_signal_stats(
         self,
-        bot_id: Optional[str] = None,
-        source: Optional[str] = None,
+        bot_id: str | None = None,
+        source: str | None = None,
         days: int = 7,
     ) -> SignalStats:
         """신호 통계 조회
@@ -312,8 +311,8 @@ class SignalTracker:
 
     async def _get_stats_from_db(
         self,
-        bot_id: Optional[str],
-        source: Optional[str],
+        bot_id: str | None,
+        source: str | None,
         days: int,
     ) -> SignalStats:
         """DB에서 통계 조회"""
@@ -367,8 +366,8 @@ class SignalTracker:
 
     def _calculate_in_memory_stats(
         self,
-        bot_id: Optional[str],
-        source: Optional[str],
+        bot_id: str | None,
+        source: str | None,
         days: int,
     ) -> SignalStats:
         """인메모리 통계 계산"""
@@ -397,10 +396,8 @@ class SignalTracker:
 
                 stats.total_pnl += pnl
 
-                if pnl > stats.best_pnl:
-                    stats.best_pnl = pnl
-                if pnl < stats.worst_pnl:
-                    stats.worst_pnl = pnl
+                stats.best_pnl = max(stats.best_pnl, pnl)
+                stats.worst_pnl = min(stats.worst_pnl, pnl)
 
         stats.calculate()
         return stats
@@ -408,7 +405,7 @@ class SignalTracker:
     async def get_win_rate_by_source(
         self,
         days: int = 7,
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
     ) -> Dict[str, float]:
         """소스별 승률 조회
 
@@ -431,7 +428,7 @@ class SignalTracker:
     async def _get_win_rate_by_source_from_db(
         self,
         days: int,
-        bot_id: Optional[str],
+        bot_id: str | None,
     ) -> Dict[str, float]:
         """DB에서 소스별 승률 조회"""
         assert self.db_pool is not None, "db_pool is required for DB operations"
@@ -480,7 +477,7 @@ class SignalTracker:
     def _calculate_in_memory_win_rate_by_source(
         self,
         days: int,
-        bot_id: Optional[str],
+        bot_id: str | None,
     ) -> Dict[str, float]:
         """인메모리 소스별 승률 계산"""
         cutoff = datetime.now() - timedelta(days=days)
@@ -512,7 +509,7 @@ class SignalTracker:
 
     async def get_recent_signals(
         self,
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
         limit: int = 20,
     ) -> List[Dict[str, Any]]:
         """최근 신호 목록 조회
@@ -543,7 +540,7 @@ class SignalTracker:
 
     async def _get_recent_signals_from_db(
         self,
-        bot_id: Optional[str],
+        bot_id: str | None,
         limit: int,
     ) -> List[Dict[str, Any]]:
         """DB에서 최근 신호 조회"""

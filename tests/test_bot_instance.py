@@ -3,9 +3,10 @@ BotInstance 클래스 테스트
 
 개별 봇 인스턴스의 트레이딩 루프 로직 테스트
 """
-import pytest
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
+
+import pytest
 
 
 class TestBotInstance:
@@ -197,8 +198,8 @@ class TestBotInstance:
             mock_binance_client: Mock,
         ) -> None:
             """커스텀 RSI 파라미터로 시그널 생성"""
-            from src.bot_instance import BotInstance
             from src.bot_config import BotConfig
+            from src.bot_instance import BotInstance
 
             config = BotConfig(
                 bot_name="custom-bot",
@@ -453,8 +454,9 @@ class TestBotInstanceIntegration:
     async def test_start_stop_lifecycle(self, mock_binance_client: Mock) -> None:
         """start/stop 생명주기 테스트"""
         import asyncio
-        from src.bot_instance import BotInstance
+
         from src.bot_config import BotConfig
+        from src.bot_instance import BotInstance
 
         config = BotConfig(
             bot_name="lifecycle-test",

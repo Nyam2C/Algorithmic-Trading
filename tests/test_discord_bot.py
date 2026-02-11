@@ -1,14 +1,14 @@
 """
 Tests for Discord Bot
 """
-import pytest
-from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from src.discord_bot.bot import (
     TradingBotClient,
 )
-
 
 # Note: ConfirmationView and DashboardView 테스트는 Discord.py의 이벤트 루프 요구사항으로 인해
 # TradingBotClient의 메서드 테스트로 대체합니다.

@@ -3,14 +3,15 @@ BotService 테스트
 
 봇 CRUD 로직 테스트입니다.
 """
-import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
-from src.api.services.bot_service import BotService
+import pytest
+
 from src.api.schemas.bot import BotCreateRequest, BotUpdateRequest
-from src.bot_manager import MultiBotManager
+from src.api.services.bot_service import BotService
 from src.bot_config import BotConfig
 from src.bot_instance import BotInstance
+from src.bot_manager import MultiBotManager
 
 
 @pytest.fixture

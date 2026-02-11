@@ -1,12 +1,10 @@
-"""
-Trading signal parsing and validation
+"""Trading signal parsing and validation
 """
 from loguru import logger
 
 
 def parse_signal(raw_signal: str) -> str:
-    """
-    Parse and clean signal from AI response
+    """Parse and clean signal from AI response
 
     Args:
         raw_signal: Raw signal from AI
@@ -30,8 +28,7 @@ def parse_signal(raw_signal: str) -> str:
 
 
 def validate_signal(signal: str) -> bool:
-    """
-    Validate if signal is one of the allowed values
+    """Validate if signal is one of the allowed values
 
     Args:
         signal: Signal to validate
@@ -49,8 +46,7 @@ def validate_signal(signal: str) -> bool:
 
 
 def get_signal_emoji(signal: str) -> str:
-    """
-    Get emoji for signal (for Discord notifications)
+    """Get emoji for signal (for Discord notifications)
 
     Args:
         signal: Trading signal
@@ -67,8 +63,7 @@ def get_signal_emoji(signal: str) -> str:
 
 
 def get_signal_color(signal: str) -> int:
-    """
-    Get color code for signal (for Discord embeds)
+    """Get color code for signal (for Discord embeds)
 
     Args:
         signal: Trading signal
@@ -85,8 +80,7 @@ def get_signal_color(signal: str) -> int:
 
 
 def should_enter_trade(signal: str, has_position: bool) -> bool:
-    """
-    Determine if we should enter a trade based on signal and current position
+    """Determine if we should enter a trade based on signal and current position
 
     Args:
         signal: Trading signal

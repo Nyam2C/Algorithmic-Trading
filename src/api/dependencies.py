@@ -1,5 +1,4 @@
-"""
-FastAPI 의존성 주입 모듈
+"""FastAPI 의존성 주입 모듈
 
 MultiBotManager 및 기타 의존성을 주입합니다.
 Phase 4: TradeHistoryAnalyzer 의존성 추가
@@ -9,21 +8,21 @@ Phase 6.3: SignalTracker 의존성 추가
 """
 import hmac
 import os
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 from fastapi import Header, HTTPException
 
-from src.bot_manager import MultiBotManager
-from src.api.config import APIConfig
-from src.storage.redis_state import RedisStateManager, DummyRedisStateManager
 from src.analytics.trade_analyzer import TradeHistoryAnalyzer
+from src.api.config import APIConfig
+from src.bot_manager import MultiBotManager
+from src.storage.redis_state import DummyRedisStateManager, RedisStateManager
 
 # 전역 상태 (앱 시작 시 설정됨)
-_bot_manager: Optional[MultiBotManager] = None
-_api_config: Optional[APIConfig] = None
-_redis_state_manager: Optional[Union[RedisStateManager, DummyRedisStateManager]] = None
-_trade_analyzer: Optional[TradeHistoryAnalyzer] = None
-_signal_tracker: Optional[Any] = None  # SignalTracker 타입
+_bot_manager: MultiBotManager | None = None
+_api_config: APIConfig | None = None
+_redis_state_manager: Union[RedisStateManager, DummyRedisStateManager] | None = None
+_trade_analyzer: TradeHistoryAnalyzer | None = None
+_signal_tracker: Any | None = None  # SignalTracker 타입
 
 
 def set_bot_manager(manager: MultiBotManager) -> None:
@@ -50,7 +49,7 @@ def get_bot_manager() -> MultiBotManager:
     return _bot_manager
 
 
-def get_bot_manager_optional() -> Optional[MultiBotManager]:
+def get_bot_manager_optional() -> MultiBotManager | None:
     """MultiBotManager 인스턴스 반환 (Optional)
 
     Returns:
@@ -92,9 +91,7 @@ def set_redis_state_manager(
     _redis_state_manager = manager
 
 
-def get_redis_state_manager() -> Optional[
-    Union[RedisStateManager, DummyRedisStateManager]
-]:
+def get_redis_state_manager() -> Union[RedisStateManager, DummyRedisStateManager] | None:
     """Redis 상태 관리자 반환
 
     Returns:
@@ -133,7 +130,7 @@ def set_trade_analyzer(analyzer: TradeHistoryAnalyzer) -> None:
     _trade_analyzer = analyzer
 
 
-def get_trade_analyzer() -> Optional[TradeHistoryAnalyzer]:
+def get_trade_analyzer() -> TradeHistoryAnalyzer | None:
     """TradeHistoryAnalyzer 인스턴스 반환
 
     Returns:
@@ -230,7 +227,7 @@ def get_signal_tracker() -> Any:
     return _signal_tracker
 
 
-def get_optional_signal_tracker() -> Optional[Any]:
+def get_optional_signal_tracker() -> Any | None:
     """SignalTracker 인스턴스 반환 (Optional)
 
     Returns:

@@ -6,8 +6,8 @@ Phase 7.4: 수동 승인 모드
 import pytest
 
 from src.trading.trade_approval import (
-    TradeApprovalManager,
     ApprovalStatus,
+    TradeApprovalManager,
     TradeApprovalRequest,
 )
 

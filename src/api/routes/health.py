@@ -1,5 +1,4 @@
-"""
-헬스체크 라우트
+"""헬스체크 라우트
 
 Kubernetes Liveness/Readiness probe를 위한 엔드포인트입니다.
 Phase 7.2: /metrics 엔드포인트 추가 (Prometheus)
@@ -7,9 +6,9 @@ Phase 7.2: /metrics 엔드포인트 추가 (Prometheus)
 from typing import Any
 
 from fastapi import APIRouter, Response, status
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from src.api.dependencies import get_bot_manager_optional, check_redis_health
+from src.api.dependencies import check_redis_health, get_bot_manager_optional
 from src.metrics.prometheus import get_metrics_registry
 
 router = APIRouter(tags=["Health"])

@@ -4,11 +4,12 @@ EnhancedGeminiSignalGenerator 테스트
 Phase 4: AI 메모리 시스템 - 메모리 주입 Gemini 클라이언트 테스트
 TDD 방식으로 작성
 """
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from src.ai.enhanced_gemini import EnhancedGeminiSignalGenerator
-from src.analytics.memory_context import MemoryContext, AIMemoryContextBuilder
+from src.analytics.memory_context import AIMemoryContextBuilder, MemoryContext
 
 # genai는 src.ai.gemini 모듈에서 임포트되므로 해당 위치에서 패치해야 함
 GENAI_PATCH = "src.ai.gemini.genai"

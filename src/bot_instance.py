@@ -1,5 +1,4 @@
-"""
-개별 봇 인스턴스 모듈
+"""개별 봇 인스턴스 모듈
 
 각 봇의 트레이딩 루프 로직을 캡슐화한 BotInstance 클래스.
 기존 main.py의 trading_loop 로직을 분리하여 멀티봇 실행 지원.
@@ -9,28 +8,29 @@ Phase 4: AI 메모리 시스템 통합
 - 과거 거래 분석 기반 시그널 생성
 """
 import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Optional, Callable, Awaitable, Any, Union
+from typing import Any, Union
+
 from loguru import logger
 
-from src.bot_config import BotConfig
-from src.exchange.binance import BinanceTestnetClient
-from src.data.indicators import analyze_market
-from src.ai.rule_based import RuleBasedSignalGenerator
 from src.ai.enhanced_gemini import EnhancedGeminiSignalGenerator
-from src.ai.signals import validate_signal, should_enter_trade
+from src.ai.rule_based import RuleBasedSignalGenerator
+from src.ai.signals import should_enter_trade, validate_signal
+from src.analytics.memory_context import AIMemoryContextBuilder
+from src.analytics.trade_analyzer import TradeHistoryAnalyzer
+from src.bot_config import BotConfig
+from src.data.indicators import analyze_market
+from src.data.regime_detector import MarketRegime, RegimeDetector  # Phase 6.2
+from src.exchange.binance import BinanceTestnetClient
+from src.storage.redis_state import DummyRedisStateManager, RedisStateManager
+from src.storage.trade_history import TradeHistoryDB
 from src.trading.executor import TradingExecutor
 from src.trading.risk_manager import RiskManager  # Phase 5.2
-from src.data.regime_detector import RegimeDetector, MarketRegime  # Phase 6.2
-from src.storage.trade_history import TradeHistoryDB
-from src.storage.redis_state import RedisStateManager, DummyRedisStateManager
-from src.analytics.trade_analyzer import TradeHistoryAnalyzer
-from src.analytics.memory_context import AIMemoryContextBuilder
-
 
 # 콜백 타입 정의
 OnSignalCallback = Callable[[str, str, float], Awaitable[None]]
-OnTradeCallback = Callable[[str, str, str, float, Optional[float]], Awaitable[None]]
+OnTradeCallback = Callable[[str, str, str, float, float | None], Awaitable[None]]
 OnErrorCallback = Callable[[str, Exception], Awaitable[None]]
 
 
@@ -61,19 +61,19 @@ class BotInstance:
         binance_secret_key: str,
         gemini_api_key: str = "",
         discord_webhook_url: str = "",
-        database_url: Optional[str] = None,
+        database_url: str | None = None,
         loop_interval_seconds: int = 300,
         # 의존성 주입 (테스트용)
-        binance_client: Optional[BinanceTestnetClient] = None,
-        trade_db: Optional[TradeHistoryDB] = None,
-        redis_state_manager: Optional[Union[RedisStateManager, DummyRedisStateManager]] = None,
+        binance_client: BinanceTestnetClient | None = None,
+        trade_db: TradeHistoryDB | None = None,
+        redis_state_manager: Union[RedisStateManager, DummyRedisStateManager] | None = None,
         # Phase 4: AI 메모리 시스템
-        enhanced_gemini: Optional[EnhancedGeminiSignalGenerator] = None,
+        enhanced_gemini: EnhancedGeminiSignalGenerator | None = None,
         use_memory_signals: bool = False,
         # 콜백 함수
-        on_signal_callback: Optional[OnSignalCallback] = None,
-        on_trade_callback: Optional[OnTradeCallback] = None,
-        on_error_callback: Optional[OnErrorCallback] = None,
+        on_signal_callback: OnSignalCallback | None = None,
+        on_trade_callback: OnTradeCallback | None = None,
+        on_error_callback: OnErrorCallback | None = None,
     ) -> None:
         """봇 인스턴스 초기화
 
@@ -106,21 +106,21 @@ class BotInstance:
         self._is_running = False
         self._is_paused = False
         self._emergency_close = False
-        self._uptime_start: Optional[datetime] = None
+        self._uptime_start: datetime | None = None
         self._loop_count = 0
 
         # 현재 데이터
         self._current_price: float = 0.0
         self._last_signal: str = "WAIT"
-        self._last_signal_time: Optional[datetime] = None
-        self._current_position: Optional[dict] = None
-        self._market_data: Optional[dict] = None
+        self._last_signal_time: datetime | None = None
+        self._current_position: dict | None = None
+        self._market_data: dict | None = None
 
         # 의존성
         self._binance_client = binance_client
         self._trade_db = trade_db
         self._redis_state_manager = redis_state_manager
-        self._executor: Optional[TradingExecutor] = None
+        self._executor: TradingExecutor | None = None
 
         # 시그널 생성기 (커스텀 RSI 파라미터 적용)
         self._signal_generator = RuleBasedSignalGenerator(
@@ -132,7 +132,7 @@ class BotInstance:
         # Phase 4: AI 메모리 시스템
         self._enhanced_gemini = enhanced_gemini
         self._use_memory_signals = use_memory_signals
-        self._memory_context_builder: Optional[AIMemoryContextBuilder] = None
+        self._memory_context_builder: AIMemoryContextBuilder | None = None
 
         # Phase 5.2: 리스크 매니저
         self._risk_manager = RiskManager(
@@ -541,8 +541,8 @@ class BotInstance:
     # =========================================================================
 
     async def _open_position(
-        self, signal: str, current_price: float, entry_atr: Optional[float] = None
-    ) -> Optional[dict]:
+        self, signal: str, current_price: float, entry_atr: float | None = None
+    ) -> dict | None:
         """포지션 오픈
 
         Args:
@@ -583,7 +583,7 @@ class BotInstance:
         self,
         current_price: float,
         exit_reason: str,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """포지션 클로즈
 
         Args:
@@ -671,7 +671,7 @@ class BotInstance:
         action: str,
         side: str,
         price: float,
-        pnl: Optional[float],
+        pnl: float | None,
     ) -> None:
         """거래 콜백 호출"""
         if self._on_trade_callback:

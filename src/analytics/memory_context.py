@@ -1,5 +1,4 @@
-"""
-AI 메모리 컨텍스트 빌더 (AIMemoryContextBuilder)
+"""AI 메모리 컨텍스트 빌더 (AIMemoryContextBuilder)
 
 Phase 4: AI 메모리 시스템 - 과거 거래 분석을 AI 프롬프트로 변환
 과거 거래 통계와 패턴을 분석하여 AI에게 "기억"으로 제공
@@ -8,18 +7,19 @@ Phase 6.2: 통계적 신뢰도 개선
 - 최소 샘플 수 5 → 30
 - 신뢰도 레벨 표시 (HIGH/MEDIUM/LOW)
 """
-from dataclasses import dataclass, asdict
-from typing import Dict, Any, Optional, List
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, List
+
 from loguru import logger
 
 from src.analytics.trade_analyzer import (
-    TradeHistoryAnalyzer,
-    TradingStats,
-    RSIConditionStats,
-    TimeBasedStats,
     MIN_SAMPLE_SIZE,
     MIN_SAMPLE_SIZE_RELAXED,
+    RSIConditionStats,
     StatisticalInsight,
+    TimeBasedStats,
+    TradeHistoryAnalyzer,
+    TradingStats,
 )
 
 
@@ -127,7 +127,7 @@ class AIMemoryContextBuilder:
 
     async def build_context(
         self,
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
         days: int = 7,
     ) -> MemoryContext:
         """메모리 컨텍스트 생성
@@ -301,10 +301,9 @@ class AIMemoryContextBuilder:
 
         if stat.is_statistically_significant:
             return "HIGH"
-        elif total >= MIN_SAMPLE_SIZE:
+        if total >= MIN_SAMPLE_SIZE:
             return "MEDIUM"
-        else:
-            return "LOW"
+        return "LOW"
 
     def _build_worst_conditions(
         self,

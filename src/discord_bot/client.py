@@ -1,34 +1,33 @@
-"""
-Discord 트레이딩 봇 클라이언트
+"""Discord 트레이딩 봇 클라이언트
 
 메인 봇 클라이언트와 명령어 핸들러를 정의합니다.
 Phase 4.1: 리팩토링된 모듈 구조
 """
 import os
 from datetime import datetime
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
+import aiohttp
 import discord
 from discord import app_commands
-import aiohttp
 from loguru import logger
 
-from src.discord_bot.constants import Colors, Timeouts, Emojis
-from src.discord_bot.views import DashboardView
+from src.discord_bot.commands import (
+    register_control_commands,
+    register_monitoring_commands,
+    register_multibot_commands,
+)
+from src.discord_bot.constants import Colors, Emojis, Timeouts
 from src.discord_bot.embeds import (
-    create_status_embed,
-    create_position_embed,
-    create_stats_embed,
-    create_history_embed,
     create_account_embed,
     create_bot_list_embed,
     create_bot_status_embed,
+    create_history_embed,
+    create_position_embed,
+    create_stats_embed,
+    create_status_embed,
 )
-from src.discord_bot.commands import (
-    register_monitoring_commands,
-    register_control_commands,
-    register_multibot_commands,
-)
+from src.discord_bot.views import DashboardView
 
 if TYPE_CHECKING:
     from src.bot_manager import MultiBotManager
@@ -132,7 +131,7 @@ class TradingBotClient(discord.Client):
             logger.error(f"계정 조회 에러: {e}")
             return discord.Embed(
                 title="❌ 계정 조회 실패",
-                description=f"오류: {str(e)}",
+                description=f"오류: {e!s}",
                 color=Colors.ERROR
             )
 
@@ -144,7 +143,7 @@ class TradingBotClient(discord.Client):
         self,
         method: str,
         endpoint: str,
-        json_data: Optional[Dict[str, Any]] = None,
+        json_data: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """REST API 호출 헬퍼
 
@@ -171,7 +170,7 @@ class TradingBotClient(discord.Client):
                     return await resp.json()
         except aiohttp.ClientError as e:
             logger.error(f"API 호출 실패: {method} {url} - {e}")
-            raise Exception(f"API 서버 연결 실패: {str(e)}")
+            raise Exception(f"API 서버 연결 실패: {e!s}")
 
     # =========================================================================
     # Command Implementations
@@ -236,7 +235,7 @@ class TradingBotClient(discord.Client):
 
         except Exception as e:
             logger.error(f"/대시보드 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 오류: {e!s}", ephemeral=True)
 
     async def _status_command(self, interaction: discord.Interaction):
         """상태 조회 명령어 구현"""
@@ -248,7 +247,7 @@ class TradingBotClient(discord.Client):
             logger.info(f"Discord 명령어 /상태 실행: {interaction.user}")
         except Exception as e:
             logger.error(f"/상태 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 봇 상태 조회 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 봇 상태 조회 오류: {e!s}", ephemeral=True)
 
     async def _position_command(self, interaction: discord.Interaction):
         """포지션 조회 명령어 구현"""
@@ -260,7 +259,7 @@ class TradingBotClient(discord.Client):
             logger.info(f"Discord 명령어 /포지션 실행: {interaction.user}")
         except Exception as e:
             logger.error(f"/포지션 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 포지션 조회 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 포지션 조회 오류: {e!s}", ephemeral=True)
 
     async def _stats_command(self, interaction: discord.Interaction, hours: int = 24):
         """통계 조회 명령어 구현"""
@@ -272,7 +271,7 @@ class TradingBotClient(discord.Client):
             logger.info(f"Discord 명령어 /통계 실행 (hours={hours}): {interaction.user}")
         except Exception as e:
             logger.error(f"/통계 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 통계 조회 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 통계 조회 오류: {e!s}", ephemeral=True)
 
     async def _history_command(self, interaction: discord.Interaction, count: int = 5):
         """내역 조회 명령어 구현"""
@@ -284,7 +283,7 @@ class TradingBotClient(discord.Client):
             logger.info(f"Discord 명령어 /내역 실행 (count={count}): {interaction.user}")
         except Exception as e:
             logger.error(f"/내역 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 내역 조회 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 내역 조회 오류: {e!s}", ephemeral=True)
 
     async def _stop_command(self, interaction: discord.Interaction):
         """일시정지 명령어 구현"""
@@ -315,7 +314,7 @@ class TradingBotClient(discord.Client):
 
         except Exception as e:
             logger.error(f"/일시정지 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 일시정지 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 일시정지 오류: {e!s}", ephemeral=True)
 
     async def _start_command(self, interaction: discord.Interaction):
         """재시작 명령어 구현"""
@@ -355,7 +354,7 @@ class TradingBotClient(discord.Client):
 
         except Exception as e:
             logger.error(f"/재시작 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 재시작 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 재시작 오류: {e!s}", ephemeral=True)
 
     async def _emergency_command(self, interaction: discord.Interaction):
         """긴급청산 명령어 구현"""
@@ -404,7 +403,7 @@ class TradingBotClient(discord.Client):
 
         except Exception as e:
             logger.error(f"/긴급청산 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 긴급청산 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 긴급청산 오류: {e!s}", ephemeral=True)
 
     async def _account_command(self, interaction: discord.Interaction):
         """계정 조회 명령어 구현"""
@@ -416,7 +415,7 @@ class TradingBotClient(discord.Client):
             logger.info(f"Discord 명령어 /계정 실행: {interaction.user}")
         except Exception as e:
             logger.error(f"/계정 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 계정 조회 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 계정 조회 오류: {e!s}", ephemeral=True)
 
     # =========================================================================
     # Multi-Bot Command Implementations
@@ -436,7 +435,7 @@ class TradingBotClient(discord.Client):
 
         except Exception as e:
             logger.error(f"/봇목록 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 봇 목록 조회 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 봇 목록 조회 오류: {e!s}", ephemeral=True)
 
     async def _bot_status_command(self, interaction: discord.Interaction, bot_name: str):
         """봇 상태 조회 명령어 구현 (REST API 사용)"""
@@ -453,7 +452,7 @@ class TradingBotClient(discord.Client):
 
         except Exception as e:
             logger.error(f"/봇상태 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 봇 상태 조회 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 봇 상태 조회 오류: {e!s}", ephemeral=True)
 
     async def _bot_start_command(self, interaction: discord.Interaction, bot_name: str):
         """봇 시작 명령어 구현 (REST API 사용)"""
@@ -474,7 +473,7 @@ class TradingBotClient(discord.Client):
 
         except Exception as e:
             logger.error(f"/봇시작 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 봇 시작 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 봇 시작 오류: {e!s}", ephemeral=True)
 
     async def _bot_stop_command(self, interaction: discord.Interaction, bot_name: str):
         """봇 정지 명령어 구현 (REST API 사용)"""
@@ -495,7 +494,7 @@ class TradingBotClient(discord.Client):
 
         except Exception as e:
             logger.error(f"/봇정지 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 봇 정지 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 봇 정지 오류: {e!s}", ephemeral=True)
 
     async def _bot_pause_command(self, interaction: discord.Interaction, bot_name: str):
         """봇 일시정지 명령어 구현 (REST API 사용)"""
@@ -521,7 +520,7 @@ class TradingBotClient(discord.Client):
 
         except Exception as e:
             logger.error(f"/봇일시정지 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 봇 일시정지 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 봇 일시정지 오류: {e!s}", ephemeral=True)
 
     async def _bot_resume_command(self, interaction: discord.Interaction, bot_name: str):
         """봇 재개 명령어 구현 (REST API 사용)"""
@@ -543,7 +542,7 @@ class TradingBotClient(discord.Client):
 
         except Exception as e:
             logger.error(f"/봇재개 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 봇 재개 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 봇 재개 오류: {e!s}", ephemeral=True)
 
     async def _start_all_command(self, interaction: discord.Interaction):
         """전체 봇 시작 명령어 구현 (REST API 사용)"""
@@ -566,7 +565,7 @@ class TradingBotClient(discord.Client):
 
         except Exception as e:
             logger.error(f"/전체시작 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 전체 시작 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 전체 시작 오류: {e!s}", ephemeral=True)
 
     async def _stop_all_command(self, interaction: discord.Interaction):
         """전체 봇 정지 명령어 구현 (REST API 사용)"""
@@ -589,7 +588,7 @@ class TradingBotClient(discord.Client):
 
         except Exception as e:
             logger.error(f"/전체정지 명령어 에러: {e}")
-            await interaction.followup.send(f"❌ 전체 정지 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 전체 정지 오류: {e!s}", ephemeral=True)
 
     # =========================================================================
     # Event Handlers
@@ -614,7 +613,7 @@ class TradingBotClient(discord.Client):
         """명령어 에러 핸들러"""
         logger.error(f"명령어 에러: {error}")
         await interaction.response.send_message(
-            f"❌ 명령어 오류: {str(error)}",
+            f"❌ 명령어 오류: {error!s}",
             ephemeral=True
         )
 

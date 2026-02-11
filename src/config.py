@@ -1,11 +1,10 @@
-"""
-Configuration management for High-Win Survival System
+"""Configuration management for High-Win Survival System
 """
 import os
-from typing import Optional
-from pydantic import BaseModel, Field, validator
+
 from dotenv import load_dotenv
 from loguru import logger
+from pydantic import BaseModel, Field, validator
 
 # Load environment variables
 load_dotenv()
@@ -27,8 +26,8 @@ class TradingConfig(BaseModel):
     mainnet_confirmation: str = Field(default="")
 
     # Redis Configuration
-    redis_url: Optional[str] = Field(default=None)
-    redis_password: Optional[str] = Field(default=None)
+    redis_url: str | None = Field(default=None)
+    redis_password: str | None = Field(default=None)
     redis_db: int = Field(default=0, ge=0, le=15)
     enable_redis_state: bool = Field(default=True)
 
@@ -55,10 +54,10 @@ class TradingConfig(BaseModel):
 
     # Discord Configuration
     discord_webhook_url: str
-    discord_bot_token: Optional[str] = None
+    discord_bot_token: str | None = None
 
     # Database Configuration
-    database_url: Optional[str] = None
+    database_url: str | None = None
 
     # Trading Loop
     loop_interval_seconds: int = Field(default=300, gt=0)  # 5 minutes
@@ -90,8 +89,7 @@ class TradingConfig(BaseModel):
         return v
 
     def validate_mainnet_switch(self) -> bool:
-        """
-        Phase 7.1: 메인넷 전환 시 안전 검증
+        """Phase 7.1: 메인넷 전환 시 안전 검증
 
         실거래(메인넷) 활성화 시 명시적 확인 문자열을 요구합니다.
         이는 실수로 실거래를 활성화하는 것을 방지합니다.
@@ -176,7 +174,7 @@ def load_config() -> TradingConfig:
 
 
 # Singleton instance
-_config: Optional[TradingConfig] = None
+_config: TradingConfig | None = None
 
 
 def get_config() -> TradingConfig:

@@ -1,12 +1,13 @@
 """
 Tests for trading executor
 """
-import pytest
-from unittest.mock import Mock, AsyncMock
 from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, Mock
 
-from src.trading.executor import TradingExecutor
+import pytest
+
 from src.config import TradingConfig
+from src.trading.executor import TradingExecutor
 
 
 @pytest.fixture

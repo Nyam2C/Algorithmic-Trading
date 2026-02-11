@@ -1,12 +1,11 @@
-"""
-Redis 상태 관리 모듈
+"""Redis 상태 관리 모듈
 
 봇 상태, 포지션 정보를 Redis에 영구 저장하여
 컨테이너 재시작 시 복구할 수 있도록 합니다.
 """
 import json
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from loguru import logger
 
@@ -45,7 +44,7 @@ class RedisStateManager:
     def __init__(
         self,
         redis_url: str = "redis://localhost:6379",
-        redis_password: Optional[str] = None,
+        redis_password: str | None = None,
         redis_db: int = 0,
         key_prefix: str = KEY_PREFIX,
     ) -> None:
@@ -64,7 +63,7 @@ class RedisStateManager:
         self._redis_password = redis_password
         self._redis_db = redis_db
         self._key_prefix = key_prefix
-        self._client: Optional[redis.Redis] = None
+        self._client: redis.Redis | None = None
         self._log = logger.bind(component="RedisStateManager")
 
     @property
@@ -164,7 +163,7 @@ class RedisStateManager:
             self._log.error(f"봇 상태 저장 실패: {bot_name}, {e}")
             return False
 
-    async def load_bot_state(self, bot_name: str) -> Optional[dict[str, Any]]:
+    async def load_bot_state(self, bot_name: str) -> dict[str, Any] | None:
         """봇 상태 로드
 
         Args:
@@ -246,7 +245,7 @@ class RedisStateManager:
             self._log.error(f"포지션 저장 실패: {bot_name}, {e}")
             return False
 
-    async def load_position(self, bot_name: str) -> Optional[dict[str, Any]]:
+    async def load_position(self, bot_name: str) -> dict[str, Any] | None:
         """포지션 로드
 
         Args:
@@ -497,9 +496,7 @@ class RedisStateManager:
             elif value.startswith("__number__"):
                 num_str = value[10:]
                 result[key] = float(num_str) if "." in num_str else int(num_str)
-            elif value.startswith("__dict__"):
-                result[key] = json.loads(value[8:])
-            elif value.startswith("__list__"):
+            elif value.startswith("__dict__") or value.startswith("__list__"):
                 result[key] = json.loads(value[8:])
             else:
                 result[key] = value
@@ -533,7 +530,7 @@ class DummyRedisStateManager:
     async def save_bot_state(self, bot_name: str, state: dict[str, Any]) -> bool:
         return True
 
-    async def load_bot_state(self, bot_name: str) -> Optional[dict[str, Any]]:
+    async def load_bot_state(self, bot_name: str) -> dict[str, Any] | None:
         return None
 
     async def delete_bot_state(self, bot_name: str) -> bool:
@@ -542,7 +539,7 @@ class DummyRedisStateManager:
     async def save_position(self, bot_name: str, position: dict[str, Any]) -> bool:
         return True
 
-    async def load_position(self, bot_name: str) -> Optional[dict[str, Any]]:
+    async def load_position(self, bot_name: str) -> dict[str, Any] | None:
         return None
 
     async def delete_position(self, bot_name: str) -> bool:
@@ -572,7 +569,7 @@ class DummyRedisStateManager:
 
 async def create_redis_manager(
     redis_url: str,
-    redis_password: Optional[str] = None,
+    redis_password: str | None = None,
     redis_db: int = 0,
     fallback_on_error: bool = True,
 ) -> RedisStateManager | DummyRedisStateManager:

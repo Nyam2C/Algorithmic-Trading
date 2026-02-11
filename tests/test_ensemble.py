@@ -3,18 +3,19 @@ AI 앙상블 시스템 테스트
 
 Phase 6.3: 가중 투표, 합의, 스코어링 테스트
 """
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from src.ai.ensemble import (
-    EnsembleSignalGenerator,
     EnsembleResult,
+    EnsembleSignalGenerator,
     IndividualSignal,
     SignalSource,
 )
 from src.ai.scoring import (
-    IndicatorScorer,
     IndicatorScore,
+    IndicatorScorer,
     ScoringResult,
 )
 

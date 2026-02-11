@@ -1,5 +1,4 @@
-"""
-High-Win Survival System - Main Entry Point
+"""High-Win Survival System - Main Entry Point
 멀티봇 통합 진입점
 
 하나의 프로세스에서 실행:
@@ -11,31 +10,30 @@ import asyncio
 import os
 import signal
 import sys
-from pathlib import Path
 from datetime import datetime
-from typing import Optional, Union
+from pathlib import Path
+from typing import Union
 
 import aiohttp
 from loguru import logger
 
-from src.config import get_config
+from src.api.main import create_app
 from src.bot_config import BotConfig
 from src.bot_manager import MultiBotManager
+from src.config import get_config
 from src.config_loader import load_bots_from_yaml_optional
-from src.api.main import create_app
 from src.discord_bot.bot import start_discord_bot
-from src.storage.trade_history import TradeHistoryDB
 from src.storage.redis_state import (
-    create_redis_manager,
-    RedisStateManager,
     DummyRedisStateManager,
+    RedisStateManager,
+    create_redis_manager,
 )
+from src.storage.trade_history import TradeHistoryDB
 from src.utils.logging import setup_logging_from_env
 
 
 def setup_logging() -> None:
-    """
-    Configure structured JSON logging for Loki/Promtail
+    """Configure structured JSON logging for Loki/Promtail
 
     환경변수 ENABLE_JSON_LOGGING=true 시 JSON 로깅,
     그렇지 않으면 기존 텍스트 로깅을 사용합니다.
@@ -85,8 +83,7 @@ async def send_discord_embed(
     color: int,
     fields: list | None = None,
 ) -> bool:
-    """
-    Send Discord embed message
+    """Send Discord embed message
 
     Args:
         webhook_url: Discord webhook URL
@@ -120,9 +117,8 @@ async def send_discord_embed(
                 if resp.status == 204:
                     logger.debug("Discord embed sent successfully")
                     return True
-                else:
-                    logger.error(f"Discord webhook failed: {resp.status}")
-                    return False
+                logger.error(f"Discord webhook failed: {resp.status}")
+                return False
     except Exception as e:
         logger.error(f"Discord webhook error: {e}")
         return False
@@ -156,7 +152,7 @@ async def main() -> None:
     config = get_config()
 
     # 2. Redis 초기화
-    redis_manager: Optional[Union[RedisStateManager, DummyRedisStateManager]] = None
+    redis_manager: Union[RedisStateManager, DummyRedisStateManager] | None = None
     if config.enable_redis_state and config.redis_url:
         try:
             redis_manager = await create_redis_manager(
@@ -176,7 +172,7 @@ async def main() -> None:
         logger.warning("REDIS_URL not set or disabled - state will not be persisted")
 
     # 3. PostgreSQL 연결
-    trade_db: Optional[TradeHistoryDB] = None
+    trade_db: TradeHistoryDB | None = None
     if config.database_url:
         try:
             trade_db = TradeHistoryDB(config.database_url)
@@ -262,7 +258,7 @@ async def main() -> None:
     logger.info(f"API server starting on {api_host}:{api_port}")
 
     # Discord 봇 태스크
-    discord_task: Optional[asyncio.Task] = None
+    discord_task: asyncio.Task | None = None
     if config.discord_bot_token and config.discord_bot_token != "your_bot_token_here":
         try:
             discord_task = asyncio.create_task(

@@ -1,17 +1,22 @@
-"""
-멀티봇 관리자 모듈
+"""멀티봇 관리자 모듈
 
 여러 BotInstance를 생성, 시작, 중지, 모니터링하는 MultiBotManager 클래스.
 
 Phase 5.4: 멀티봇 총 노출도 제한
 """
 import asyncio
-from typing import Optional, Any, Union, Tuple
+from typing import Any, Tuple, Union
+
 from loguru import logger
 
 from src.bot_config import BotConfig
-from src.bot_instance import BotInstance, OnSignalCallback, OnTradeCallback, OnErrorCallback
-from src.storage.redis_state import RedisStateManager, DummyRedisStateManager
+from src.bot_instance import (
+    BotInstance,
+    OnErrorCallback,
+    OnSignalCallback,
+    OnTradeCallback,
+)
+from src.storage.redis_state import DummyRedisStateManager, RedisStateManager
 
 
 class MultiBotManager:
@@ -38,10 +43,10 @@ class MultiBotManager:
         binance_secret_key: str,
         gemini_api_key: str = "",
         discord_webhook_url: str = "",
-        database_url: Optional[str] = None,
+        database_url: str | None = None,
         loop_interval_seconds: int = 300,
-        configs: Optional[list[BotConfig]] = None,
-        redis_state_manager: Optional[Union[RedisStateManager, DummyRedisStateManager]] = None,
+        configs: list[BotConfig] | None = None,
+        redis_state_manager: Union[RedisStateManager, DummyRedisStateManager] | None = None,
         # Phase 5.4: 총 노출도 제한
         max_total_exposure: float = 0.0,  # 0 = 제한 없음
     ) -> None:
@@ -76,9 +81,9 @@ class MultiBotManager:
         self._tasks: dict[str, asyncio.Task] = {}
 
         # 글로벌 콜백
-        self._on_signal_callback: Optional[OnSignalCallback] = None
-        self._on_trade_callback: Optional[OnTradeCallback] = None
-        self._on_error_callback: Optional[OnErrorCallback] = None
+        self._on_signal_callback: OnSignalCallback | None = None
+        self._on_trade_callback: OnTradeCallback | None = None
+        self._on_error_callback: OnErrorCallback | None = None
 
         # 초기 봇 설정 등록
         if configs:
@@ -119,7 +124,7 @@ class MultiBotManager:
     @property
     def redis_state_manager(
         self,
-    ) -> Optional[Union[RedisStateManager, DummyRedisStateManager]]:
+    ) -> Union[RedisStateManager, DummyRedisStateManager] | None:
         """Redis 상태 관리자"""
         return self._redis_state_manager
 
@@ -386,7 +391,7 @@ class MultiBotManager:
     # 봇 조회
     # =========================================================================
 
-    def get_bot(self, bot_name: str) -> Optional[BotInstance]:
+    def get_bot(self, bot_name: str) -> BotInstance | None:
         """봇 인스턴스 조회
 
         Args:

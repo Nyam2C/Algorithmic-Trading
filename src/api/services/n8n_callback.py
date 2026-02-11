@@ -1,10 +1,9 @@
-"""
-n8n 콜백 서비스 모듈
+"""n8n 콜백 서비스 모듈
 
 n8n 웹훅으로 이벤트 콜백을 발송합니다.
 Phase 4.1: aiohttp 세션 재사용 및 URL 마스킹
 """
-from typing import Any, Optional
+from typing import Any
 
 import aiohttp
 from loguru import logger
@@ -26,7 +25,7 @@ class N8NCallbackService:
         - 웹훅 URL 마스킹으로 보안 강화
     """
 
-    def __init__(self, webhook_url: Optional[str] = None) -> None:
+    def __init__(self, webhook_url: str | None = None) -> None:
         """n8n 콜백 서비스 초기화
 
         Args:
@@ -34,7 +33,7 @@ class N8NCallbackService:
         """
         self.webhook_url = webhook_url
         self.is_enabled = webhook_url is not None
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
 
         if self.is_enabled:
             # URL 마스킹 (보안)
@@ -93,11 +92,10 @@ class N8NCallbackService:
                         f"(bot={payload.bot_name})"
                     )
                     return True
-                else:
-                    logger.warning(
-                        f"n8n 콜백 발송 실패: HTTP {response.status}"
-                    )
-                    return False
+                logger.warning(
+                    f"n8n 콜백 발송 실패: HTTP {response.status}"
+                )
+                return False
 
         except aiohttp.ClientError as e:
             logger.error(f"n8n 콜백 발송 에러 (네트워크): {e}")
@@ -112,7 +110,7 @@ class N8NCallbackService:
         signal: str,
         price: float,
         confidence: float = 1.0,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """시그널 콜백 발송
 
@@ -144,9 +142,9 @@ class N8NCallbackService:
         action: str,
         side: str,
         price: float,
-        pnl: Optional[float] = None,
-        quantity: Optional[float] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        pnl: float | None = None,
+        quantity: float | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """거래 콜백 발송
 
@@ -186,7 +184,7 @@ class N8NCallbackService:
         self,
         bot_name: str,
         error: Exception,
-        context: Optional[str] = None,
+        context: str | None = None,
     ) -> bool:
         """에러 콜백 발송
 

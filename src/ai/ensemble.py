@@ -1,5 +1,4 @@
-"""
-AI 앙상블 시스템
+"""AI 앙상블 시스템
 
 Phase 6.3: 다중 신호 소스 앙상블
 - Gemini AI, 규칙 기반, 스코어링 신호 결합
@@ -7,8 +6,8 @@ Phase 6.3: 다중 신호 소스 앙상블
 - 2/3 합의 시 신호 발생
 """
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
+from typing import Any, Dict, List, Tuple
 
 from loguru import logger
 
@@ -48,7 +47,7 @@ class IndividualSignal:
         """
         if self.signal == "LONG":
             return self.weight * self.confidence
-        elif self.signal == "SHORT":
+        if self.signal == "SHORT":
             return -self.weight * self.confidence
         return 0.0
 
@@ -115,13 +114,13 @@ class EnsembleSignalGenerator:
 
     def __init__(
         self,
-        weights: Optional[Dict[SignalSource, float]] = None,
+        weights: Dict[SignalSource, float] | None = None,
         consensus_threshold: float = CONSENSUS_THRESHOLD,
         weighted_threshold: float = WEIGHTED_THRESHOLD,
         # 의존성 주입
-        gemini_generator: Optional[Any] = None,
-        rule_based_generator: Optional[Any] = None,
-        scoring_generator: Optional[Any] = None,
+        gemini_generator: Any | None = None,
+        rule_based_generator: Any | None = None,
+        scoring_generator: Any | None = None,
     ) -> None:
         """앙상블 생성기 초기화
 
@@ -328,13 +327,12 @@ class EnsembleSignalGenerator:
         if abs(weighted_score) >= self.weighted_threshold:
             if weighted_score > 0:
                 return "LONG", weighted_score, consensus_ratio
-            else:
-                return "SHORT", weighted_score, consensus_ratio
+            return "SHORT", weighted_score, consensus_ratio
 
         # 2. 합의 기준 (2/3 이상)
         if long_count / total_count >= self.consensus_threshold:
             return "LONG", weighted_score, consensus_ratio
-        elif short_count / total_count >= self.consensus_threshold:
+        if short_count / total_count >= self.consensus_threshold:
             return "SHORT", weighted_score, consensus_ratio
 
         # 3. 합의 실패 -> WAIT

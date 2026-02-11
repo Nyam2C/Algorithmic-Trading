@@ -1,5 +1,4 @@
-"""
-Discord Bot for Trading Bot Remote Control
+"""Discord Bot for Trading Bot Remote Control
 
 한글 지원 + 인터랙티브 버튼 UI + 멀티봇 지원
 
@@ -9,13 +8,13 @@ Phase 3 업데이트:
 - 봇별 상태 조회 및 제어
 """
 import os
-import discord
-from discord import app_commands
 from datetime import datetime
-from loguru import logger
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import aiohttp
+import discord
+from discord import app_commands
+from loguru import logger
 
 if TYPE_CHECKING:
     from src.bot_manager import MultiBotManager
@@ -28,7 +27,7 @@ if TYPE_CHECKING:
 class ConfirmationView(discord.ui.View):
     """확인 대화상자 (위험한 작업용)"""
 
-    def __init__(self, action: str, bot_state: dict, action_data: Optional[Dict[str, Any]] = None, timeout=30):
+    def __init__(self, action: str, bot_state: dict, action_data: Dict[str, Any] | None = None, timeout=30):
         super().__init__(timeout=timeout)
         self.action = action  # "pause", "resume", "emergency"
         self.bot_state = bot_state
@@ -109,7 +108,7 @@ class ConfirmationView(discord.ui.View):
         except Exception as e:
             logger.error(f"확인 버튼 에러: {e}")
             await interaction.response.send_message(
-                f"❌ 오류: {str(e)}",
+                f"❌ 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -139,7 +138,7 @@ class DashboardView(discord.ui.View):
             logger.info(f"대시보드 상태 버튼 클릭: {interaction.user}")
         except Exception as e:
             logger.error(f"상태 버튼 에러: {e}")
-            await interaction.followup.send(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 오류: {e!s}", ephemeral=True)
 
     @discord.ui.button(label="📍 포지션", style=discord.ButtonStyle.primary, row=0)
     async def position_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -151,7 +150,7 @@ class DashboardView(discord.ui.View):
             logger.info(f"대시보드 포지션 버튼 클릭: {interaction.user}")
         except Exception as e:
             logger.error(f"포지션 버튼 에러: {e}")
-            await interaction.followup.send(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 오류: {e!s}", ephemeral=True)
 
     @discord.ui.button(label="📈 통계", style=discord.ButtonStyle.primary, row=0)
     async def stats_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -163,7 +162,7 @@ class DashboardView(discord.ui.View):
             logger.info(f"대시보드 통계 버튼 클릭: {interaction.user}")
         except Exception as e:
             logger.error(f"통계 버튼 에러: {e}")
-            await interaction.followup.send(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 오류: {e!s}", ephemeral=True)
 
     @discord.ui.button(label="📜 내역", style=discord.ButtonStyle.primary, row=0)
     async def history_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -175,7 +174,7 @@ class DashboardView(discord.ui.View):
             logger.info(f"대시보드 내역 버튼 클릭: {interaction.user}")
         except Exception as e:
             logger.error(f"내역 버튼 에러: {e}")
-            await interaction.followup.send(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 오류: {e!s}", ephemeral=True)
 
     # Row 1: 제어 버튼
     @discord.ui.button(label="⏸️ 일시정지", style=discord.ButtonStyle.secondary, row=1)
@@ -206,7 +205,7 @@ class DashboardView(discord.ui.View):
 
         except Exception as e:
             logger.error(f"일시정지 버튼 에러: {e}")
-            await interaction.response.send_message(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.response.send_message(f"❌ 오류: {e!s}", ephemeral=True)
 
     @discord.ui.button(label="▶️ 재시작", style=discord.ButtonStyle.success, row=1)
     async def resume_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -236,7 +235,7 @@ class DashboardView(discord.ui.View):
 
         except Exception as e:
             logger.error(f"재시작 버튼 에러: {e}")
-            await interaction.response.send_message(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.response.send_message(f"❌ 오류: {e!s}", ephemeral=True)
 
     @discord.ui.button(label="🚨 긴급청산", style=discord.ButtonStyle.danger, row=1)
     async def emergency_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -292,7 +291,7 @@ class DashboardView(discord.ui.View):
 
         except Exception as e:
             logger.error(f"긴급청산 버튼 에러: {e}")
-            await interaction.response.send_message(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.response.send_message(f"❌ 오류: {e!s}", ephemeral=True)
 
 
 # =============================================================================
@@ -314,8 +313,7 @@ class TradingBotClient(discord.Client):
         binance_client=None,
         bot_manager: Optional["MultiBotManager"] = None,
     ):
-        """
-        Initialize Discord bot client
+        """Initialize Discord bot client
 
         Args:
             bot_state: Shared state dictionary with trading bot
@@ -793,7 +791,7 @@ class TradingBotClient(discord.Client):
             logger.error(f"계정 조회 에러: {e}")
             embed = discord.Embed(
                 title="❌ 계정 조회 실패",
-                description=f"오류: {str(e)}",
+                description=f"오류: {e!s}",
                 color=0xFF0000
             )
             return embed
@@ -804,7 +802,6 @@ class TradingBotClient(discord.Client):
 
     def setup_commands(self):
         """Register slash commands (한글 + 영어)"""
-
         # =====================================================================
         # /대시보드 (Dashboard) - 신규
         # =====================================================================
@@ -953,7 +950,6 @@ class TradingBotClient(discord.Client):
 
     def setup_multibot_commands(self):
         """멀티봇 슬래시 명령어 등록"""
-
         # =====================================================================
         # /봇목록 (Bot List)
         # =====================================================================
@@ -1165,7 +1161,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/대시보드 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 오류: {str(e)}",
+                f"❌ 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1181,7 +1177,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/상태 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 봇 상태 조회 오류: {str(e)}",
+                f"❌ 봇 상태 조회 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1197,7 +1193,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/포지션 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 포지션 조회 오류: {str(e)}",
+                f"❌ 포지션 조회 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1213,7 +1209,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/통계 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 통계 조회 오류: {str(e)}",
+                f"❌ 통계 조회 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1229,7 +1225,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/내역 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 내역 조회 오류: {str(e)}",
+                f"❌ 내역 조회 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1276,7 +1272,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/일시정지 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 일시정지 오류: {str(e)}",
+                f"❌ 일시정지 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1334,7 +1330,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/재시작 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 재시작 오류: {str(e)}",
+                f"❌ 재시작 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1405,7 +1401,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/긴급청산 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 긴급청산 오류: {str(e)}",
+                f"❌ 긴급청산 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1421,7 +1417,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/계정 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 계정 조회 오류: {str(e)}",
+                f"❌ 계정 조회 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1433,7 +1429,7 @@ class TradingBotClient(discord.Client):
         self,
         method: str,
         endpoint: str,
-        json_data: Optional[Dict[str, Any]] = None,
+        json_data: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """REST API 호출 헬퍼
 
@@ -1460,7 +1456,7 @@ class TradingBotClient(discord.Client):
                     return await resp.json()
         except aiohttp.ClientError as e:
             logger.error(f"API 호출 실패: {method} {url} - {e}")
-            raise Exception(f"API 서버 연결 실패: {str(e)}")
+            raise Exception(f"API 서버 연결 실패: {e!s}")
 
     # =========================================================================
     # Multi-Bot Command Implementations (Phase 3)
@@ -1518,7 +1514,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/봇목록 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 봇 목록 조회 오류: {str(e)}",
+                f"❌ 봇 목록 조회 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1581,7 +1577,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/봇상태 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 봇 상태 조회 오류: {str(e)}",
+                f"❌ 봇 상태 조회 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1610,7 +1606,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/봇시작 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 봇 시작 오류: {str(e)}",
+                f"❌ 봇 시작 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1639,7 +1635,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/봇정지 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 봇 정지 오류: {str(e)}",
+                f"❌ 봇 정지 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1673,7 +1669,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/봇일시정지 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 봇 일시정지 오류: {str(e)}",
+                f"❌ 봇 일시정지 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1707,7 +1703,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/봇재개 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 봇 재개 오류: {str(e)}",
+                f"❌ 봇 재개 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1738,7 +1734,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/전체시작 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 전체 시작 오류: {str(e)}",
+                f"❌ 전체 시작 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1769,7 +1765,7 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/전체정지 명령어 에러: {e}")
             await interaction.followup.send(
-                f"❌ 전체 정지 오류: {str(e)}",
+                f"❌ 전체 정지 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -1793,7 +1789,7 @@ class TradingBotClient(discord.Client):
         """Handle command errors"""
         logger.error(f"명령어 에러: {error}")
         await interaction.response.send_message(
-            f"❌ 명령어 오류: {str(error)}",
+            f"❌ 명령어 오류: {error!s}",
             ephemeral=True
         )
 
@@ -1805,8 +1801,7 @@ async def start_discord_bot(
     binance_client=None,
     bot_manager: Optional["MultiBotManager"] = None,
 ):
-    """
-    Start Discord bot
+    """Start Discord bot
 
     Args:
         token: Discord bot token

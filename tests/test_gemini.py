@@ -1,8 +1,9 @@
 """
 Tests for GeminiSignalGenerator
 """
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
 
 from src.ai.gemini import GeminiSignalGenerator
 

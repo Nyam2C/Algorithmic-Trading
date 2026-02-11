@@ -3,9 +3,10 @@
 
 Phase 6.1: SignalTracker 테스트
 """
-import pytest
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from src.analytics.signal_tracker import (
     SignalRecord,

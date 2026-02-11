@@ -1,5 +1,4 @@
-"""
-감사 로그 모듈
+"""감사 로그 모듈
 
 Phase 7.3: 거래 감사 로그
 - 모든 거래 및 봇 이벤트 기록
@@ -9,7 +8,8 @@ Phase 7.3: 거래 감사 로그
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
+
 from loguru import logger
 
 
@@ -44,9 +44,9 @@ class AuditLog:
     event_type: AuditEventType
     bot_name: str
     details: Dict[str, Any] = field(default_factory=dict)
-    user_id: Optional[str] = None
+    user_id: str | None = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    session_id: Optional[str] = None
+    session_id: str | None = None
 
     def to_dict(self) -> Dict[str, Any]:
         """딕셔너리로 변환"""
@@ -80,7 +80,7 @@ class AuditLogManager:
 
     def __init__(
         self,
-        db_pool: Optional[Any] = None,
+        db_pool: Any | None = None,
         max_memory_logs: int = 1000,
     ) -> None:
         """감사 로그 매니저 초기화
@@ -144,7 +144,7 @@ class AuditLogManager:
         side: str,
         quantity: float,
         entry_price: float,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
         **kwargs: Any,
     ) -> None:
         """거래 진입 로깅
@@ -177,7 +177,7 @@ class AuditLogManager:
         exit_reason: str,
         pnl: float,
         pnl_pct: float,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
         **kwargs: Any,
     ) -> None:
         """거래 청산 로깅
@@ -211,8 +211,8 @@ class AuditLogManager:
     async def log_bot_pause(
         self,
         bot_name: str,
-        reason: Optional[str] = None,
-        user_id: Optional[str] = None,
+        reason: str | None = None,
+        user_id: str | None = None,
     ) -> None:
         """봇 일시정지 로깅
 
@@ -233,7 +233,7 @@ class AuditLogManager:
     async def log_bot_resume(
         self,
         bot_name: str,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
     ) -> None:
         """봇 재시작 로깅
 
@@ -254,8 +254,8 @@ class AuditLogManager:
         self,
         bot_name: str,
         reason: str,
-        pnl: Optional[float] = None,
-        user_id: Optional[str] = None,
+        pnl: float | None = None,
+        user_id: str | None = None,
     ) -> None:
         """긴급 청산 로깅
 
@@ -282,8 +282,8 @@ class AuditLogManager:
         self,
         bot_name: str,
         reason: str,
-        daily_pnl: Optional[float] = None,
-        daily_pnl_pct: Optional[float] = None,
+        daily_pnl: float | None = None,
+        daily_pnl_pct: float | None = None,
     ) -> None:
         """리스크 한도 도달 로깅
 
@@ -311,7 +311,7 @@ class AuditLogManager:
         self,
         bot_name: str,
         changes: Dict[str, Any],
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
     ) -> None:
         """설정 변경 로깅
 
@@ -335,8 +335,8 @@ class AuditLogManager:
 
     async def get_recent_logs(
         self,
-        bot_name: Optional[str] = None,
-        event_type: Optional[AuditEventType] = None,
+        bot_name: str | None = None,
+        event_type: AuditEventType | None = None,
         limit: int = 50,
     ) -> List[AuditLog]:
         """최근 로그 조회
@@ -367,7 +367,7 @@ class AuditLogManager:
         self,
         start_date: datetime,
         end_date: datetime,
-        bot_name: Optional[str] = None,
+        bot_name: str | None = None,
     ) -> List[AuditLog]:
         """날짜 범위로 로그 조회
 

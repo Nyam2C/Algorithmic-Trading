@@ -1,5 +1,4 @@
-"""
-마켓 레짐 감지 모듈
+"""마켓 레짐 감지 모듈
 
 Phase 6.2: 마켓 레짐 감지 (횡보 vs 추세)
 - MA 정렬과 ATR로 시장 상태 분류
@@ -7,6 +6,7 @@ Phase 6.2: 마켓 레짐 감지 (횡보 vs 추세)
 """
 from enum import Enum
 from typing import Dict
+
 from loguru import logger
 
 

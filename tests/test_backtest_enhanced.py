@@ -3,10 +3,11 @@
 
 Phase 6.2: 슬리피지, 지표 통합, 현실적 청산 테스트
 """
-import pytest
 from datetime import datetime, timedelta
 
-from src.backtest.engine import BacktestEngine, BacktestConfig, Trade
+import pytest
+
+from src.backtest.engine import BacktestConfig, BacktestEngine, Trade
 from src.backtest.slippage import (
     SlippageModel,
     calculate_realistic_entry_price,
@@ -435,7 +436,7 @@ class TestBacktestEngineIntegration:
             rsi = market_data.get("rsi", 50)
             if rsi < 35:
                 return "LONG"
-            elif rsi > 65:
+            if rsi > 65:
                 return "SHORT"
             return "WAIT"
 

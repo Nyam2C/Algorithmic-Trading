@@ -1,32 +1,30 @@
-"""
-FastAPI 앱 팩토리
+"""FastAPI 앱 팩토리
 
 REST API 앱을 생성하고 라우터를 등록합니다.
 Phase 4.1: CORS 환경변수 설정 추가
 Phase 6.1: Rate Limiting 미들웨어 추가
 """
 import os
-from typing import Optional
 
 from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from loguru import logger
 
-from src.bot_manager import MultiBotManager
 from src.api.config import APIConfig
-from src.api.dependencies import set_bot_manager, set_api_config
-from src.api.routes.health import router as health_router
-from src.api.routes.bots import router as bots_router
-from src.api.routes.n8n import router as n8n_router
-from src.api.routes.analytics import router as analytics_router
-from src.api.routes.dashboard import router as dashboard_router
+from src.api.dependencies import set_api_config, set_bot_manager
 from src.api.middleware.rate_limit import RateLimiter, RateLimitMiddleware
+from src.api.routes.analytics import router as analytics_router
+from src.api.routes.bots import router as bots_router
+from src.api.routes.dashboard import router as dashboard_router
+from src.api.routes.health import router as health_router
+from src.api.routes.n8n import router as n8n_router
+from src.bot_manager import MultiBotManager
 
 
 def create_app(
-    bot_manager: Optional[MultiBotManager] = None,
-    api_config: Optional[APIConfig] = None,
+    bot_manager: MultiBotManager | None = None,
+    api_config: APIConfig | None = None,
 ) -> FastAPI:
     """FastAPI 앱 생성
 

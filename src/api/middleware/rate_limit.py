@@ -1,5 +1,4 @@
-"""
-Rate Limiting 미들웨어
+"""Rate Limiting 미들웨어
 
 Phase 6.1: API Rate Limiting
 - Token Bucket 알고리즘 기반
@@ -10,12 +9,12 @@ import asyncio
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 from loguru import logger
+from starlette.middleware.base import BaseHTTPMiddleware
 
 
 @dataclass
@@ -54,11 +53,10 @@ class TokenBucket:
         if self.tokens >= tokens:
             self.tokens -= tokens
             return True, 0.0
-        else:
-            # 필요한 토큰이 채워질 때까지 대기 시간 계산
-            needed = tokens - self.tokens
-            wait_time = needed / self.refill_rate
-            return False, wait_time
+        # 필요한 토큰이 채워질 때까지 대기 시간 계산
+        needed = tokens - self.tokens
+        wait_time = needed / self.refill_rate
+        return False, wait_time
 
     def _refill(self) -> None:
         """토큰 보충"""
@@ -313,8 +311,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
         app: Any,
-        limiter: Optional[RateLimiter] = None,
-        exclude_paths: Optional[list] = None,
+        limiter: RateLimiter | None = None,
+        exclude_paths: list | None = None,
     ) -> None:
         """미들웨어 초기화
 

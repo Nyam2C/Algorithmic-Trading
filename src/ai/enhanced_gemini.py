@@ -1,16 +1,16 @@
-"""
-Enhanced Gemini AI client with memory integration
+"""Enhanced Gemini AI client with memory integration
 
 Phase 4: AI 메모리 시스템 - 과거 거래 분석을 프롬프트에 주입
 기존 GeminiSignalGenerator를 확장하여 메모리 컨텍스트 지원
 """
-from typing import Dict, Optional
 from pathlib import Path
+from typing import Dict
+
 from google.genai.errors import ClientError, ServerError
 from loguru import logger
 
 from src.ai.gemini import GeminiSignalGenerator
-from src.analytics.memory_context import MemoryContext, AIMemoryContextBuilder
+from src.analytics.memory_context import AIMemoryContextBuilder, MemoryContext
 from src.utils.retry import async_retry
 
 
@@ -41,7 +41,7 @@ class EnhancedGeminiSignalGenerator(GeminiSignalGenerator):
         api_key: str,
         model: str = "gemini-2.0-flash-exp",
         temperature: float = 0.1,
-        context_builder: Optional[AIMemoryContextBuilder] = None,
+        context_builder: AIMemoryContextBuilder | None = None,
         memory_enabled: bool = True,
         memory_days: int = 7,
     ):
@@ -87,7 +87,7 @@ class EnhancedGeminiSignalGenerator(GeminiSignalGenerator):
         try:
             prompt_dir = Path(__file__).parent / "prompts"
             prompt_path = prompt_dir / "memory_system.txt"
-            with open(prompt_path, "r", encoding="utf-8") as f:
+            with open(prompt_path, encoding="utf-8") as f:
                 content = f.read()
             return content
         except FileNotFoundError:
@@ -124,7 +124,7 @@ Output ONLY: LONG, SHORT, or WAIT."""
     async def get_signal_with_memory(
         self,
         market_data: Dict,
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
     ) -> str:
         """메모리 포함 시그널 생성
 
@@ -201,7 +201,7 @@ Output ONLY: LONG, SHORT, or WAIT."""
     def _build_prompt_with_memory(
         self,
         market_data: Dict,
-        memory_context: Optional[MemoryContext],
+        memory_context: MemoryContext | None,
     ) -> str:
         """메모리 포함 프롬프트 빌드
 

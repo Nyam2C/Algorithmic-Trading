@@ -1,5 +1,4 @@
-"""
-Discord UI Views
+"""Discord UI Views
 
 버튼 및 인터랙티브 UI 컴포넌트를 정의합니다.
 
@@ -9,12 +8,12 @@ Discord UI Views
 - 긴급청산 버튼: ADMIN 이상
 """
 from datetime import datetime
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict
 
 import discord
 from loguru import logger
 
-from src.discord_bot.constants import Colors, Timeouts, Emojis, Messages
+from src.discord_bot.constants import Colors, Emojis, Messages, Timeouts
 from src.discord_bot.permissions import (
     PermissionLevel,
     check_permission,
@@ -46,9 +45,9 @@ class ConfirmationView(discord.ui.View):
         self,
         action: str,
         bot_state: dict,
-        action_data: Optional[Dict[str, Any]] = None,
+        action_data: Dict[str, Any] | None = None,
         timeout: int = Timeouts.CONFIRMATION_VIEW,
-        original_user_id: Optional[int] = None,
+        original_user_id: int | None = None,
     ):
         """ConfirmationView 초기화
 
@@ -104,7 +103,7 @@ class ConfirmationView(discord.ui.View):
         except Exception as e:
             logger.error(f"확인 버튼 에러: {e}")
             await interaction.response.send_message(
-                f"❌ 오류: {str(e)}",
+                f"❌ 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -226,7 +225,7 @@ class DashboardView(discord.ui.View):
             logger.info(f"대시보드 상태 버튼 클릭: {interaction.user}")
         except Exception as e:
             logger.error(f"상태 버튼 에러: {e}")
-            await interaction.followup.send(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 오류: {e!s}", ephemeral=True)
 
     @discord.ui.button(label="📍 포지션", style=discord.ButtonStyle.primary, row=0)
     async def position_button(
@@ -242,7 +241,7 @@ class DashboardView(discord.ui.View):
             logger.info(f"대시보드 포지션 버튼 클릭: {interaction.user}")
         except Exception as e:
             logger.error(f"포지션 버튼 에러: {e}")
-            await interaction.followup.send(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 오류: {e!s}", ephemeral=True)
 
     @discord.ui.button(label="📈 통계", style=discord.ButtonStyle.primary, row=0)
     async def stats_button(
@@ -258,7 +257,7 @@ class DashboardView(discord.ui.View):
             logger.info(f"대시보드 통계 버튼 클릭: {interaction.user}")
         except Exception as e:
             logger.error(f"통계 버튼 에러: {e}")
-            await interaction.followup.send(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 오류: {e!s}", ephemeral=True)
 
     @discord.ui.button(label="📜 내역", style=discord.ButtonStyle.primary, row=0)
     async def history_button(
@@ -274,7 +273,7 @@ class DashboardView(discord.ui.View):
             logger.info(f"대시보드 내역 버튼 클릭: {interaction.user}")
         except Exception as e:
             logger.error(f"내역 버튼 에러: {e}")
-            await interaction.followup.send(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 오류: {e!s}", ephemeral=True)
 
     # =========================================================================
     # Row 1: 제어 버튼
@@ -332,7 +331,7 @@ class DashboardView(discord.ui.View):
         except Exception as e:
             logger.error(f"일시정지 버튼 에러: {e}")
             await interaction.response.send_message(
-                f"❌ 오류: {str(e)}",
+                f"❌ 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -388,7 +387,7 @@ class DashboardView(discord.ui.View):
         except Exception as e:
             logger.error(f"재시작 버튼 에러: {e}")
             await interaction.response.send_message(
-                f"❌ 오류: {str(e)}",
+                f"❌ 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -462,6 +461,6 @@ class DashboardView(discord.ui.View):
         except Exception as e:
             logger.error(f"긴급청산 버튼 에러: {e}")
             await interaction.response.send_message(
-                f"❌ 오류: {str(e)}",
+                f"❌ 오류: {e!s}",
                 ephemeral=True
             )

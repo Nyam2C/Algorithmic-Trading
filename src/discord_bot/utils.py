@@ -1,13 +1,12 @@
-"""
-Discord 봇 유틸리티 함수
+"""Discord 봇 유틸리티 함수
 
 계산, 포맷팅 등의 헬퍼 함수를 제공합니다.
 """
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Tuple
 
 
-def format_uptime(start_time: Optional[datetime]) -> str:
+def format_uptime(start_time: datetime | None) -> str:
     """가동 시간을 문자열로 포맷팅
 
     Args:
@@ -25,7 +24,7 @@ def format_uptime(start_time: Optional[datetime]) -> str:
     return f"{hours}시간 {mins}분"
 
 
-def format_time_ago(timestamp: Optional[datetime]) -> str:
+def format_time_ago(timestamp: datetime | None) -> str:
     """타임스탬프를 '~전' 형식으로 포맷팅
 
     Args:
@@ -42,12 +41,11 @@ def format_time_ago(timestamp: Optional[datetime]) -> str:
 
     if mins_ago < 60:
         return f"{mins_ago}분 전"
-    else:
-        hours_ago = mins_ago // 60
-        return f"{hours_ago}시간 전"
+    hours_ago = mins_ago // 60
+    return f"{hours_ago}시간 전"
 
 
-def format_duration(start_time: Optional[datetime]) -> str:
+def format_duration(start_time: datetime | None) -> str:
     """시작 시간부터 현재까지의 경과 시간을 포맷팅
 
     Args:
@@ -64,15 +62,14 @@ def format_duration(start_time: Optional[datetime]) -> str:
 
     if duration_mins < 60:
         return f"{duration_mins}분"
-    else:
-        duration_hours = duration_mins // 60
-        duration_mins_remain = duration_mins % 60
-        return f"{duration_hours}시간 {duration_mins_remain}분"
+    duration_hours = duration_mins // 60
+    duration_mins_remain = duration_mins % 60
+    return f"{duration_hours}시간 {duration_mins_remain}분"
 
 
 def format_pause_duration(
-    paused_at: Optional[datetime],
-    paused_by: Optional[str] = None
+    paused_at: datetime | None,
+    paused_by: str | None = None
 ) -> str:
     """일시정지 정보를 포맷팅
 
@@ -97,7 +94,7 @@ def format_pause_duration(
     return result
 
 
-def format_timecut_remaining(timecut_at: Optional[datetime]) -> str:
+def format_timecut_remaining(timecut_at: datetime | None) -> str:
     """타임컷까지 남은 시간을 포맷팅
 
     Args:
@@ -114,8 +111,7 @@ def format_timecut_remaining(timecut_at: Optional[datetime]) -> str:
 
     if timecut_mins > 0:
         return f"{timecut_mins}분 남음"
-    else:
-        return "만료됨"
+    return "만료됨"
 
 
 def calculate_pnl(

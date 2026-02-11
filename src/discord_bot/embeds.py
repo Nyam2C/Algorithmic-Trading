@@ -1,26 +1,25 @@
-"""
-Discord Embed 생성 함수
+"""Discord Embed 생성 함수
 
 봇 상태, 포지션, 통계, 내역 등의 임베드를 생성합니다.
 """
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
 import discord
 
 from src.discord_bot.constants import Colors, Emojis
 from src.discord_bot.utils import (
-    format_uptime,
-    format_time_ago,
-    format_duration,
-    format_timecut_remaining,
     calculate_pnl,
+    format_duration,
+    format_percentage,
+    format_price,
+    format_time_ago,
+    format_timecut_remaining,
+    format_uptime,
+    get_pnl_emoji,
+    get_position_emoji,
     get_status_emoji,
     get_status_text,
-    get_position_emoji,
-    get_pnl_emoji,
-    format_price,
-    format_percentage,
 )
 
 

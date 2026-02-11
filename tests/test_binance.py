@@ -3,9 +3,10 @@ Tests for BinanceTestnetClient
 
 Phase 4: AsyncClient 마이그레이션 대응
 """
-import pytest
 from unittest.mock import AsyncMock, patch
+
 import pandas as pd
+import pytest
 
 from src.exchange.binance import BinanceTestnetClient
 

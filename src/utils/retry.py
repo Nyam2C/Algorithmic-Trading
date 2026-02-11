@@ -1,9 +1,9 @@
-"""
-Retry decorator with exponential backoff for API calls
+"""Retry decorator with exponential backoff for API calls
 """
 import asyncio
 import functools
-from typing import Type, Tuple
+from typing import Tuple, Type
+
 from loguru import logger
 
 
@@ -13,8 +13,7 @@ def async_retry(
     backoff: float = 2.0,
     exceptions: Tuple[Type[Exception], ...] = (Exception,),
 ):
-    """
-    Async retry decorator with exponential backoff
+    """Async retry decorator with exponential backoff
 
     Args:
         max_attempts: Maximum number of retry attempts
@@ -72,8 +71,7 @@ def sync_retry(
     backoff: float = 2.0,
     exceptions: Tuple[Type[Exception], ...] = (Exception,),
 ):
-    """
-    Sync retry decorator with exponential backoff
+    """Sync retry decorator with exponential backoff
 
     Args:
         max_attempts: Maximum number of retry attempts

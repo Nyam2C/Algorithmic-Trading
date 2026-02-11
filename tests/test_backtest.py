@@ -3,12 +3,13 @@ Tests for Backtest Framework
 
 Phase 6.5: 백테스트 프레임워크
 """
+from typing import Dict, List
+
 import pytest
-from typing import List, Dict
 
 from src.backtest.engine import (
-    BacktestEngine,
     BacktestConfig,
+    BacktestEngine,
     BacktestResult,
     Trade,
 )

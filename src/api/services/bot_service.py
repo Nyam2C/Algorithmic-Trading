@@ -1,5 +1,4 @@
-"""
-봇 서비스 모듈
+"""봇 서비스 모듈
 
 봇 CRUD 및 제어 로직을 처리합니다.
 """
@@ -7,9 +6,9 @@ from typing import Any
 
 from loguru import logger
 
-from src.bot_manager import MultiBotManager
-from src.bot_config import BotConfig
 from src.api.schemas.bot import BotCreateRequest, BotUpdateRequest
+from src.bot_config import BotConfig
+from src.bot_manager import MultiBotManager
 
 
 class BotService:

@@ -1,17 +1,16 @@
-"""
-Technical indicators calculation using ta library
+"""Technical indicators calculation using ta library
 """
 from typing import Dict, Tuple
+
 import pandas as pd
+from loguru import logger
 from ta.momentum import RSIIndicator
 from ta.trend import SMAIndicator
 from ta.volatility import AverageTrueRange
-from loguru import logger
 
 
 def calculate_rsi(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    """
-    Calculate RSI (Relative Strength Index)
+    """Calculate RSI (Relative Strength Index)
 
     Args:
         df: DataFrame with 'close' column
@@ -33,8 +32,7 @@ def calculate_rsi(df: pd.DataFrame, period: int = 14) -> pd.Series:
 def calculate_ma(
     df: pd.DataFrame, periods: list = [7, 25, 99]
 ) -> Dict[str, pd.Series]:
-    """
-    Calculate Simple Moving Averages
+    """Calculate Simple Moving Averages
 
     Args:
         df: DataFrame with 'close' column
@@ -59,8 +57,7 @@ def calculate_ma(
 
 
 def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    """
-    Calculate ATR (Average True Range)
+    """Calculate ATR (Average True Range)
 
     Args:
         df: DataFrame with 'high', 'low', 'close' columns
@@ -82,8 +79,7 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
 
 
 def calculate_volume_ratio(df: pd.DataFrame) -> float:
-    """
-    Calculate current volume ratio vs average
+    """Calculate current volume ratio vs average
 
     Args:
         df: DataFrame with 'volume' column
@@ -103,8 +99,7 @@ def calculate_volume_ratio(df: pd.DataFrame) -> float:
 
 
 def analyze_rsi_trend(rsi_series: pd.Series, window: int = 3) -> str:
-    """
-    Analyze RSI trend
+    """Analyze RSI trend
 
     Args:
         rsi_series: RSI values
@@ -123,17 +118,15 @@ def analyze_rsi_trend(rsi_series: pd.Series, window: int = 3) -> str:
 
     if diff > 2:
         return "rising"
-    elif diff < -2:
+    if diff < -2:
         return "falling"
-    else:
-        return "flat"
+    return "flat"
 
 
 def calculate_price_vs_ma(
     current_price: float, ma_value: float
 ) -> Tuple[float, str]:
-    """
-    Calculate price position relative to MA
+    """Calculate price position relative to MA
 
     Args:
         current_price: Current price
@@ -148,8 +141,7 @@ def calculate_price_vs_ma(
 
 
 def analyze_candle_pattern(df: pd.DataFrame) -> Dict:
-    """
-    Analyze recent candle patterns
+    """Analyze recent candle patterns
 
     Args:
         df: DataFrame with OHLCV data
@@ -186,8 +178,7 @@ def analyze_candle_pattern(df: pd.DataFrame) -> Dict:
 def analyze_market(
     df: pd.DataFrame, ticker_24h: Dict, current_price: float
 ) -> Dict:
-    """
-    Comprehensive market analysis
+    """Comprehensive market analysis
 
     Args:
         df: Candlestick DataFrame

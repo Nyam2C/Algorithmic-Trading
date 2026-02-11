@@ -1,5 +1,4 @@
-"""
-백테스트 엔진
+"""백테스트 엔진
 
 Phase 6.5: 백테스트 프레임워크
 - 전략 시뮬레이션
@@ -10,8 +9,10 @@ Phase 6.2: 백테스트 현실화
 - RSI, ATR, MACD, BB 지표 계산
 - High/Low 기반 현실적 청산
 """
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List
+
 from loguru import logger
 
 from src.backtest.slippage import (
@@ -66,10 +67,10 @@ class Trade:
     entry_price: float
     side: str
     quantity: float
-    exit_time: Optional[Any] = None
-    exit_price: Optional[float] = None
-    exit_reason: Optional[str] = None
-    pnl: Optional[float] = None
+    exit_time: Any | None = None
+    exit_price: float | None = None
+    exit_reason: str | None = None
+    pnl: float | None = None
 
     def calculate_pnl(self) -> None:
         """PnL 계산"""
@@ -168,7 +169,7 @@ class BacktestEngine:
         self,
         config: BacktestConfig,
         data: List[Dict],
-        slippage_model: Optional[SlippageModel] = None,
+        slippage_model: SlippageModel | None = None,
     ) -> None:
         """엔진 초기화
 
@@ -180,7 +181,7 @@ class BacktestEngine:
         self.config = config
         self.data = data
         self.capital = config.initial_capital
-        self.position: Optional[Trade] = None
+        self.position: Trade | None = None
         self.trades: List[Trade] = []
         self.equity_curve: List[float] = [config.initial_capital]
 
@@ -517,7 +518,7 @@ class BacktestEngine:
         self.trades.append(self.position)
         self.position = None
 
-    def _check_exit(self, candle: Dict, bars: int) -> Optional[str]:
+    def _check_exit(self, candle: Dict, bars: int) -> str | None:
         """청산 조건 체크
 
         Phase 6.2: High/Low 기반 현실적 TP/SL 체크
@@ -589,10 +590,8 @@ class BacktestEngine:
         max_dd = 0.0
 
         for equity in self.equity_curve:
-            if equity > peak:
-                peak = equity
+            peak = max(peak, equity)
             dd = (peak - equity) / peak
-            if dd > max_dd:
-                max_dd = dd
+            max_dd = max(max_dd, dd)
 
         return max_dd

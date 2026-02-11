@@ -3,8 +3,9 @@ Gemini AI 신호 이유 로깅 테스트
 
 Phase 6.1: get_signal_with_reason() 테스트
 """
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.ai.gemini import GeminiSignalGenerator
 

@@ -1,5 +1,4 @@
-"""
-다중 타임프레임 분석 모듈
+"""다중 타임프레임 분석 모듈
 
 Phase 6.4: 다중 타임프레임 확인
 - 상위 TF(15분봉)로 추세 확인
@@ -7,6 +6,7 @@ Phase 6.4: 다중 타임프레임 확인
 """
 from enum import Enum
 from typing import Dict, Tuple
+
 from loguru import logger
 
 
@@ -100,14 +100,12 @@ class MultiTimeframeAnalyzer:
         if signal == "LONG":
             if is_higher_bullish:
                 return TimeframeAlignment.ALIGNED
-            else:
-                return TimeframeAlignment.CONFLICTING
+            return TimeframeAlignment.CONFLICTING
 
         if signal == "SHORT":
             if is_higher_bearish:
                 return TimeframeAlignment.ALIGNED
-            else:
-                return TimeframeAlignment.CONFLICTING
+            return TimeframeAlignment.CONFLICTING
 
         return TimeframeAlignment.NEUTRAL
 
@@ -189,8 +187,7 @@ class MultiTimeframeAnalyzer:
 
         if current_price > ma_25:
             return "BULLISH"
-        else:
-            return "BEARISH"
+        return "BEARISH"
 
     def get_analysis_info(
         self,

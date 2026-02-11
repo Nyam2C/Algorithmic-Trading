@@ -1,16 +1,15 @@
-"""
-Analytics API 라우터
+"""Analytics API 라우터
 
 Phase 4: AI 메모리 시스템 - 분석 API 엔드포인트
 거래 분석 결과 및 패턴 인사이트 제공
 """
-from typing import Optional, List, Any
-from fastapi import APIRouter, Query, HTTPException, status
-from pydantic import BaseModel
+from typing import Any, List
+
+from fastapi import APIRouter, HTTPException, Query, status
 from loguru import logger
+from pydantic import BaseModel
 
 from src.api.dependencies import get_trade_analyzer
-
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -84,18 +83,18 @@ class TimeBasedStatsResponse(BaseModel):
 class StreakResponse(BaseModel):
     """연승/연패 응답"""
 
-    streak_type: Optional[str]
+    streak_type: str | None
     streak_count: int
-    last_trade_time: Optional[str]
+    last_trade_time: str | None
 
 
 class RecommendationsResponse(BaseModel):
     """추천 응답"""
 
     recommendations: List[str]
-    best_long_condition: Optional[str]
-    best_short_condition: Optional[str]
-    best_hour: Optional[int]
+    best_long_condition: str | None
+    best_short_condition: str | None
+    best_hour: int | None
     avoid_conditions: List[str]
 
 
@@ -109,7 +108,7 @@ class APIResponse(BaseModel):
 
     success: bool
     data: Any
-    message: Optional[str] = None
+    message: str | None = None
 
 
 # =============================================================================
@@ -119,7 +118,7 @@ class APIResponse(BaseModel):
 
 @router.get("/summary", response_model=APIResponse)
 async def get_analytics_summary(
-    bot_id: Optional[str] = Query(None, description="봇 ID"),
+    bot_id: str | None = Query(None, description="봇 ID"),
     days: int = Query(7, ge=1, le=90, description="분석 기간 (일)"),
 ) -> APIResponse:
     """전체 성과 요약 조회
@@ -155,7 +154,7 @@ async def get_analytics_summary(
 
 @router.get("/patterns", response_model=APIResponse)
 async def get_analytics_patterns(
-    bot_id: Optional[str] = Query(None, description="봇 ID"),
+    bot_id: str | None = Query(None, description="봇 ID"),
     days: int = Query(7, ge=1, le=90, description="분석 기간 (일)"),
     min_sample_size: int = Query(5, ge=1, description="최소 샘플 수"),
     min_win_rate: float = Query(70.0, ge=0, le=100, description="최소 승률 (%)"),
@@ -215,7 +214,7 @@ async def get_analytics_patterns(
 
 @router.get("/recommendations", response_model=APIResponse)
 async def get_analytics_recommendations(
-    bot_id: Optional[str] = Query(None, description="봇 ID"),
+    bot_id: str | None = Query(None, description="봇 ID"),
     days: int = Query(7, ge=1, le=90, description="분석 기간 (일)"),
 ) -> APIResponse:
     """AI 추천 파라미터 조회
@@ -295,7 +294,7 @@ async def get_analytics_recommendations(
 
 @router.get("/rsi-stats", response_model=APIResponse)
 async def get_rsi_stats(
-    bot_id: Optional[str] = Query(None, description="봇 ID"),
+    bot_id: str | None = Query(None, description="봇 ID"),
     days: int = Query(7, ge=1, le=90, description="분석 기간 (일)"),
 ) -> APIResponse:
     """RSI 조건별 통계 조회
@@ -331,7 +330,7 @@ async def get_rsi_stats(
 
 @router.get("/hourly-stats", response_model=APIResponse)
 async def get_hourly_stats(
-    bot_id: Optional[str] = Query(None, description="봇 ID"),
+    bot_id: str | None = Query(None, description="봇 ID"),
     days: int = Query(7, ge=1, le=90, description="분석 기간 (일)"),
 ) -> APIResponse:
     """시간대별 통계 조회
@@ -367,7 +366,7 @@ async def get_hourly_stats(
 
 @router.get("/streak", response_model=APIResponse)
 async def get_streak(
-    bot_id: Optional[str] = Query(None, description="봇 ID"),
+    bot_id: str | None = Query(None, description="봇 ID"),
 ) -> APIResponse:
     """연승/연패 조회
 

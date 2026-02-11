@@ -3,9 +3,10 @@ MultiBotManager 클래스 테스트
 
 여러 BotInstance를 관리하는 MultiBotManager 테스트
 """
-import pytest
 from unittest.mock import AsyncMock
 from uuid import uuid4
+
+import pytest
 
 
 class TestMultiBotManager:

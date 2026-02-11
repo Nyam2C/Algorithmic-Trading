@@ -1,5 +1,4 @@
-"""
-Discord 봇 모듈
+"""Discord 봇 모듈
 
 원격 모니터링 및 제어를 위한 Discord 봇을 제공합니다.
 

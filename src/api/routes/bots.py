@@ -1,21 +1,20 @@
-"""
-봇 CRUD 라우트
+"""봇 CRUD 라우트
 
 봇 생성, 조회, 수정, 삭제 및 제어 엔드포인트입니다.
 """
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.api.dependencies import get_bot_manager, verify_api_key
 from src.api.schemas.bot import (
     BotCreateRequest,
-    BotUpdateRequest,
-    BotResponse,
     BotListResponse,
+    BotResponse,
     BotStateResponse,
+    BotUpdateRequest,
 )
-from src.api.schemas.common import SuccessResponse, APIResponse
+from src.api.schemas.common import APIResponse, SuccessResponse
 from src.api.services.bot_service import BotService
 from src.bot_manager import MultiBotManager
 
@@ -171,16 +170,15 @@ async def delete_bot(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=error_msg,
             )
-        elif "running" in error_msg.lower():
+        if "running" in error_msg.lower():
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=error_msg,
             )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error_msg,
-            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg,
+        )
 
 
 # =============================================================================

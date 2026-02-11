@@ -1,15 +1,14 @@
-"""
-n8n 웹훅 라우트
+"""n8n 웹훅 라우트
 
 n8n과의 통합을 위한 웹훅 엔드포인트입니다.
 Phase 4.1: API 키 인증 추가
 """
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 
 from src.api.dependencies import get_bot_manager, verify_n8n_api_key
-from src.api.schemas.n8n import N8NSignalPayload, N8NCommandPayload
 from src.api.schemas.common import SuccessResponse
+from src.api.schemas.n8n import N8NCommandPayload, N8NSignalPayload
 from src.bot_manager import MultiBotManager
 
 router = APIRouter(prefix="/n8n", tags=["n8n"])
@@ -104,20 +103,19 @@ async def receive_command(
                     bot.request_emergency_close()
                 else:
                     raise ValueError(f"Bot '{bot_name}' not found")
-        else:
-            # 전체 봇에 명령 실행
-            if command == "start":
-                await manager.start_all()
-            elif command == "stop":
-                await manager.stop_all()
-            elif command == "pause":
-                manager.pause_all()
-            elif command == "resume":
-                manager.resume_all()
-            elif command == "emergency_close":
-                # 전체 봇 긴급 청산
-                for bot in manager.bots.values():
-                    bot.request_emergency_close()
+        # 전체 봇에 명령 실행
+        elif command == "start":
+            await manager.start_all()
+        elif command == "stop":
+            await manager.stop_all()
+        elif command == "pause":
+            manager.pause_all()
+        elif command == "resume":
+            manager.resume_all()
+        elif command == "emergency_close":
+            # 전체 봇 긴급 청산
+            for bot in manager.bots.values():
+                bot.request_emergency_close()
 
         return SuccessResponse(
             message=f"Command '{command}' executed successfully"

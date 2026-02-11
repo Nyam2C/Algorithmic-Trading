@@ -1,9 +1,10 @@
 """
 Tests for TradeHistoryDB
 """
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.storage.trade_history import TradeHistoryDB
 

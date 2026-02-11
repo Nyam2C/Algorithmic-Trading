@@ -1,13 +1,13 @@
-"""
-Trading executor for opening and closing positions
+"""Trading executor for opening and closing positions
 
 Phase 5: 리스크 관리 강화
 - 실제 잔고 기반 포지션 사이징
 - ATR 기반 동적 TP/SL
 """
-from typing import Dict, Optional
 import asyncio
 from datetime import datetime, timedelta
+from typing import Dict
+
 from binance.enums import (
     SIDE_BUY,
     SIDE_SELL,
@@ -24,8 +24,7 @@ class TradingExecutor:
     """
 
     def __init__(self, binance_client, config):
-        """
-        Initialize trading executor
+        """Initialize trading executor
 
         Args:
             binance_client: BinanceTestnetClient instance
@@ -33,18 +32,17 @@ class TradingExecutor:
         """
         self.client = binance_client
         self.config = config
-        self.current_position: Optional[Dict] = None
+        self.current_position: Dict | None = None
 
         # Phase 5: 잔고 캐싱
-        self._cached_balance: Optional[float] = None
-        self._balance_cache_time: Optional[datetime] = None
+        self._cached_balance: float | None = None
+        self._balance_cache_time: datetime | None = None
         self._balance_cache_ttl_seconds: int = 60  # 1분 캐싱
 
         logger.info("Trading executor initialized")
 
     async def setup_leverage(self) -> bool:
-        """
-        Set leverage for the trading symbol
+        """Set leverage for the trading symbol
 
         Returns:
             True if successful
@@ -63,8 +61,7 @@ class TradingExecutor:
             return False
 
     async def _get_available_balance(self) -> float:
-        """
-        Get available USDT balance with caching
+        """Get available USDT balance with caching
 
         Returns:
             Available balance in USDT
@@ -94,9 +91,8 @@ class TradingExecutor:
                 return self._cached_balance
             raise
 
-    def _calculate_position_size(self, current_price: float, capital: Optional[float] = None) -> float:
-        """
-        Calculate position size based on configuration (동기 버전 - 테스트 호환)
+    def _calculate_position_size(self, current_price: float, capital: float | None = None) -> float:
+        """Calculate position size based on configuration (동기 버전 - 테스트 호환)
 
         Args:
             current_price: Current market price
@@ -126,8 +122,7 @@ class TradingExecutor:
         return quantity
 
     async def _calculate_position_size_with_balance(self, current_price: float) -> float:
-        """
-        Calculate position size based on real account balance (비동기 버전)
+        """Calculate position size based on real account balance (비동기 버전)
 
         Phase 5.1: 실제 잔고 기반 포지션 사이징
 
@@ -152,10 +147,9 @@ class TradingExecutor:
         return self._calculate_position_size(current_price, capital)
 
     async def open_position(
-        self, signal: str, current_price: float, entry_atr: Optional[float] = None
-    ) -> Optional[Dict]:
-        """
-        Open a new position based on signal
+        self, signal: str, current_price: float, entry_atr: float | None = None
+    ) -> Dict | None:
+        """Open a new position based on signal
 
         Args:
             signal: "LONG" or "SHORT"
@@ -218,10 +212,9 @@ class TradingExecutor:
 
     async def open_position_maker(
         self, signal: str, current_price: float, use_maker: bool = True,
-        entry_atr: Optional[float] = None
-    ) -> Optional[Dict]:
-        """
-        Open a new position using Maker order (limit order)
+        entry_atr: float | None = None
+    ) -> Dict | None:
+        """Open a new position using Maker order (limit order)
 
         Args:
             signal: "LONG" or "SHORT"
@@ -331,8 +324,7 @@ class TradingExecutor:
     async def _wait_for_fill(
         self, order_id: int, timeout: int = 30, check_interval: int = 2
     ) -> bool:
-        """
-        Wait for order to be filled
+        """Wait for order to be filled
 
         Args:
             order_id: Order ID to check
@@ -367,9 +359,8 @@ class TradingExecutor:
         logger.warning(f"Order {order_id} not filled within {timeout}s")
         return False
 
-    async def close_position(self) -> Optional[Dict]:
-        """
-        Close current position
+    async def close_position(self) -> Dict | None:
+        """Close current position
 
         Returns:
             Order details or None if failed
@@ -397,9 +388,8 @@ class TradingExecutor:
             logger.error(f"Failed to close position: {e}")
             return None
 
-    async def get_position(self) -> Optional[Dict]:
-        """
-        Get current position from exchange
+    async def get_position(self) -> Dict | None:
+        """Get current position from exchange
 
         Returns:
             Position info or None if no position
@@ -412,8 +402,7 @@ class TradingExecutor:
             return None
 
     async def has_position(self) -> bool:
-        """
-        Check if we currently have an open position
+        """Check if we currently have an open position
 
         Returns:
             True if has position, False otherwise
@@ -422,8 +411,7 @@ class TradingExecutor:
         return position is not None
 
     def calculate_pnl_pct(self, entry_price: float, current_price: float, side: str) -> float:
-        """
-        Calculate PnL percentage
+        """Calculate PnL percentage
 
         Args:
             entry_price: Entry price
@@ -440,9 +428,8 @@ class TradingExecutor:
 
         return pnl_pct
 
-    async def check_tp_sl(self, position: Dict, current_price: float) -> Optional[str]:
-        """
-        Check if TP or SL should be triggered
+    async def check_tp_sl(self, position: Dict, current_price: float) -> str | None:
+        """Check if TP or SL should be triggered
 
         Args:
             position: Position info
@@ -478,9 +465,8 @@ class TradingExecutor:
 
     async def check_tp_sl_dynamic(
         self, position: Dict, current_price: float
-    ) -> Optional[str]:
-        """
-        Phase 6.1: ATR 기반 동적 TP/SL 체크
+    ) -> str | None:
+        """Phase 6.1: ATR 기반 동적 TP/SL 체크
 
         ATR을 사용하여 시장 변동성에 따른 동적 TP/SL 레벨 설정.
 
@@ -558,8 +544,7 @@ class TradingExecutor:
             return await self.check_tp_sl(position, current_price)
 
     def check_timecut(self, position: Dict) -> bool:
-        """
-        Check if position should be closed due to timecut (2 hours)
+        """Check if position should be closed due to timecut (2 hours)
 
         Args:
             position: Position info with entry_time

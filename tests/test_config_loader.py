@@ -6,8 +6,8 @@ YAML 설정 로더 테스트
 import pytest
 
 from src.config_loader import (
-    GlobalConfig,
     BotYamlEntry,
+    GlobalConfig,
     load_bots_from_yaml,
     load_bots_from_yaml_optional,
 )

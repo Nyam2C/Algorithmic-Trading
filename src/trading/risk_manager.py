@@ -1,5 +1,4 @@
-"""
-리스크 매니저 모듈
+"""리스크 매니저 모듈
 
 Phase 5: 리스크 관리 강화
 - 일일 손실 한도 (-5% 시 전체 봇 정지)
@@ -7,7 +6,8 @@ Phase 5: 리스크 관리 강화
 - 드로다운 모니터링
 """
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
+from typing import Tuple
+
 from loguru import logger
 
 
@@ -57,11 +57,11 @@ class RiskManager:
         # 일일 통계
         self._daily_pnl: float = 0.0
         self._daily_start_balance: float = 0.0
-        self._daily_reset_time: Optional[datetime] = None
+        self._daily_reset_time: datetime | None = None
 
         # 연속 손실 추적
         self._consecutive_losses: int = 0
-        self._cooldown_until: Optional[datetime] = None
+        self._cooldown_until: datetime | None = None
 
         # 드로다운 추적
         self._peak_balance: float = 0.0
@@ -92,8 +92,7 @@ class RiskManager:
         self._daily_reset_time = datetime.now(timezone.utc)
 
         # Peak balance 업데이트
-        if current_balance > self._peak_balance:
-            self._peak_balance = current_balance
+        self._peak_balance = max(self._peak_balance, current_balance)
 
         logger.info(
             f"일일 통계 리셋: 시작 잔고=${current_balance:,.2f}, "
@@ -194,8 +193,7 @@ class RiskManager:
             current_balance: 현재 잔고
         """
         # Peak balance 업데이트
-        if current_balance > self._peak_balance:
-            self._peak_balance = current_balance
+        self._peak_balance = max(self._peak_balance, current_balance)
 
         # 드로다운 계산
         if self._peak_balance > 0:

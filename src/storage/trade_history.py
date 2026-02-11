@@ -1,12 +1,12 @@
-"""
-거래 이력 저장소 (PostgreSQL)
+"""거래 이력 저장소 (PostgreSQL)
 
 모든 거래 진입/청산 기록을 분석 및 리포트용으로 저장
 """
+from datetime import datetime, timedelta
+from typing import Any, Dict, List
+
 import asyncpg
 from asyncpg import Connection
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
 from loguru import logger
 
 
@@ -14,14 +14,13 @@ class TradeHistoryDB:
     """PostgreSQL 거래 이력 데이터베이스"""
 
     def __init__(self, database_url: str):
-        """
-        거래 이력 데이터베이스 초기화
+        """거래 이력 데이터베이스 초기화
 
         Args:
             database_url: PostgreSQL 연결 URL
         """
         self.database_url = database_url
-        self.pool: Optional[asyncpg.Pool] = None
+        self.pool: asyncpg.Pool | None = None
 
     async def connect(self):
         """데이터베이스 연결 풀 생성"""
@@ -73,10 +72,9 @@ class TradeHistoryDB:
         quantity: float,
         leverage: int,
         symbol: str = "BTCUSDT",
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
     ) -> str:
-        """
-        거래 진입 기록
+        """거래 진입 기록
 
         Args:
             entry_time: 진입 시간
@@ -119,7 +117,7 @@ class TradeHistoryDB:
         exit_reason: str,
         pnl: float,
         pnl_pct: float,
-        duration_minutes: Optional[int] = None
+        duration_minutes: int | None = None
     ):
         """거래 청산 기록"""
         if self.pool is None:
@@ -147,7 +145,7 @@ class TradeHistoryDB:
     async def get_recent_trades(
         self,
         limit: int = 10,
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
     ) -> List[Dict[str, Any]]:
         """최근 완료된 거래 조회
 
@@ -189,10 +187,9 @@ class TradeHistoryDB:
     async def get_statistics(
         self,
         hours: int = 24,
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
     ) -> Dict[str, Any]:
-        """
-        최근 N시간 동안의 거래 통계 조회
+        """최근 N시간 동안의 거래 통계 조회
 
         Args:
             hours: 조회 기간 (시간)
@@ -325,8 +322,8 @@ class TradeHistoryDB:
 
     async def get_open_trade(
         self,
-        bot_id: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        bot_id: str | None = None,
+    ) -> Dict[str, Any] | None:
         """현재 열린 거래 조회 (아직 청산되지 않음)
 
         Args:

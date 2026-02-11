@@ -4,19 +4,20 @@ JSON 로깅 모듈 테스트
 JSON 포맷, 민감정보 마스킹 기능을 테스트합니다.
 """
 import json
-import pytest
-from unittest.mock import patch, MagicMock
 from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from src.utils.logging import (
-    mask_sensitive_data,
-    mask_dict_sensitive_data,
     JSONFormatter,
-    setup_json_logging,
+    disable_json_logging,
+    enable_json_logging,
     get_structured_logger,
     is_json_logging_enabled,
-    enable_json_logging,
-    disable_json_logging,
+    mask_dict_sensitive_data,
+    mask_sensitive_data,
+    setup_json_logging,
 )
 
 

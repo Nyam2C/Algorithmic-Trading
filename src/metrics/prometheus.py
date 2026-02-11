@@ -1,14 +1,13 @@
-"""
-Prometheus 메트릭 모듈
+"""Prometheus 메트릭 모듈
 
 Phase 7.2: 실시간 모니터링 대시보드
 - 거래 메트릭 (trades_total, position_pnl, trade_duration)
 - 시스템 메트릭 (api_latency, signal_confidence)
 """
 from typing import Optional
-from prometheus_client import Counter, Gauge, Histogram, CollectorRegistry, REGISTRY
-from loguru import logger
 
+from loguru import logger
+from prometheus_client import REGISTRY, CollectorRegistry, Counter, Gauge, Histogram
 
 # 기본 레지스트리 (싱글톤)
 _metrics_instance: Optional["TradingMetrics"] = None
@@ -35,13 +34,13 @@ class TradingMetrics:
     """
 
     # 클래스 레벨 메트릭 (기본 레지스트리용, 한번만 생성)
-    _default_trades_total: Optional[Counter] = None
-    _default_trade_duration: Optional[Histogram] = None
-    _default_position_pnl: Optional[Gauge] = None
-    _default_api_latency: Optional[Histogram] = None
-    _default_signal_confidence: Optional[Gauge] = None
+    _default_trades_total: Counter | None = None
+    _default_trade_duration: Histogram | None = None
+    _default_position_pnl: Gauge | None = None
+    _default_api_latency: Histogram | None = None
+    _default_signal_confidence: Gauge | None = None
 
-    def __init__(self, registry: Optional[CollectorRegistry] = None) -> None:
+    def __init__(self, registry: CollectorRegistry | None = None) -> None:
         """메트릭 초기화
 
         Args:

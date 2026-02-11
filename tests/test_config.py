@@ -4,7 +4,7 @@ Tests for configuration management
 import pytest
 from pydantic import ValidationError
 
-from src.config import TradingConfig, load_config, get_config
+from src.config import TradingConfig, get_config, load_config
 
 
 class TestTradingConfig:

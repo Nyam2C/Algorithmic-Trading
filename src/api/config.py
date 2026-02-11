@@ -1,10 +1,9 @@
-"""
-API 서버 설정 모듈
+"""API 서버 설정 모듈
 
 환경 변수에서 API 서버 설정을 로드합니다.
 """
 import os
-from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -22,8 +21,8 @@ class APIConfig(BaseModel):
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8000, ge=1, le=65535)
     debug: bool = Field(default=False)
-    n8n_webhook_url: Optional[str] = Field(default=None)
-    api_key: Optional[str] = Field(default=None)
+    n8n_webhook_url: str | None = Field(default=None)
+    api_key: str | None = Field(default=None)
 
     @classmethod
     def from_env(cls) -> "APIConfig":

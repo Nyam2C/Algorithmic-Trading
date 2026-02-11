@@ -8,10 +8,10 @@ import pytest
 from src.analytics.trade_analyzer import (
     MIN_SAMPLE_SIZE,
     MIN_SAMPLE_SIZE_RELAXED,
-    StatisticalInsight,
     PatternInsight,
-    calculate_confidence_interval,
+    StatisticalInsight,
     _normal_cdf,
+    calculate_confidence_interval,
 )
 
 

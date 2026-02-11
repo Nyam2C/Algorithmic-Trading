@@ -3,13 +3,13 @@
 
 Phase 6.3: REST API 및 WebSocket 테스트
 """
-import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.api.routes.dashboard import router, ConnectionManager
+from src.api.routes.dashboard import ConnectionManager, router
 
 
 class TestConnectionManager:

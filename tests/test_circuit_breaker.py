@@ -4,6 +4,7 @@ Circuit Breaker 테스트
 Phase 6.2: 상태 전이, 복구, 데코레이터 테스트
 """
 import asyncio
+
 import pytest
 
 from src.utils.circuit_breaker import (

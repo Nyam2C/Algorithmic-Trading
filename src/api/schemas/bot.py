@@ -1,13 +1,12 @@
-"""
-봇 API 스키마
+"""봇 API 스키마
 
 봇 CRUD API의 요청/응답 모델을 정의합니다.
 """
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
-from pydantic import BaseModel, Field, field_validator
 
+from pydantic import BaseModel, Field, field_validator
 
 # 허용된 거래 심볼 화이트리스트
 ALLOWED_SYMBOLS = frozenset({
@@ -54,28 +53,28 @@ class BotCreateRequest(BaseModel):
             )
         return v
     risk_level: str = Field(default="medium", description="위험도 (low, medium, high)")
-    leverage: Optional[int] = Field(default=None, ge=1, le=125, description="레버리지")
-    position_size_pct: Optional[float] = Field(
+    leverage: int | None = Field(default=None, ge=1, le=125, description="레버리지")
+    position_size_pct: float | None = Field(
         default=None, gt=0, le=1, description="포지션 크기 비율"
     )
-    take_profit_pct: Optional[float] = Field(
+    take_profit_pct: float | None = Field(
         default=None, gt=0, description="익절 비율"
     )
-    stop_loss_pct: Optional[float] = Field(default=None, gt=0, description="손절 비율")
-    time_cut_minutes: Optional[int] = Field(
+    stop_loss_pct: float | None = Field(default=None, gt=0, description="손절 비율")
+    time_cut_minutes: int | None = Field(
         default=None, gt=0, description="타임컷 분"
     )
-    rsi_oversold: Optional[float] = Field(
+    rsi_oversold: float | None = Field(
         default=None, ge=0, le=100, description="RSI 과매도 기준"
     )
-    rsi_overbought: Optional[float] = Field(
+    rsi_overbought: float | None = Field(
         default=None, ge=0, le=100, description="RSI 과매수 기준"
     )
-    volume_threshold: Optional[float] = Field(
+    volume_threshold: float | None = Field(
         default=None, ge=0, description="거래량 임계값"
     )
     is_testnet: bool = Field(default=True, description="테스트넷 사용 여부")
-    description: Optional[str] = Field(default=None, description="봇 설명")
+    description: str | None = Field(default=None, description="봇 설명")
 
 
 class BotUpdateRequest(BaseModel):
@@ -84,30 +83,30 @@ class BotUpdateRequest(BaseModel):
     모든 필드는 선택이며, 지정된 필드만 업데이트됩니다.
     """
 
-    risk_level: Optional[str] = Field(default=None, description="위험도")
-    leverage: Optional[int] = Field(default=None, ge=1, le=125, description="레버리지")
-    position_size_pct: Optional[float] = Field(
+    risk_level: str | None = Field(default=None, description="위험도")
+    leverage: int | None = Field(default=None, ge=1, le=125, description="레버리지")
+    position_size_pct: float | None = Field(
         default=None, gt=0, le=1, description="포지션 크기 비율"
     )
-    take_profit_pct: Optional[float] = Field(
+    take_profit_pct: float | None = Field(
         default=None, gt=0, description="익절 비율"
     )
-    stop_loss_pct: Optional[float] = Field(default=None, gt=0, description="손절 비율")
-    time_cut_minutes: Optional[int] = Field(
+    stop_loss_pct: float | None = Field(default=None, gt=0, description="손절 비율")
+    time_cut_minutes: int | None = Field(
         default=None, gt=0, description="타임컷 분"
     )
-    rsi_oversold: Optional[float] = Field(
+    rsi_oversold: float | None = Field(
         default=None, ge=0, le=100, description="RSI 과매도 기준"
     )
-    rsi_overbought: Optional[float] = Field(
+    rsi_overbought: float | None = Field(
         default=None, ge=0, le=100, description="RSI 과매수 기준"
     )
-    volume_threshold: Optional[float] = Field(
+    volume_threshold: float | None = Field(
         default=None, ge=0, description="거래량 임계값"
     )
-    is_testnet: Optional[bool] = Field(default=None, description="테스트넷 사용 여부")
-    is_active: Optional[bool] = Field(default=None, description="봇 활성화 여부")
-    description: Optional[str] = Field(default=None, description="봇 설명")
+    is_testnet: bool | None = Field(default=None, description="테스트넷 사용 여부")
+    is_active: bool | None = Field(default=None, description="봇 활성화 여부")
+    description: str | None = Field(default=None, description="봇 설명")
 
 
 class BotResponse(BaseModel):
@@ -129,7 +128,7 @@ class BotResponse(BaseModel):
     is_active: bool = Field(..., description="봇 활성화 여부")
     is_running: bool = Field(default=False, description="봇 실행 중 여부")
     is_paused: bool = Field(default=False, description="봇 일시정지 여부")
-    description: Optional[str] = Field(default=None, description="봇 설명")
+    description: str | None = Field(default=None, description="봇 설명")
 
 
 class BotStateResponse(BaseModel):
@@ -144,14 +143,14 @@ class BotStateResponse(BaseModel):
     risk_level: str = Field(..., description="위험도")
     is_running: bool = Field(..., description="봇 실행 중 여부")
     is_paused: bool = Field(..., description="봇 일시정지 여부")
-    uptime_start: Optional[datetime] = Field(default=None, description="시작 시간")
+    uptime_start: datetime | None = Field(default=None, description="시작 시간")
     loop_count: int = Field(default=0, description="루프 횟수")
     current_price: float = Field(default=0.0, description="현재 가격")
     last_signal: str = Field(default="WAIT", description="마지막 시그널")
-    last_signal_time: Optional[datetime] = Field(
+    last_signal_time: datetime | None = Field(
         default=None, description="마지막 시그널 시간"
     )
-    position: Optional[dict[str, Any]] = Field(default=None, description="현재 포지션")
+    position: dict[str, Any] | None = Field(default=None, description="현재 포지션")
     leverage: int = Field(..., description="적용 레버리지")
 
 

@@ -4,18 +4,18 @@ Analytics API 엔드포인트 테스트
 Phase 4: AI 메모리 시스템 - 분석 API 테스트
 TDD 방식으로 작성
 """
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
 
-from src.api.main import create_app
 from src.analytics.trade_analyzer import (
-    TradingStats,
+    PatternInsight,
     RSIConditionStats,
     TimeBasedStats,
-    PatternInsight,
+    TradingStats,
 )
-
+from src.api.main import create_app
 
 # =============================================================================
 # Fixtures

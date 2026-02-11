@@ -1,5 +1,4 @@
-"""
-Circuit Breaker 패턴
+"""Circuit Breaker 패턴
 
 Phase 6.2: API 호출 복원력 향상
 - 연속 실패 시 자동 차단
@@ -9,9 +8,10 @@ Phase 6.2: API 호출 복원력 향상
 import asyncio
 import functools
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, Optional, Type, TypeVar
+from typing import Any, Dict, Type, TypeVar
 
 from loguru import logger
 
@@ -68,8 +68,8 @@ class CircuitBreakerStats:
     failed_calls: int = 0
     rejected_calls: int = 0
     state_changes: int = 0
-    last_failure_time: Optional[float] = None
-    last_success_time: Optional[float] = None
+    last_failure_time: float | None = None
+    last_success_time: float | None = None
 
     def to_dict(self) -> Dict[str, Any]:
         """딕셔너리로 변환"""
@@ -125,7 +125,7 @@ class CircuitBreaker:
     def __init__(
         self,
         name: str,
-        config: Optional[CircuitBreakerConfig] = None,
+        config: CircuitBreakerConfig | None = None,
     ) -> None:
         """Circuit Breaker 초기화
 
@@ -138,7 +138,7 @@ class CircuitBreaker:
         self._state = CircuitState.CLOSED
         self._failure_count = 0
         self._success_count = 0
-        self._last_failure_time: Optional[float] = None
+        self._last_failure_time: float | None = None
         self._half_open_calls = 0
         self._lock = asyncio.Lock()
         self._stats = CircuitBreakerStats()
@@ -263,8 +263,8 @@ class CircuitBreaker:
 
     async def __aexit__(
         self,
-        exc_type: Optional[Type[BaseException]],
-        exc_val: Optional[BaseException],
+        exc_type: Type[BaseException] | None,
+        exc_val: BaseException | None,
         exc_tb: Any,
     ) -> bool:
         """비동기 컨텍스트 매니저 종료"""
@@ -326,7 +326,7 @@ _circuit_breakers: Dict[str, CircuitBreaker] = {}
 
 def get_circuit_breaker(
     name: str,
-    config: Optional[CircuitBreakerConfig] = None,
+    config: CircuitBreakerConfig | None = None,
 ) -> CircuitBreaker:
     """Circuit Breaker 인스턴스 조회/생성
 

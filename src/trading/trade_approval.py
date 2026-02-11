@@ -1,5 +1,4 @@
-"""
-거래 승인 시스템
+"""거래 승인 시스템
 
 Phase 7.4: 수동 승인 모드
 - 첫 N거래는 Discord에서 수동 승인 필요
@@ -8,8 +7,9 @@ Phase 7.4: 수동 승인 모드
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from uuid import uuid4
+
 from loguru import logger
 
 
@@ -43,10 +43,10 @@ class TradeApprovalRequest:
     request_id: str = field(default_factory=lambda: str(uuid4())[:8])
     status: ApprovalStatus = ApprovalStatus.PENDING
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    approver_id: Optional[str] = None
-    rejection_reason: Optional[str] = None
-    rsi: Optional[float] = None
-    atr: Optional[float] = None
+    approver_id: str | None = None
+    rejection_reason: str | None = None
+    rsi: float | None = None
+    atr: float | None = None
 
     def approve(self, user_id: str) -> None:
         """승인"""
@@ -54,7 +54,7 @@ class TradeApprovalRequest:
         self.approver_id = user_id
         logger.info(f"거래 승인됨: {self.request_id} by {user_id}")
 
-    def reject(self, user_id: str, reason: Optional[str] = None) -> None:
+    def reject(self, user_id: str, reason: str | None = None) -> None:
         """거부"""
         self.status = ApprovalStatus.REJECTED
         self.approver_id = user_id
@@ -168,8 +168,8 @@ class TradeApprovalManager:
         signal: str,
         price: float,
         quantity: float,
-        rsi: Optional[float] = None,
-        atr: Optional[float] = None,
+        rsi: float | None = None,
+        atr: float | None = None,
     ) -> TradeApprovalRequest:
         """승인 요청 생성
 
@@ -228,7 +228,7 @@ class TradeApprovalManager:
         self,
         request_id: str,
         user_id: str,
-        reason: Optional[str] = None,
+        reason: str | None = None,
     ) -> bool:
         """요청 거부
 
@@ -254,7 +254,7 @@ class TradeApprovalManager:
 
     async def get_pending_requests(
         self,
-        bot_name: Optional[str] = None,
+        bot_name: str | None = None,
     ) -> List[TradeApprovalRequest]:
         """대기 중 요청 조회
 
@@ -274,7 +274,7 @@ class TradeApprovalManager:
 
         return pending
 
-    async def get_request(self, request_id: str) -> Optional[TradeApprovalRequest]:
+    async def get_request(self, request_id: str) -> TradeApprovalRequest | None:
         """요청 조회
 
         Args:

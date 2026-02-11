@@ -2,6 +2,7 @@
 Quick integration test for Discord Bot + PostgreSQL
 """
 import asyncio
+
 from src.config import get_config
 from src.storage.trade_history import TradeHistoryDB
 

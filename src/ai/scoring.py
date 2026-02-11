@@ -1,12 +1,11 @@
-"""
-지표 기반 스코어링 시스템
+"""지표 기반 스코어링 시스템
 
 Phase 6.3: AI 앙상블 - 지표 스코어링
 - RSI, MA, Volume, ATR 기반 점수 계산
 - 종합 점수로 신호 생성
 """
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from loguru import logger
 
@@ -99,7 +98,7 @@ class IndicatorScorer:
 
     def __init__(
         self,
-        weights: Optional[Dict[str, float]] = None,
+        weights: Dict[str, float] | None = None,
         long_threshold: float = LONG_THRESHOLD,
         short_threshold: float = SHORT_THRESHOLD,
     ) -> None:
@@ -261,16 +260,15 @@ class IndicatorScorer:
             else:
                 score = 0.0
                 reason = "MA 혼재"
+        elif ma7 > ma25:
+            score = 0.5
+            reason = "MA 상승 추세 (MA7>MA25)"
+        elif ma7 < ma25:
+            score = -0.5
+            reason = "MA 하락 추세 (MA7<MA25)"
         else:
-            if ma7 > ma25:
-                score = 0.5
-                reason = "MA 상승 추세 (MA7>MA25)"
-            elif ma7 < ma25:
-                score = -0.5
-                reason = "MA 하락 추세 (MA7<MA25)"
-            else:
-                score = 0.0
-                reason = "MA 중립"
+            score = 0.0
+            reason = "MA 중립"
 
         return IndicatorScore(
             name="ma_trend",
@@ -414,10 +412,9 @@ class IndicatorScorer:
         """
         if total_score >= self.long_threshold:
             return "LONG"
-        elif total_score <= self.short_threshold:
+        if total_score <= self.short_threshold:
             return "SHORT"
-        else:
-            return "WAIT"
+        return "WAIT"
 
     def get_signal(self, market_data: Dict[str, Any]) -> str:
         """신호만 반환 (간단한 인터페이스)

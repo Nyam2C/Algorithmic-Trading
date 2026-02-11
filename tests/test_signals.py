@@ -3,11 +3,11 @@ Tests for trading signal parsing and validation
 """
 
 from src.ai.signals import (
-    parse_signal,
-    validate_signal,
-    get_signal_emoji,
     get_signal_color,
+    get_signal_emoji,
+    parse_signal,
     should_enter_trade,
+    validate_signal,
 )
 
 

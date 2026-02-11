@@ -3,8 +3,9 @@ Tests for Audit Log
 
 Phase 7.3: 거래 감사 로그
 """
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 from src.storage.audit_log import (
     AuditEventType,

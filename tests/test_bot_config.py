@@ -3,8 +3,9 @@ BotConfig 모델 테스트
 
 멀티봇 설정을 위한 BotConfig Pydantic 모델 테스트
 """
-import pytest
 from uuid import UUID
+
+import pytest
 
 
 class TestBotConfig:
@@ -73,8 +74,9 @@ class TestBotConfig:
 
         def test_bot_id_지정_가능(self) -> None:
             """bot_id를 직접 지정 가능"""
-            from src.bot_config import BotConfig
             from uuid import uuid4
+
+            from src.bot_config import BotConfig
 
             custom_id = uuid4()
             config = BotConfig(
@@ -104,8 +106,9 @@ class TestBotConfig:
 
         def test_잘못된_risk_level_에러(self) -> None:
             """잘못된 risk_level 값은 에러"""
-            from src.bot_config import BotConfig
             from pydantic import ValidationError
+
+            from src.bot_config import BotConfig
 
             with pytest.raises(ValidationError):
                 BotConfig(
@@ -201,8 +204,9 @@ class TestBotConfig:
 
         def test_USDT_아닌_symbol_에러(self) -> None:
             """USDT로 끝나지 않는 symbol은 에러"""
-            from src.bot_config import BotConfig
             from pydantic import ValidationError
+
+            from src.bot_config import BotConfig
 
             with pytest.raises(ValidationError):
                 BotConfig(
@@ -228,8 +232,9 @@ class TestBotConfig:
 
         def test_leverage_0이하_에러(self) -> None:
             """leverage가 0 이하면 에러"""
-            from src.bot_config import BotConfig
             from pydantic import ValidationError
+
+            from src.bot_config import BotConfig
 
             with pytest.raises(ValidationError):
                 BotConfig(
@@ -240,8 +245,9 @@ class TestBotConfig:
 
         def test_leverage_125초과_에러(self) -> None:
             """leverage가 125 초과면 에러"""
-            from src.bot_config import BotConfig
             from pydantic import ValidationError
+
+            from src.bot_config import BotConfig
 
             with pytest.raises(ValidationError):
                 BotConfig(
@@ -268,8 +274,9 @@ class TestBotConfig:
 
         def test_position_size_10프로_초과_경고(self) -> None:
             """position_size가 10% 초과면 경고 (허용은 됨)"""
-            from src.bot_config import BotConfig
             import warnings
+
+            from src.bot_config import BotConfig
 
             # 경고가 발생해야 함
             with warnings.catch_warnings(record=True):
@@ -315,8 +322,9 @@ class TestBotConfig:
 
         def test_DB_row에서_BotConfig_생성(self) -> None:
             """DB row dict에서 BotConfig 생성"""
-            from src.bot_config import BotConfig
             from uuid import uuid4
+
+            from src.bot_config import BotConfig
 
             bot_id = uuid4()
             db_row = {

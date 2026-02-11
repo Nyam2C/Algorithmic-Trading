@@ -1,5 +1,4 @@
-"""
-Discord 권한 시스템
+"""Discord 권한 시스템
 
 Discord 봇 명령어에 권한 레벨을 적용합니다.
 
@@ -14,14 +13,14 @@ Discord 봇 명령어에 권한 레벨을 적용합니다.
 - DISCORD_TRADER_ROLE_IDS: 트레이더 역할 ID (쉼표 구분)
 """
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import IntEnum
 from functools import wraps
-from typing import Any, Callable, List, Optional, TypeVar
+from typing import Any, List, TypeVar
 
 import discord
 from loguru import logger
-
 
 # =============================================================================
 # 권한 레벨 정의
@@ -80,7 +79,7 @@ class PermissionConfig:
 
 
 # 전역 설정 인스턴스 (싱글톤 패턴)
-_global_config: Optional[PermissionConfig] = None
+_global_config: PermissionConfig | None = None
 
 
 def get_permission_config() -> PermissionConfig:
@@ -116,7 +115,7 @@ def reset_permission_config() -> None:
 def check_permission(
     interaction: discord.Interaction,
     required_level: PermissionLevel,
-    config: Optional[PermissionConfig] = None,
+    config: PermissionConfig | None = None,
 ) -> bool:
     """사용자의 권한을 확인합니다.
 
@@ -189,7 +188,7 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 def requires_permission(
     level: PermissionLevel,
-    config: Optional[PermissionConfig] = None,
+    config: PermissionConfig | None = None,
 ) -> Callable[[F], F]:
     """명령어에 권한 체크를 추가하는 데코레이터
 

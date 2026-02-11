@@ -1,10 +1,11 @@
 """
 Tests for retry decorators
 """
-import pytest
 import asyncio
-from unittest.mock import patch
 import time
+from unittest.mock import patch
+
+import pytest
 
 from src.utils.retry import async_retry, sync_retry
 
@@ -118,7 +119,7 @@ class TestAsyncRetry:
             call_count += 1
             if call_count == 1:
                 raise ValueError("Value error")
-            elif call_count == 2:
+            if call_count == 2:
                 raise ConnectionError("Connection error")
             return "success"
 
@@ -371,7 +372,7 @@ class TestRetryRealWorldScenarios:
             call_count += 1
             if call_count == 1:
                 raise ConnectionError("Connection refused")
-            elif call_count == 2:
+            if call_count == 2:
                 raise TimeoutError("Request timed out")
             return {"status": "ok"}
 

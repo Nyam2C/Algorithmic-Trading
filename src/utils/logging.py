@@ -1,5 +1,4 @@
-"""
-JSON 구조화 로깅 모듈
+"""JSON 구조화 로깅 모듈
 
 CloudWatch, Loki 호환 JSON 포맷 로깅을 제공합니다.
 민감정보 마스킹 기능을 포함합니다.
@@ -12,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-
 
 # 민감정보 패턴
 SENSITIVE_PATTERNS = [
