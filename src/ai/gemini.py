@@ -27,14 +27,14 @@ class GeminiSignalGenerator:
     def __init__(
         self,
         api_key: str,
-        model: str = "gemini-2.0-flash-exp",
+        model: str = "gemini-2.5-flash",
         temperature: float = DEFAULT_TEMPERATURE,
     ):
         """Initialize Gemini client.
 
         Args:
             api_key: Gemini API key
-            model: Model name (default: gemini-2.0-flash-exp)
+            model: Model name (default: gemini-2.5-flash)
             temperature: Temperature for generation (default: 0.3)
         """
         self.client = genai.Client(api_key=api_key)

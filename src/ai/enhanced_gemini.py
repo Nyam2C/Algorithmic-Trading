@@ -38,7 +38,7 @@ class EnhancedGeminiSignalGenerator(GeminiSignalGenerator):
     def __init__(
         self,
         api_key: str,
-        model: str = "gemini-2.0-flash-exp",
+        model: str = "gemini-2.5-flash",
         temperature: float = 0.1,
         context_builder: AIMemoryContextBuilder | None = None,
         memory_enabled: bool = True,
@@ -48,7 +48,7 @@ class EnhancedGeminiSignalGenerator(GeminiSignalGenerator):
 
         Args:
             api_key: Gemini API 키
-            model: 모델명 (기본: gemini-2.0-flash-exp)
+            model: 모델명 (기본: gemini-2.5-flash)
             temperature: 생성 온도 (기본: 0.1)
             context_builder: AI 메모리 컨텍스트 빌더 (선택)
             memory_enabled: 메모리 기능 활성화 (기본: True)

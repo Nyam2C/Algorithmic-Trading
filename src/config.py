@@ -49,7 +49,7 @@ class TradingConfig(BaseModel):
 
     # AI Configuration
     gemini_api_key: str
-    gemini_model: str = Field(default="gemini-2.0-flash-exp")
+    gemini_model: str = Field(default="gemini-2.5-flash")
     gemini_temperature: float = Field(default=0.1, ge=0, le=2)
 
     # Discord Configuration
@@ -136,7 +136,7 @@ def load_config() -> TradingConfig:
             time_cut_minutes=int(os.getenv("TIME_CUT_MINUTES", "120")),
             use_real_balance=os.getenv("USE_REAL_BALANCE", "false").lower() == "true",
             gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
-            gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp"),
+            gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
             gemini_temperature=float(os.getenv("GEMINI_TEMPERATURE", "0.1")),
             discord_webhook_url=os.getenv("DISCORD_WEBHOOK_URL", ""),
             database_url=os.getenv("DATABASE_URL"),
