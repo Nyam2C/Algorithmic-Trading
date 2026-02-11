@@ -106,6 +106,17 @@ class BotConfig(BaseModel):
     use_regime_filter: bool = Field(default=False)  # True면 횡보장 진입 회피
     allow_weak_trend: bool = Field(default=True)  # 약한 추세에서 거래 허용
 
+    # Phase 5 통합: 다중 타임프레임 필터
+    use_mtf_filter: bool = Field(default=False)  # True면 상위 TF 추세 필터 적용
+
+    # Phase 5 통합: 앙상블 시그널
+    use_ensemble: bool = Field(default=False)  # True면 앙상블 시그널 사용
+
+    # Phase 5 통합: 수동 승인
+    manual_approval_enabled: bool = Field(default=False)
+    manual_approval_trades: int = Field(default=5, ge=1)
+    approval_timeout: int = Field(default=60, ge=1)
+
     # 신호 파라미터
     rsi_oversold: float = Field(default=35.0, ge=0, le=100)
     rsi_overbought: float = Field(default=65.0, ge=0, le=100)

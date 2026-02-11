@@ -14,6 +14,7 @@ from src.bot_config import BotConfig
 from src.bot_instance import (
     BotInstance,
     OnErrorCallback,
+    OnExposureCheckCallback,
     OnSignalCallback,
     OnTradeCallback,
 )
@@ -88,6 +89,11 @@ class MultiBotManager:
         self._on_signal_callback: OnSignalCallback | None = None
         self._on_trade_callback: OnTradeCallback | None = None
         self._on_error_callback: OnErrorCallback | None = None
+
+        # Phase 5: 노출도 체크 콜백
+        self._exposure_check_callback: OnExposureCheckCallback | None = (
+            self.can_open_position if max_total_exposure > 0 else None
+        )
 
         # 초기 봇 설정 등록
         if configs:
@@ -381,6 +387,7 @@ class MultiBotManager:
             on_signal_callback=self._on_signal_callback,
             on_trade_callback=self._on_trade_callback,
             on_error_callback=self._on_error_callback,
+            on_exposure_check=self._exposure_check_callback,
         )
 
         self._bots[config.bot_name] = instance
