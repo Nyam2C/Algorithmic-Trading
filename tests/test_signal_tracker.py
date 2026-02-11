@@ -455,3 +455,235 @@ class TestSignalTrackerWithDB:
 
         assert win_rates["gemini"] == 70.0
         assert win_rates["rule_based"] == 60.0
+
+
+# =============================================================================
+# Coverage tests merged from test_analytics_coverage.py
+# =============================================================================
+
+
+class TestSignalTrackerDBEdgeCases:
+    """SignalTracker DB 연동 엣지 케이스"""
+
+    @pytest.fixture
+    def mock_pool(self):
+        pool = MagicMock()
+        return pool
+
+    @pytest.fixture
+    def tracker_with_db(self, mock_pool):
+        return SignalTracker(db_pool=mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_update_signal_result_db_error_fallback_memory(self, tracker_with_db, mock_pool):
+        """DB 업데이트 실패 시 인메모리 폴백"""
+        mock_conn = AsyncMock()
+        mock_conn.execute.side_effect = Exception("DB Error")
+        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+
+        # 인메모리에 기록 추가
+        tracker_with_db._in_memory_signals["test-id"] = SignalRecord.create(
+            bot_id="test", signal="LONG", source="gemini"
+        )
+        tracker_with_db._in_memory_signals["test-id"].signal_id = "test-id"
+
+        # DB 실패 후 인메모리 업데이트 시도
+        success = await tracker_with_db.update_signal_result("test-id", "win", 100.0)
+        assert success is True
+
+    @pytest.mark.asyncio
+    async def test_update_signal_result_db_error_no_memory(self, tracker_with_db, mock_pool):
+        """DB 업데이트 실패 + 인메모리에도 없는 경우"""
+        mock_conn = AsyncMock()
+        mock_conn.execute.side_effect = Exception("DB Error")
+        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+
+        success = await tracker_with_db.update_signal_result("nonexistent", "win", 100.0)
+        assert success is False
+
+    @pytest.mark.asyncio
+    async def test_get_signal_stats_db_error_fallback(self, tracker_with_db, mock_pool):
+        """DB 통계 조회 실패 시 인메모리 폴백"""
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow.side_effect = Exception("DB Error")
+        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+
+        stats = await tracker_with_db.get_signal_stats(days=7)
+        # 인메모리에 데이터 없으므로 빈 통계
+        assert stats.total_signals == 0
+
+    @pytest.mark.asyncio
+    async def test_get_win_rate_by_source_db_error_fallback(self, tracker_with_db, mock_pool):
+        """DB 소스별 승률 조회 실패 시 인메모리 폴백"""
+        mock_conn = AsyncMock()
+        mock_conn.fetch.side_effect = Exception("DB Error")
+        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+
+        result = await tracker_with_db.get_win_rate_by_source(days=7)
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_get_recent_signals_db_error_fallback(self, tracker_with_db, mock_pool):
+        """DB 신호 조회 실패 시 인메모리 폴백"""
+        mock_conn = AsyncMock()
+        mock_conn.fetch.side_effect = Exception("DB Error")
+        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+
+        signals = await tracker_with_db.get_recent_signals()
+        assert signals == []
+
+    @pytest.mark.asyncio
+    async def test_get_recent_signals_from_db_with_bot_id(self, tracker_with_db, mock_pool):
+        """DB에서 bot_id 필터 조회"""
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = [
+            {
+                "id": "sig-1",
+                "timestamp": datetime.now(),
+                "bot_id": "test-bot",
+                "signal": "LONG",
+                "source": "gemini",
+                "market_conditions": {"rsi": 30},
+                "trade_result": "win",
+                "pnl": 100.0,
+                "reason": "RSI",
+            }
+        ]
+        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+
+        signals = await tracker_with_db.get_recent_signals(bot_id="test-bot", limit=10)
+        assert len(signals) == 1
+        assert signals[0]["signal"] == "LONG"
+
+    @pytest.mark.asyncio
+    async def test_get_recent_signals_from_db_without_bot_id(self, tracker_with_db, mock_pool):
+        """DB에서 bot_id 없이 조회"""
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = [
+            {
+                "id": "sig-1",
+                "timestamp": datetime.now(),
+                "bot_id": "test-bot",
+                "signal": "SHORT",
+                "source": "rule_based",
+                "market_conditions": None,
+                "trade_result": None,
+                "pnl": None,
+                "reason": None,
+            }
+        ]
+        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+
+        signals = await tracker_with_db.get_recent_signals(limit=5)
+        assert len(signals) == 1
+        assert signals[0]["pnl"] is None
+
+    @pytest.mark.asyncio
+    async def test_get_stats_from_db_with_bot_id_and_source(self, tracker_with_db, mock_pool):
+        """DB 통계: bot_id + source 필터"""
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow.return_value = {
+            "total_signals": 5,
+            "traded_signals": 4,
+            "wins": 3,
+            "losses": 1,
+            "total_pnl": 200.0,
+            "best_pnl": 100.0,
+            "worst_pnl": -30.0,
+        }
+        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+
+        stats = await tracker_with_db.get_signal_stats(
+            bot_id="test-bot", source="gemini", days=7
+        )
+        assert stats.total_signals == 5
+        assert stats.wins == 3
+
+    @pytest.mark.asyncio
+    async def test_get_win_rate_by_source_with_bot_id(self, tracker_with_db, mock_pool):
+        """DB 소스별 승률: bot_id 필터"""
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = [
+            {"source": "gemini", "traded": 10, "wins": 8},
+            {"source": "scoring", "traded": 0, "wins": 0},
+        ]
+        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+
+        result = await tracker_with_db.get_win_rate_by_source(
+            days=7, bot_id="test-bot"
+        )
+        assert result["gemini"] == 80.0
+        assert result["scoring"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_cleanup_old_signals_db(self, tracker_with_db, mock_pool):
+        """DB 오래된 신호 정리"""
+        mock_conn = AsyncMock()
+        mock_conn.execute.return_value = "DELETE 5"
+        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+
+        deleted = await tracker_with_db.cleanup_old_signals(days=30)
+        assert deleted == 5
+
+    @pytest.mark.asyncio
+    async def test_cleanup_old_signals_db_error(self, tracker_with_db, mock_pool):
+        """DB 정리 실패"""
+        mock_conn = AsyncMock()
+        mock_conn.execute.side_effect = Exception("DB Error")
+        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+
+        deleted = await tracker_with_db.cleanup_old_signals(days=30)
+        assert deleted == 0
+
+
+class TestSignalTrackerInMemoryEdgeCases:
+    """SignalTracker 인메모리 엣지 케이스"""
+
+    @pytest.fixture
+    def tracker(self):
+        return SignalTracker()
+
+    @pytest.mark.asyncio
+    async def test_in_memory_stats_filter_by_bot_id(self, tracker):
+        """봇 ID별 인메모리 필터링"""
+        await tracker.record_signal("bot-a", "LONG", "gemini")
+        await tracker.record_signal("bot-b", "SHORT", "gemini")
+
+        stats = await tracker.get_signal_stats(bot_id="bot-a", days=7)
+        assert stats.total_signals == 1
+
+    @pytest.mark.asyncio
+    async def test_in_memory_win_rate_by_source_filter_by_bot(self, tracker):
+        """봇 ID별 소스 승률 필터링"""
+        sid = await tracker.record_signal("bot-a", "LONG", "gemini")
+        await tracker.update_signal_result(sid, "win", 100.0)
+
+        sid = await tracker.record_signal("bot-b", "SHORT", "gemini")
+        await tracker.update_signal_result(sid, "loss", -50.0)
+
+        result = await tracker.get_win_rate_by_source(days=7, bot_id="bot-a")
+        assert result["gemini"] == 100.0
+
+    @pytest.mark.asyncio
+    async def test_in_memory_win_rate_no_traded(self, tracker):
+        """거래되지 않은 신호만 있는 경우"""
+        await tracker.record_signal("bot-a", "LONG", "gemini")
+
+        result = await tracker.get_win_rate_by_source(days=7)
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_get_recent_signals_without_bot_id(self, tracker):
+        """봇 ID 없이 최근 신호 조회"""
+        await tracker.record_signal("bot-a", "LONG", "gemini")
+        await tracker.record_signal("bot-b", "SHORT", "rule_based")
+
+        signals = await tracker.get_recent_signals(limit=10)
+        assert len(signals) == 2
+
+    @pytest.mark.asyncio
+    async def test_set_db_pool(self, tracker):
+        """DB 풀 설정"""
+        mock_pool = MagicMock()
+        tracker.set_db_pool(mock_pool)
+        assert tracker.db_pool is mock_pool

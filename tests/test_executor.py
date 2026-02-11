@@ -838,3 +838,255 @@ class TestRealBalanceFeature:
         # 기본값 1000 사용
         expected_quantity = round(1000 * 0.05 * 15 / 100000, 3)
         assert quantity == expected_quantity
+
+
+# =============================================================================
+# From test_trading_coverage.py: Executor tests
+# =============================================================================
+
+
+class TestExecutorSetupLeverageFailure:
+    """레버리지 설정 실패 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_setup_leverage_failure(self, mock_binance_client, mock_config):
+        """레버리지 설정 실패 시 False 반환"""
+        mock_binance_client.set_leverage = AsyncMock(side_effect=Exception("API Error"))
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        result = await executor.setup_leverage()
+        assert result is False
+
+
+class TestExecutorBalanceErrorWithCache:
+    """잔고 조회 실패 시 캐시 사용"""
+
+    @pytest.mark.asyncio
+    async def test_balance_error_with_cached_value(self, mock_binance_client, mock_config):
+        """조회 실패 + 캐시 값 -> 캐시 사용"""
+        executor = TradingExecutor(mock_binance_client, mock_config)
+        # 먼저 캐시에 값 저장
+        executor._cached_balance = 3000.0
+        executor._balance_cache_time = datetime.now() - timedelta(minutes=5)  # 만료됨
+
+        # API 에러 발생
+        mock_binance_client.get_account_balance = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+
+        balance = await executor._get_available_balance()
+        assert balance == 3000.0  # 캐시 값 사용
+
+    @pytest.mark.asyncio
+    async def test_balance_error_no_cache(self, mock_binance_client, mock_config):
+        """조회 실패 + 캐시 없음 -> 예외 발생"""
+        executor = TradingExecutor(mock_binance_client, mock_config)
+        mock_binance_client.get_account_balance = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+
+        with pytest.raises(Exception, match="API Error"):
+            await executor._get_available_balance()
+
+
+class TestExecutorOpenPositionLeverageFailure:
+    """open_position 레버리지 실패"""
+
+    @pytest.mark.asyncio
+    async def test_open_position_leverage_failure(self, mock_binance_client, mock_config):
+        """레버리지 설정 실패 -> None 반환"""
+        mock_binance_client.set_leverage = AsyncMock(side_effect=Exception("Leverage error"))
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        result = await executor.open_position("LONG", 100000.0)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_open_position_general_exception(self, mock_binance_client, mock_config):
+        """open_position 일반 예외"""
+        mock_binance_client.create_market_order = AsyncMock(
+            side_effect=Exception("Order error")
+        )
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        result = await executor.open_position("LONG", 100000.0)
+        assert result is None
+
+
+class TestExecutorOpenPositionMakerEdgeCases:
+    """open_position_maker 엣지 케이스"""
+
+    @pytest.mark.asyncio
+    async def test_open_position_maker_leverage_failure(self, mock_binance_client, mock_config):
+        """Maker 주문 레버리지 실패 -> None"""
+        mock_binance_client.set_leverage = AsyncMock(side_effect=Exception("Error"))
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        result = await executor.open_position_maker("LONG", 100000.0)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_open_position_maker_general_exception(self, mock_binance_client, mock_config):
+        """Maker 주문 일반 예외"""
+        mock_binance_client.create_limit_order = AsyncMock(
+            side_effect=Exception("Order error")
+        )
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        result = await executor.open_position_maker("LONG", 100000.0)
+        assert result is None
+
+
+class TestExecutorWaitForFillError:
+    """_wait_for_fill 에러 처리"""
+
+    @pytest.mark.asyncio
+    async def test_wait_for_fill_exception(self, mock_binance_client, mock_config):
+        """주문 상태 확인 중 예외 -> False"""
+        mock_binance_client.get_order_status = AsyncMock(
+            side_effect=Exception("Status check error")
+        )
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        result = await executor._wait_for_fill(99999, timeout=5, check_interval=1)
+        assert result is False
+
+
+class TestExecutorClosePositionError:
+    """close_position 에러 처리"""
+
+    @pytest.mark.asyncio
+    async def test_close_position_exception(self, mock_binance_client, mock_config):
+        """청산 중 예외 -> None"""
+        mock_binance_client.get_position = AsyncMock(return_value={
+            "side": "LONG",
+            "position_amt": 0.01,
+        })
+        mock_binance_client.close_position = AsyncMock(
+            side_effect=Exception("Close error")
+        )
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        result = await executor.close_position()
+        assert result is None
+
+
+class TestExecutorGetPositionError:
+    """get_position 에러 처리"""
+
+    @pytest.mark.asyncio
+    async def test_get_position_exception(self, mock_binance_client, mock_config):
+        """포지션 조회 예외 -> None"""
+        mock_binance_client.get_position = AsyncMock(
+            side_effect=Exception("Position error")
+        )
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        result = await executor.get_position()
+        assert result is None
+
+
+class TestExecutorCheckTpSlError:
+    """check_tp_sl 에러 처리"""
+
+    @pytest.mark.asyncio
+    async def test_check_tp_sl_exception(self, mock_binance_client, mock_config):
+        """TP/SL 체크 중 예외 -> None"""
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        # entry_price 누락으로 예외 발생
+        position = {"side": "LONG"}
+
+        result = await executor.check_tp_sl(position, 100000.0)
+        assert result is None
+
+
+class TestExecutorCheckTpSlDynamicError:
+    """check_tp_sl_dynamic 에러 처리"""
+
+    @pytest.mark.asyncio
+    async def test_check_tp_sl_dynamic_error_fallback(self, mock_binance_client):
+        """ATR TP/SL 에러 시 기존 로직 fallback"""
+        config = TradingConfig(
+            bot_name="test-bot",
+            binance_api_key="test_key",
+            binance_secret_key="test_secret",
+            gemini_api_key="test_gemini",
+            discord_webhook_url="https://test.com",
+            use_atr_tp_sl=True,
+            atr_tp_multiplier=2.0,
+            atr_sl_multiplier=1.0,
+        )
+        executor = TradingExecutor(mock_binance_client, config)
+
+        # entry_atr 있지만 entry_price 키가 잘못된 이름 -> 예외 발생 -> fallback
+        position = {
+            "wrong_key": 100000.0,  # entry_price 아님
+            "side": "LONG",
+            "entry_atr": 500.0,
+        }
+
+        # fallback에서도 entry_price 없으면 None
+        result = await executor.check_tp_sl_dynamic(position, 100000.0)
+        assert result is None
+
+
+class TestExecutorCheckTimecutError:
+    """check_timecut 에러 처리"""
+
+    def test_check_timecut_exception(self, mock_binance_client, mock_config):
+        """타임컷 체크 중 예외 -> False"""
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        # entry_time이 잘못된 타입
+        position = {"entry_time": "not-a-datetime"}
+
+        result = executor.check_timecut(position)
+        assert result is False
+
+
+class TestExecutorOpenPositionWithATR:
+    """open_position ATR 정보 로깅"""
+
+    @pytest.mark.asyncio
+    async def test_open_position_short_with_atr(self, mock_binance_client, mock_config):
+        """SHORT 포지션 + ATR 정보 저장"""
+        mock_binance_client.create_market_order = AsyncMock(return_value={
+            "orderId": 99999,
+            "symbol": "BTCUSDT",
+            "side": "SELL",
+            "status": "FILLED",
+        })
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        order = await executor.open_position("SHORT", 100000.0, entry_atr=600.0)
+
+        assert order is not None
+        assert executor.current_position["signal"] == "SHORT"
+        assert executor.current_position["entry_atr"] == 600.0
+
+
+class TestExecutorMakerWithATR:
+    """Maker 주문 ATR 정보"""
+
+    @pytest.mark.asyncio
+    async def test_open_position_maker_with_atr(self, mock_binance_client, mock_config):
+        """Maker 주문 시 ATR 저장"""
+        mock_binance_client.create_limit_order = AsyncMock(return_value={
+            "orderId": 11111,
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "status": "NEW",
+        })
+        mock_binance_client.get_order_status = AsyncMock(return_value={
+            "orderId": 11111,
+            "status": "FILLED",
+        })
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        order = await executor.open_position_maker(
+            "LONG", 100000.0, use_maker=True, entry_atr=500.0
+        )
+
+        assert order is not None
+        assert executor.current_position["entry_atr"] == 500.0

@@ -404,3 +404,104 @@ class TestRetryRealWorldScenarios:
 
         assert result == "connected"
         assert call_count == 3
+
+
+# =============================================================================
+# From test_utils_coverage.py: Retry tests
+# =============================================================================
+
+
+class TestAsyncRetryCancelledError:
+    """CancelledError 즉시 전파 (line 42)"""
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_not_retried(self):
+        """CancelledError는 즉시 전파 (lines 40-42)"""
+        call_count = 0
+
+        @async_retry(max_attempts=3, delay=0.01)
+        async def cancellable_func():
+            nonlocal call_count
+            call_count += 1
+            raise asyncio.CancelledError()
+
+        with pytest.raises(asyncio.CancelledError):
+            await cancellable_func()
+
+        assert call_count == 1  # 재시도 없이 즉시 전파
+
+
+class TestAsyncRetryEdgeCaseLastException:
+    """마지막 예외 raise 엣지 케이스 (lines 61-62)
+
+    이 코드는 일반적으로 도달하지 않지만, 방어 코드로 존재.
+    max_attempts=0 같은 경우를 시뮬레이션해야 하나 실제로는
+    range(1, 0+1)이 빈 범위이므로 for 루프에 진입하지 않음.
+    """
+
+    @pytest.mark.asyncio
+    async def test_zero_max_attempts(self):
+        """max_attempts=0이면 함수가 호출되지 않고 None 반환"""
+        call_count = 0
+
+        @async_retry(max_attempts=0, delay=0.01)
+        async def never_called():
+            nonlocal call_count
+            call_count += 1
+            return "result"
+
+        # max_attempts=0이면 for 루프 진입 안 함 -> None 반환
+        result = await never_called()
+        assert call_count == 0
+        assert result is None
+
+
+class TestSyncRetryEdgeCaseLastException:
+    """sync_retry 마지막 예외 raise 엣지 케이스 (lines 119-120)"""
+
+    def test_zero_max_attempts_sync(self):
+        """max_attempts=0이면 함수가 호출되지 않고 None 반환"""
+        call_count = 0
+
+        @sync_retry(max_attempts=0, delay=0.01)
+        def never_called():
+            nonlocal call_count
+            call_count += 1
+            return "result"
+
+        result = never_called()
+        assert call_count == 0
+        assert result is None
+
+
+class TestAsyncRetryPreservesArgs:
+    """함수 인자 보존 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_async_retry_with_kwargs(self):
+        """키워드 인자 전달"""
+        @async_retry(max_attempts=2, delay=0.01)
+        async def func(a, b=10):
+            return a + b
+
+        result = await func(5, b=20)
+        assert result == 25
+
+
+class TestSyncRetrySpecificException:
+    """sync_retry 특정 예외 필터"""
+
+    def test_sync_non_matching_exception(self):
+        """매칭되지 않는 예외는 재시도하지 않음"""
+        call_count = 0
+
+        @sync_retry(max_attempts=3, delay=0.01, exceptions=(ValueError,))
+        def raise_type_error():
+            nonlocal call_count
+            call_count += 1
+            raise TypeError("Wrong type")
+
+        with pytest.raises(TypeError):
+            raise_type_error()
+
+        assert call_count == 1
