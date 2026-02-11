@@ -33,7 +33,7 @@
 | 전략 | 마켓 레짐 감지, 다중 타임프레임 분석, ATR 기반 TP/SL |
 | 모니터링 | Prometheus 메트릭, Grafana 대시보드, 감사 로그 |
 | 제어 | Discord 봇, REST API, 수동 승인 모드 |
-| 검증 | 백테스트 엔진, 1560개 테스트 |
+| 검증 | 백테스트 엔진, 1577개 테스트 |
 
 ---
 
@@ -49,7 +49,7 @@
 | REST API | FastAPI | 0.109.0+ |
 | 알림/제어 | Discord Bot | discord.py |
 | 모니터링 | Grafana + Loki | Docker Compose |
-| 테스트 | pytest | 1560개 테스트 |
+| 테스트 | pytest | 1577개 테스트 |
 | 코드 품질 | ruff, mypy | 린트 + 타입 체크 ✅ 통과 |
 | CI/CD | GitHub Actions | 자동 테스트 |
 
@@ -172,6 +172,19 @@ Algorithmic-Trading/
 | Prometheus 메트릭 | `src/metrics/prometheus.py` | /metrics 엔드포인트 |
 | 감사 로그 | `src/storage/audit_log.py` | 모든 이벤트 기록 |
 | JSON 로깅 | `src/utils/logging.py` | CloudWatch/Loki 호환 |
+
+### Phase 5: 통합 완료 (2026-02-12 구현)
+| 기능 | 파일 | 설명 |
+|------|------|------|
+| SHORT PnL 수정 (P1) | `src/bot_instance.py` | abs() + side별 PnL 계산 |
+| update_balance 연결 (P1) | `src/bot_instance.py` | 매 루프 드로다운 추적 |
+| ATR 환경변수 매핑 | `src/config.py` | USE_ATR_TP_SL, ATR_*_MULTIPLIER |
+| SignalTracker 통합 | `src/bot_instance.py` | 인메모리 신호 추적 |
+| Prometheus 통합 | `src/bot_instance.py` | 거래/PnL 메트릭 기록 |
+| MTF 통합 | `src/bot_instance.py`, `src/bot_config.py` | 15분봉 필터 (use_mtf_filter) |
+| Ensemble 통합 | `src/bot_instance.py`, `src/bot_config.py` | 앙상블 시그널 (use_ensemble) |
+| TradeApproval 통합 | `src/bot_instance.py`, `src/bot_config.py` | 비차단 수동 승인 |
+| Exposure Check 연결 | `src/bot_manager.py`, `src/bot_instance.py` | 콜백 기반 노출도 제한 |
 
 ### Phase 6: 개선 시스템 (2026-02-04 구현)
 | 기능 | 파일 | 설명 |
@@ -484,7 +497,7 @@ async def trader_command(interaction):
 ## 검증 상태
 - **Ruff**: ✅ All checks passed!
 - **MyPy**: ✅ Success: no issues found
-- **테스트**: ✅ 1560 passed (Discord 권한 시스템 포함)
+- **테스트**: ✅ 1577 passed (Phase 5 통합 테스트 포함)
 
 ### 검증 방법
 ```bash
