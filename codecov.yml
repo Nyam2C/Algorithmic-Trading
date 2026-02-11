@@ -6,11 +6,11 @@ coverage:
     project:
       default:
         target: 70%
-        threshold: 5%
+        threshold: 0%
     patch:
       default:
-        target: 50%
-        threshold: 10%
+        target: 70%
+        threshold: 0%
         # 문서 파일 변경은 커버리지 체크 제외
         only_pulls: true
 
