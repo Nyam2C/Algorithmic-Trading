@@ -8,11 +8,11 @@ from prometheus_client import CollectorRegistry
 
 from src.metrics.prometheus import (
     TradingMetrics,
-    record_trade,
+    get_metrics_registry,
     record_api_latency,
     record_position_pnl,
     record_signal_confidence,
-    get_metrics_registry,
+    record_trade,
 )
 
 

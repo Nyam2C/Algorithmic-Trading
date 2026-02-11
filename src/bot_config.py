@@ -1,14 +1,13 @@
-"""
-멀티봇 설정 모델
+"""멀티봇 설정 모델.
 
 각 봇 인스턴스의 개별 설정을 관리하는 Pydantic 모델.
 risk_level에 따른 기본값 제공 및 기존 TradingConfig와의 호환성 지원.
 """
-from typing import Optional, Any
+from typing import Any
 from uuid import UUID, uuid4
-from pydantic import BaseModel, Field, field_validator
-from loguru import logger
 
+from loguru import logger
+from pydantic import BaseModel, Field, field_validator
 
 # =============================================================================
 # 위험도별 기본값 상수
@@ -37,7 +36,7 @@ RISK_LEVEL_DEFAULTS: dict[str, dict[str, Any]] = {
 
 
 class BotConfig(BaseModel):
-    """멀티봇 설정 모델
+    """멀티봇 설정 모델.
 
     각 봇 인스턴스의 개별 설정을 관리합니다.
     risk_level에 따라 기본값이 제공되며, 명시적으로 지정한 값이 우선합니다.
@@ -60,7 +59,10 @@ class BotConfig(BaseModel):
         description: 봇 설명
 
     Example:
-        >>> config = BotConfig(bot_name="btc-bot", symbol="BTCUSDT", risk_level="medium")
+        >>> config = BotConfig(
+        ...     bot_name="btc-bot", symbol="BTCUSDT",
+        ...     risk_level="medium",
+        ... )
         >>> config.get_effective_leverage()
         15
     """
@@ -76,10 +78,10 @@ class BotConfig(BaseModel):
     risk_level: str = Field(default="medium")
 
     # 트레이딩 파라미터 (None이면 risk_level 기본값 사용)
-    leverage: Optional[int] = Field(default=None, ge=1, le=125)
-    position_size_pct: Optional[float] = Field(default=None, gt=0, le=1)
-    take_profit_pct: Optional[float] = Field(default=None, gt=0)
-    stop_loss_pct: Optional[float] = Field(default=None, gt=0)
+    leverage: int | None = Field(default=None, ge=1, le=125)
+    position_size_pct: float | None = Field(default=None, gt=0, le=1)
+    take_profit_pct: float | None = Field(default=None, gt=0)
+    stop_loss_pct: float | None = Field(default=None, gt=0)
     time_cut_minutes: int = Field(default=120, gt=0)
 
     # Phase 5.1: 실제 잔고 기반 포지션 사이징
@@ -97,8 +99,8 @@ class BotConfig(BaseModel):
 
     # Phase 6.1: ATR 기반 동적 TP/SL
     use_atr_tp_sl: bool = Field(default=False)  # True면 ATR 기반 TP/SL 사용
-    atr_tp_multiplier: float = Field(default=2.0, gt=0)  # TP = entry ± ATR × multiplier
-    atr_sl_multiplier: float = Field(default=1.0, gt=0)  # SL = entry ± ATR × multiplier
+    atr_tp_multiplier: float = Field(default=2.0, gt=0)  # TP = entry ± ATR x multiplier
+    atr_sl_multiplier: float = Field(default=1.0, gt=0)  # SL = entry ± ATR x multiplier
 
     # Phase 6.2: 마켓 레짐 필터링
     use_regime_filter: bool = Field(default=False)  # True면 횡보장 진입 회피
@@ -110,20 +112,20 @@ class BotConfig(BaseModel):
     volume_threshold: float = Field(default=1.2, ge=0)
 
     # API 키 참조 (Secrets Manager 또는 환경변수 참조용)
-    binance_api_key_ref: Optional[str] = None
-    binance_secret_key_ref: Optional[str] = None
+    binance_api_key_ref: str | None = None
+    binance_secret_key_ref: str | None = None
 
     # 설정
     is_testnet: bool = Field(default=True)
     is_active: bool = Field(default=False)
 
     # 메타데이터
-    description: Optional[str] = None
+    description: str | None = None
 
     @field_validator("symbol")
     @classmethod
     def validate_symbol(cls, v: str) -> str:
-        """심볼 검증 및 대문자 변환"""
+        """심볼 검증 및 대문자 변환."""
         v = v.upper()
         if not v.endswith("USDT"):
             raise ValueError("Symbol must end with USDT")
@@ -132,7 +134,7 @@ class BotConfig(BaseModel):
     @field_validator("risk_level")
     @classmethod
     def validate_risk_level(cls, v: str) -> str:
-        """위험도 검증"""
+        """위험도 검증."""
         valid_levels = ["low", "medium", "high"]
         if v not in valid_levels:
             raise ValueError(f"risk_level must be one of {valid_levels}")
@@ -140,14 +142,15 @@ class BotConfig(BaseModel):
 
     @field_validator("position_size_pct")
     @classmethod
-    def warn_high_position_size(cls, v: Optional[float]) -> Optional[float]:
-        """포지션 크기가 10% 초과 시 경고"""
-        if v is not None and v > 0.1:
+    def warn_high_position_size(cls, v: float | None) -> float | None:
+        """포지션 크기가 10% 초과 시 경고."""
+        max_position_size = 0.1
+        if v is not None and v > max_position_size:
             logger.warning(f"Position size {v*100}%가 높습니다. 권장: <=10%")
         return v
 
     def get_effective_leverage(self) -> int:
-        """실제 적용될 레버리지 반환
+        """실제 적용될 레버리지 반환.
 
         명시적으로 지정된 값이 있으면 사용, 없으면 risk_level 기본값 사용.
 
@@ -159,7 +162,7 @@ class BotConfig(BaseModel):
         return RISK_LEVEL_DEFAULTS[self.risk_level]["leverage"]
 
     def get_effective_position_size_pct(self) -> float:
-        """실제 적용될 포지션 크기 비율 반환
+        """실제 적용될 포지션 크기 비율 반환.
 
         Returns:
             적용될 포지션 크기 비율
@@ -169,7 +172,7 @@ class BotConfig(BaseModel):
         return RISK_LEVEL_DEFAULTS[self.risk_level]["position_size_pct"]
 
     def get_effective_take_profit_pct(self) -> float:
-        """실제 적용될 익절 비율 반환
+        """실제 적용될 익절 비율 반환.
 
         Returns:
             적용될 익절 비율
@@ -179,7 +182,7 @@ class BotConfig(BaseModel):
         return RISK_LEVEL_DEFAULTS[self.risk_level]["take_profit_pct"]
 
     def get_effective_stop_loss_pct(self) -> float:
-        """실제 적용될 손절 비율 반환
+        """실제 적용될 손절 비율 반환.
 
         Returns:
             적용될 손절 비율
@@ -194,11 +197,11 @@ class BotConfig(BaseModel):
         binance_secret_key: str,
         gemini_api_key: str,
         discord_webhook_url: str,
-        discord_bot_token: Optional[str] = None,
-        database_url: Optional[str] = None,
+        discord_bot_token: str | None = None,
+        database_url: str | None = None,
         loop_interval_seconds: int = 300,
     ):  # -> TradingConfig
-        """기존 TradingConfig 형식으로 변환
+        """기존 TradingConfig 형식으로 변환.
 
         기존 코드와의 호환성을 위해 BotConfig를 TradingConfig로 변환합니다.
 
@@ -214,7 +217,7 @@ class BotConfig(BaseModel):
         Returns:
             TradingConfig 인스턴스
         """
-        from src.config import TradingConfig
+        from src.config import TradingConfig  # noqa: PLC0415
 
         return TradingConfig(
             bot_name=self.bot_name,
@@ -240,7 +243,7 @@ class BotConfig(BaseModel):
 
     @classmethod
     def from_db_row(cls, row: dict[str, Any]) -> "BotConfig":
-        """데이터베이스 row에서 BotConfig 생성
+        """데이터베이스 row에서 BotConfig 생성.
 
         Args:
             row: 데이터베이스 row (dict)
@@ -277,7 +280,7 @@ class BotConfig(BaseModel):
         )
 
     def to_db_dict(self) -> dict[str, Any]:
-        """데이터베이스 저장용 dict로 변환
+        """데이터베이스 저장용 dict로 변환.
 
         Returns:
             데이터베이스 저장용 dict
@@ -311,5 +314,5 @@ class BotConfig(BaseModel):
         }
 
     class Config:
-        """Pydantic 설정"""
+        """Pydantic 설정."""
         validate_assignment = True

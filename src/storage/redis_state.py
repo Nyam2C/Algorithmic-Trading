@@ -1,12 +1,11 @@
-"""
-Redis 상태 관리 모듈
+"""Redis 상태 관리 모듈.
 
 봇 상태, 포지션 정보를 Redis에 영구 저장하여
 컨테이너 재시작 시 복구할 수 있도록 합니다.
 """
 import json
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from loguru import logger
 
@@ -25,9 +24,17 @@ BOT_POSITION_KEY = f"{KEY_PREFIX}:bot:{{bot_name}}:position"
 REGISTERED_BOTS_KEY = f"{KEY_PREFIX}:manager:bots"
 RUNNING_BOTS_KEY = f"{KEY_PREFIX}:manager:running"
 
+# 직렬화 접두사 상수
+_NULL_PREFIX = "__null__"
+_DATETIME_PREFIX = "__datetime__"
+_BOOL_PREFIX = "__bool__"
+_NUMBER_PREFIX = "__number__"
+_DICT_PREFIX = "__dict__"
+_LIST_PREFIX = "__list__"
+
 
 class RedisStateManager:
-    """Redis 상태 관리자
+    """Redis 상태 관리자.
 
     봇 상태와 포지션 정보를 Redis에 저장하고 복구합니다.
     컨테이너 재시작 시에도 상태를 유지할 수 있습니다.
@@ -45,11 +52,11 @@ class RedisStateManager:
     def __init__(
         self,
         redis_url: str = "redis://localhost:6379",
-        redis_password: Optional[str] = None,
+        redis_password: str | None = None,
         redis_db: int = 0,
         key_prefix: str = KEY_PREFIX,
     ) -> None:
-        """초기화
+        """초기화.
 
         Args:
             redis_url: Redis 연결 URL
@@ -64,12 +71,16 @@ class RedisStateManager:
         self._redis_password = redis_password
         self._redis_db = redis_db
         self._key_prefix = key_prefix
-        self._client: Optional[redis.Redis] = None
+        self._client: redis.Redis | None = None
         self._log = logger.bind(component="RedisStateManager")
 
     @property
     def is_connected(self) -> bool:
-        """Redis 연결 상태"""
+        """Redis 연결 상태.
+
+        클라이언트 객체 존재 여부만 확인합니다.
+        실제 연결 상태 확인은 ping() 메서드를 사용하세요.
+        """
         return self._client is not None
 
     # =========================================================================
@@ -77,7 +88,7 @@ class RedisStateManager:
     # =========================================================================
 
     async def connect(self) -> None:
-        """Redis 연결"""
+        """Redis 연결."""
         if self._client is not None:
             self._log.warning("이미 Redis에 연결되어 있습니다")
             return
@@ -98,14 +109,14 @@ class RedisStateManager:
             raise
 
     async def disconnect(self) -> None:
-        """Redis 연결 해제"""
+        """Redis 연결 해제."""
         if self._client is not None:
             await self._client.close()
             self._client = None
             self._log.info("Redis 연결 해제")
 
     async def ping(self) -> bool:
-        """Redis 연결 상태 확인
+        """Redis 연결 상태 확인.
 
         Returns:
             연결 성공 여부
@@ -124,15 +135,15 @@ class RedisStateManager:
     # =========================================================================
 
     def _get_state_key(self, bot_name: str) -> str:
-        """봇 상태 키 생성"""
+        """봇 상태 키 생성."""
         return f"{self._key_prefix}:bot:{bot_name}:state"
 
     def _get_position_key(self, bot_name: str) -> str:
-        """봇 포지션 키 생성"""
+        """봇 포지션 키 생성."""
         return f"{self._key_prefix}:bot:{bot_name}:position"
 
     async def save_bot_state(self, bot_name: str, state: dict[str, Any]) -> bool:
-        """봇 상태 저장
+        """봇 상태 저장.
 
         Args:
             bot_name: 봇 이름
@@ -151,11 +162,9 @@ class RedisStateManager:
             # datetime 객체를 ISO 문자열로 변환
             serializable_state = self._serialize_state(state)
 
-            # Hash로 저장
+            # 마지막 업데이트 시간을 mapping에 포함하여 단일 hset으로 원자적 저장
+            serializable_state["last_updated"] = datetime.now().isoformat()
             await self._client.hset(key, mapping=serializable_state)  # type: ignore[misc]
-
-            # 마지막 업데이트 시간 추가
-            await self._client.hset(key, "last_updated", datetime.now().isoformat())  # type: ignore[misc]
 
             self._log.debug(f"봇 상태 저장: {bot_name}")
             return True
@@ -164,8 +173,8 @@ class RedisStateManager:
             self._log.error(f"봇 상태 저장 실패: {bot_name}, {e}")
             return False
 
-    async def load_bot_state(self, bot_name: str) -> Optional[dict[str, Any]]:
-        """봇 상태 로드
+    async def load_bot_state(self, bot_name: str) -> dict[str, Any] | None:
+        """봇 상태 로드.
 
         Args:
             bot_name: 봇 이름
@@ -195,7 +204,7 @@ class RedisStateManager:
             return None
 
     async def delete_bot_state(self, bot_name: str) -> bool:
-        """봇 상태 삭제
+        """봇 상태 삭제.
 
         Args:
             bot_name: 봇 이름
@@ -220,7 +229,7 @@ class RedisStateManager:
     # =========================================================================
 
     async def save_position(self, bot_name: str, position: dict[str, Any]) -> bool:
-        """포지션 저장
+        """포지션 저장.
 
         Args:
             bot_name: 봇 이름
@@ -236,8 +245,10 @@ class RedisStateManager:
         try:
             key = self._get_position_key(bot_name)
             serializable = self._serialize_state(position)
+
+            # 마지막 업데이트 시간을 mapping에 포함하여 단일 hset으로 원자적 저장
+            serializable["last_updated"] = datetime.now().isoformat()
             await self._client.hset(key, mapping=serializable)  # type: ignore[misc]
-            await self._client.hset(key, "last_updated", datetime.now().isoformat())  # type: ignore[misc]
 
             self._log.debug(f"포지션 저장: {bot_name}")
             return True
@@ -246,8 +257,8 @@ class RedisStateManager:
             self._log.error(f"포지션 저장 실패: {bot_name}, {e}")
             return False
 
-    async def load_position(self, bot_name: str) -> Optional[dict[str, Any]]:
-        """포지션 로드
+    async def load_position(self, bot_name: str) -> dict[str, Any] | None:
+        """포지션 로드.
 
         Args:
             bot_name: 봇 이름
@@ -275,7 +286,7 @@ class RedisStateManager:
             return None
 
     async def delete_position(self, bot_name: str) -> bool:
-        """포지션 삭제
+        """포지션 삭제.
 
         Args:
             bot_name: 봇 이름
@@ -300,7 +311,7 @@ class RedisStateManager:
     # =========================================================================
 
     async def register_bot(self, bot_name: str) -> bool:
-        """봇 등록
+        """봇 등록.
 
         Args:
             bot_name: 봇 이름
@@ -321,7 +332,7 @@ class RedisStateManager:
             return False
 
     async def unregister_bot(self, bot_name: str) -> bool:
-        """봇 등록 해제
+        """봇 등록 해제.
 
         Args:
             bot_name: 봇 이름
@@ -348,7 +359,7 @@ class RedisStateManager:
             return False
 
     async def get_registered_bots(self) -> list[str]:
-        """등록된 봇 목록
+        """등록된 봇 목록.
 
         Returns:
             봇 이름 리스트
@@ -369,7 +380,7 @@ class RedisStateManager:
     # =========================================================================
 
     async def set_bot_running(self, bot_name: str) -> bool:
-        """봇 실행 상태로 설정
+        """봇 실행 상태로 설정.
 
         Args:
             bot_name: 봇 이름
@@ -390,7 +401,7 @@ class RedisStateManager:
             return False
 
     async def set_bot_stopped(self, bot_name: str) -> bool:
-        """봇 정지 상태로 설정
+        """봇 정지 상태로 설정.
 
         Args:
             bot_name: 봇 이름
@@ -411,7 +422,7 @@ class RedisStateManager:
             return False
 
     async def get_running_bots(self) -> list[str]:
-        """실행 중인 봇 목록
+        """실행 중인 봇 목록.
 
         Returns:
             봇 이름 리스트
@@ -428,7 +439,7 @@ class RedisStateManager:
             return []
 
     async def clear_running_bots(self) -> bool:
-        """실행 중인 봇 목록 초기화 (서버 시작 시 호출)
+        """실행 중인 봇 목록 초기화 (서버 시작 시 호출).
 
         Returns:
             초기화 성공 여부
@@ -450,34 +461,41 @@ class RedisStateManager:
     # =========================================================================
 
     def _serialize_state(self, state: dict[str, Any]) -> dict[str, str]:
-        """상태 딕셔너리를 Redis 저장용으로 직렬화
+        """상태 딕셔너리를 Redis 저장용으로 직렬화.
 
         Args:
             state: 상태 딕셔너리
 
         Returns:
             문자열 딕셔너리
+
+        NOTE: 중첩된 dict/list 내부의 datetime 등 특수 타입은
+        json.dumps(default=str)에 의해 문자열로 변환되며,
+        역직렬화 시 원래 타입으로 복원되지 않습니다.
+        중첩 구조에 특수 타입이 필요한 경우 최상위 키로 분리하세요.
         """
         result = {}
         for key, value in state.items():
             if value is None:
-                result[key] = "__null__"
+                result[key] = _NULL_PREFIX
             elif isinstance(value, datetime):
-                result[key] = f"__datetime__{value.isoformat()}"
+                result[key] = f"{_DATETIME_PREFIX}{value.isoformat()}"
             elif isinstance(value, bool):
-                result[key] = f"__bool__{str(value).lower()}"
+                result[key] = f"{_BOOL_PREFIX}{str(value).lower()}"
             elif isinstance(value, (int, float)):
-                result[key] = f"__number__{value}"
+                result[key] = f"{_NUMBER_PREFIX}{value}"
             elif isinstance(value, dict):
-                result[key] = f"__dict__{json.dumps(value, default=str)}"
+                # NOTE: 내부 datetime 등은 str로 변환됨 (복원 불가)
+                result[key] = f"{_DICT_PREFIX}{json.dumps(value, default=str)}"
             elif isinstance(value, list):
-                result[key] = f"__list__{json.dumps(value, default=str)}"
+                # NOTE: 내부 datetime 등은 str로 변환됨 (복원 불가)
+                result[key] = f"{_LIST_PREFIX}{json.dumps(value, default=str)}"
             else:
                 result[key] = str(value)
         return result
 
     def _deserialize_state(self, state: dict[str, str]) -> dict[str, Any]:
-        """Redis에서 로드된 상태를 역직렬화
+        """Redis에서 로드된 상태를 역직렬화.
 
         Args:
             state: 문자열 딕셔너리
@@ -487,20 +505,20 @@ class RedisStateManager:
         """
         result: dict[str, Any] = {}
         for key, value in state.items():
-            if value == "__null__":
+            if value == _NULL_PREFIX:
                 result[key] = None
-            elif value.startswith("__datetime__"):
-                dt_str = value[12:]
+            elif value.startswith(_DATETIME_PREFIX):
+                dt_str = value[len(_DATETIME_PREFIX):]
                 result[key] = datetime.fromisoformat(dt_str)
-            elif value.startswith("__bool__"):
-                result[key] = value[8:] == "true"
-            elif value.startswith("__number__"):
-                num_str = value[10:]
+            elif value.startswith(_BOOL_PREFIX):
+                result[key] = value[len(_BOOL_PREFIX):] == "true"
+            elif value.startswith(_NUMBER_PREFIX):
+                num_str = value[len(_NUMBER_PREFIX):]
                 result[key] = float(num_str) if "." in num_str else int(num_str)
-            elif value.startswith("__dict__"):
-                result[key] = json.loads(value[8:])
-            elif value.startswith("__list__"):
-                result[key] = json.loads(value[8:])
+            elif value.startswith(_DICT_PREFIX):
+                result[key] = json.loads(value[len(_DICT_PREFIX):])
+            elif value.startswith(_LIST_PREFIX):
+                result[key] = json.loads(value[len(_LIST_PREFIX):])
             else:
                 result[key] = value
         return result
@@ -508,7 +526,7 @@ class RedisStateManager:
 
 # Fallback을 위한 더미 매니저
 class DummyRedisStateManager:
-    """Redis 연결 실패 시 사용되는 더미 매니저
+    """Redis 연결 실패 시 사용되는 더미 매니저.
 
     모든 연산이 성공하지만 실제 저장은 하지 않습니다.
     """
@@ -530,37 +548,37 @@ class DummyRedisStateManager:
     async def ping(self) -> bool:
         return False
 
-    async def save_bot_state(self, bot_name: str, state: dict[str, Any]) -> bool:
+    async def save_bot_state(self, _bot_name: str, _state: dict[str, Any]) -> bool:
         return True
 
-    async def load_bot_state(self, bot_name: str) -> Optional[dict[str, Any]]:
+    async def load_bot_state(self, _bot_name: str) -> dict[str, Any] | None:
         return None
 
-    async def delete_bot_state(self, bot_name: str) -> bool:
+    async def delete_bot_state(self, _bot_name: str) -> bool:
         return True
 
-    async def save_position(self, bot_name: str, position: dict[str, Any]) -> bool:
+    async def save_position(self, _bot_name: str, _position: dict[str, Any]) -> bool:
         return True
 
-    async def load_position(self, bot_name: str) -> Optional[dict[str, Any]]:
+    async def load_position(self, _bot_name: str) -> dict[str, Any] | None:
         return None
 
-    async def delete_position(self, bot_name: str) -> bool:
+    async def delete_position(self, _bot_name: str) -> bool:
         return True
 
-    async def register_bot(self, bot_name: str) -> bool:
+    async def register_bot(self, _bot_name: str) -> bool:
         return True
 
-    async def unregister_bot(self, bot_name: str) -> bool:
+    async def unregister_bot(self, _bot_name: str) -> bool:
         return True
 
     async def get_registered_bots(self) -> list[str]:
         return []
 
-    async def set_bot_running(self, bot_name: str) -> bool:
+    async def set_bot_running(self, _bot_name: str) -> bool:
         return True
 
-    async def set_bot_stopped(self, bot_name: str) -> bool:
+    async def set_bot_stopped(self, _bot_name: str) -> bool:
         return True
 
     async def get_running_bots(self) -> list[str]:
@@ -572,11 +590,11 @@ class DummyRedisStateManager:
 
 async def create_redis_manager(
     redis_url: str,
-    redis_password: Optional[str] = None,
+    redis_password: str | None = None,
     redis_db: int = 0,
     fallback_on_error: bool = True,
 ) -> RedisStateManager | DummyRedisStateManager:
-    """Redis 상태 관리자 생성
+    """Redis 상태 관리자 생성.
 
     연결 실패 시 fallback_on_error가 True이면 더미 매니저를 반환합니다.
 

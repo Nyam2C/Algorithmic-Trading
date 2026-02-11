@@ -1,24 +1,23 @@
-"""
-다중 타임프레임 분석 모듈
+"""다중 타임프레임 분석 모듈.
 
 Phase 6.4: 다중 타임프레임 확인
 - 상위 TF(15분봉)로 추세 확인
 - 시그널과 상위 TF 추세 정렬 여부 판단
 """
 from enum import Enum
-from typing import Dict, Tuple
+
 from loguru import logger
 
 
 class TimeframeAlignment(Enum):
-    """타임프레임 정렬 상태"""
+    """타임프레임 정렬 상태."""
     ALIGNED = "aligned"        # 시그널과 상위 TF 추세 일치
     CONFLICTING = "conflicting"  # 시그널과 상위 TF 추세 충돌
     NEUTRAL = "neutral"        # 판단 불가 또는 WAIT 시그널
 
 
 class MultiTimeframeAnalyzer:
-    """다중 타임프레임 분석기
+    """다중 타임프레임 분석기.
 
     상위 타임프레임(15분봉 등)의 추세를 확인하여
     하위 타임프레임 시그널을 필터링합니다.
@@ -39,7 +38,7 @@ class MultiTimeframeAnalyzer:
         tolerance_pct: float = 0.1,
         strict_mode: bool = False,
     ) -> None:
-        """분석기 초기화
+        """분석기 초기화.
 
         Args:
             tolerance_pct: MA25 근처 허용 범위 (%) - 이 범위 내면 중립 처리
@@ -56,9 +55,9 @@ class MultiTimeframeAnalyzer:
     def check_alignment(
         self,
         signal: str,
-        higher_tf_data: Dict,
+        higher_tf_data: dict,
     ) -> TimeframeAlignment:
-        """시그널과 상위 TF 추세 정렬 확인
+        """시그널과 상위 TF 추세 정렬 확인.
 
         Args:
             signal: 하위 TF 시그널 ("LONG", "SHORT", "WAIT")
@@ -72,7 +71,10 @@ class MultiTimeframeAnalyzer:
 
         # 필수 데이터 확인
         ma_25 = higher_tf_data.get("ma_25")
-        current_price = higher_tf_data.get("current_price") or higher_tf_data.get("price")
+        current_price = (
+            higher_tf_data.get("current_price")
+            or higher_tf_data.get("price")
+        )
 
         if ma_25 is None or current_price is None:
             logger.warning("상위 TF 데이터 부족 - NEUTRAL 반환")
@@ -100,22 +102,20 @@ class MultiTimeframeAnalyzer:
         if signal == "LONG":
             if is_higher_bullish:
                 return TimeframeAlignment.ALIGNED
-            else:
-                return TimeframeAlignment.CONFLICTING
+            return TimeframeAlignment.CONFLICTING
 
         if signal == "SHORT":
             if is_higher_bearish:
                 return TimeframeAlignment.ALIGNED
-            else:
-                return TimeframeAlignment.CONFLICTING
+            return TimeframeAlignment.CONFLICTING
 
         return TimeframeAlignment.NEUTRAL
 
     def check_ma_alignment(
         self,
-        higher_tf_data: Dict,
-    ) -> Tuple[bool, bool]:
-        """MA 정렬 확인
+        higher_tf_data: dict,
+    ) -> tuple[bool, bool]:
+        """MA 정렬 확인.
 
         Args:
             higher_tf_data: 상위 TF 시장 데이터
@@ -138,9 +138,9 @@ class MultiTimeframeAnalyzer:
     def filter_signal(
         self,
         signal: str,
-        higher_tf_data: Dict,
+        higher_tf_data: dict,
     ) -> str:
-        """시그널 필터링
+        """시그널 필터링.
 
         상위 TF와 충돌하는 시그널을 WAIT로 변환합니다.
 
@@ -166,9 +166,9 @@ class MultiTimeframeAnalyzer:
 
     def get_higher_tf_trend(
         self,
-        higher_tf_data: Dict,
+        higher_tf_data: dict,
     ) -> str:
-        """상위 TF 추세 반환
+        """상위 TF 추세 반환.
 
         Args:
             higher_tf_data: 상위 TF 시장 데이터
@@ -177,7 +177,10 @@ class MultiTimeframeAnalyzer:
             "BULLISH", "BEARISH", "NEUTRAL"
         """
         ma_25 = higher_tf_data.get("ma_25")
-        current_price = higher_tf_data.get("current_price") or higher_tf_data.get("price")
+        current_price = (
+            higher_tf_data.get("current_price")
+            or higher_tf_data.get("price")
+        )
 
         if ma_25 is None or current_price is None:
             return "NEUTRAL"
@@ -189,15 +192,14 @@ class MultiTimeframeAnalyzer:
 
         if current_price > ma_25:
             return "BULLISH"
-        else:
-            return "BEARISH"
+        return "BEARISH"
 
     def get_analysis_info(
         self,
         signal: str,
-        higher_tf_data: Dict,
-    ) -> Dict:
-        """분석 정보 반환
+        higher_tf_data: dict,
+    ) -> dict:
+        """분석 정보 반환.
 
         Args:
             signal: 하위 TF 시그널

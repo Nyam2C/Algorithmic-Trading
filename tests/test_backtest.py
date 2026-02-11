@@ -3,12 +3,13 @@ Tests for Backtest Framework
 
 Phase 6.5: 백테스트 프레임워크
 """
+from typing import Dict, List
+
 import pytest
-from typing import List, Dict
 
 from src.backtest.engine import (
-    BacktestEngine,
     BacktestConfig,
+    BacktestEngine,
     BacktestResult,
     Trade,
 )
@@ -126,9 +127,9 @@ class TestBacktestResult:
     def test_calculate_metrics(self):
         """메트릭 계산"""
         trades = [
-            Trade(1, 100.0, "LONG", 0.1, 2, 105.0, "TP"),
-            Trade(3, 105.0, "SHORT", 0.1, 4, 100.0, "TP"),
-            Trade(5, 100.0, "LONG", 0.1, 6, 98.0, "SL"),
+            Trade(1, 100.0, "LONG", 0.1, exit_time=2, exit_price=105.0, exit_reason="TP"),
+            Trade(3, 105.0, "SHORT", 0.1, exit_time=4, exit_price=100.0, exit_reason="TP"),
+            Trade(5, 100.0, "LONG", 0.1, exit_time=6, exit_price=98.0, exit_reason="SL"),
         ]
         for t in trades:
             t.calculate_pnl()

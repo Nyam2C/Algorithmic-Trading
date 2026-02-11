@@ -2,6 +2,7 @@
 Tests for RuleBasedSignalGenerator
 """
 import pytest
+
 from src.ai.rule_based import RuleBasedSignalGenerator
 
 

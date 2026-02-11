@@ -1,20 +1,22 @@
-"""
-감사 로그 모듈
+"""감사 로그 모듈.
 
 Phase 7.3: 거래 감사 로그
 - 모든 거래 및 봇 이벤트 기록
 - PostgreSQL 영구 저장 (옵션)
 - 인메모리 폴백 지원
 """
+import json
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from loguru import logger
 
 
 class AuditEventType(Enum):
-    """감사 이벤트 타입
+    """감사 이벤트 타입.
 
     거래 및 봇 관련 모든 이벤트 유형을 정의합니다.
     """
@@ -29,7 +31,7 @@ class AuditEventType(Enum):
 
 @dataclass
 class AuditLog:
-    """감사 로그 엔트리
+    """감사 로그 엔트리.
 
     단일 감사 이벤트를 나타냅니다.
 
@@ -43,13 +45,13 @@ class AuditLog:
     """
     event_type: AuditEventType
     bot_name: str
-    details: Dict[str, Any] = field(default_factory=dict)
-    user_id: Optional[str] = None
+    details: dict[str, Any] = field(default_factory=dict)
+    user_id: str | None = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    session_id: Optional[str] = None
+    session_id: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환"""
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리로 변환."""
         return {
             "event_type": self.event_type.value,
             "bot_name": self.bot_name,
@@ -61,7 +63,7 @@ class AuditLog:
 
 
 class AuditLogManager:
-    """감사 로그 매니저
+    """감사 로그 매니저.
 
     감사 로그를 기록하고 조회합니다.
     PostgreSQL DB 연결이 있으면 영구 저장하고,
@@ -80,17 +82,17 @@ class AuditLogManager:
 
     def __init__(
         self,
-        db_pool: Optional[Any] = None,
+        db_pool: Any | None = None,
         max_memory_logs: int = 1000,
     ) -> None:
-        """감사 로그 매니저 초기화
+        """감사 로그 매니저 초기화.
 
         Args:
             db_pool: asyncpg 연결 풀 (선택)
             max_memory_logs: 인메모리 최대 로그 수
         """
         self._db_pool = db_pool
-        self._memory_logs: List[AuditLog] = []
+        self._memory_logs: deque[AuditLog] = deque(maxlen=max_memory_logs)
         self._max_memory_logs = max_memory_logs
 
         logger.debug(
@@ -99,13 +101,9 @@ class AuditLogManager:
         )
 
     async def _save_log(self, log: AuditLog) -> None:
-        """로그 저장 (DB 또는 메모리)"""
-        # 인메모리 저장
+        """로그 저장 (DB 또는 메모리)."""
+        # 인메모리 저장 (deque가 maxlen 초과 시 자동으로 오래된 항목 제거)
         self._memory_logs.append(log)
-
-        # 최대 개수 초과 시 오래된 로그 삭제
-        if len(self._memory_logs) > self._max_memory_logs:
-            self._memory_logs = self._memory_logs[-self._max_memory_logs:]
 
         # DB 저장 (연결이 있는 경우)
         if self._db_pool is not None:
@@ -115,15 +113,15 @@ class AuditLogManager:
                 logger.warning(f"DB 저장 실패, 인메모리에만 저장: {e}")
 
     async def _save_to_db(self, log: AuditLog) -> None:
-        """DB에 로그 저장"""
+        """DB에 로그 저장."""
         if self._db_pool is None:
             return
 
         query = """
-            INSERT INTO audit_logs (event_type, bot_name, user_id, action_details, session_id)
+            INSERT INTO audit_logs
+            (event_type, bot_name, user_id, action_details, session_id)
             VALUES ($1, $2, $3, $4, $5)
         """
-        import json
         async with self._db_pool.acquire() as conn:
             await conn.execute(
                 query,
@@ -144,10 +142,10 @@ class AuditLogManager:
         side: str,
         quantity: float,
         entry_price: float,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
         **kwargs: Any,
     ) -> None:
-        """거래 진입 로깅
+        """거래 진입 로깅.
 
         Args:
             bot_name: 봇 이름
@@ -155,6 +153,7 @@ class AuditLogManager:
             quantity: 수량
             entry_price: 진입 가격
             user_id: 사용자 ID (선택)
+            **kwargs: 추가 키워드 인자 (거래 상세 정보에 포함)
         """
         log = AuditLog(
             event_type=AuditEventType.TRADE_OPEN,
@@ -177,10 +176,10 @@ class AuditLogManager:
         exit_reason: str,
         pnl: float,
         pnl_pct: float,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
         **kwargs: Any,
     ) -> None:
-        """거래 청산 로깅
+        """거래 청산 로깅.
 
         Args:
             bot_name: 봇 이름
@@ -189,6 +188,7 @@ class AuditLogManager:
             pnl: 실현 손익
             pnl_pct: 손익률 (%)
             user_id: 사용자 ID (선택)
+            **kwargs: 추가 키워드 인자 (거래 상세 정보에 포함)
         """
         log = AuditLog(
             event_type=AuditEventType.TRADE_CLOSE,
@@ -211,10 +211,10 @@ class AuditLogManager:
     async def log_bot_pause(
         self,
         bot_name: str,
-        reason: Optional[str] = None,
-        user_id: Optional[str] = None,
+        reason: str | None = None,
+        user_id: str | None = None,
     ) -> None:
-        """봇 일시정지 로깅
+        """봇 일시정지 로깅.
 
         Args:
             bot_name: 봇 이름
@@ -233,9 +233,9 @@ class AuditLogManager:
     async def log_bot_resume(
         self,
         bot_name: str,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
     ) -> None:
-        """봇 재시작 로깅
+        """봇 재시작 로깅.
 
         Args:
             bot_name: 봇 이름
@@ -254,10 +254,10 @@ class AuditLogManager:
         self,
         bot_name: str,
         reason: str,
-        pnl: Optional[float] = None,
-        user_id: Optional[str] = None,
+        pnl: float | None = None,
+        user_id: str | None = None,
     ) -> None:
-        """긴급 청산 로깅
+        """긴급 청산 로깅.
 
         Args:
             bot_name: 봇 이름
@@ -265,7 +265,7 @@ class AuditLogManager:
             pnl: 실현 손익 (선택)
             user_id: 사용자 ID (선택)
         """
-        details: Dict[str, Any] = {"reason": reason}
+        details: dict[str, Any] = {"reason": reason}
         if pnl is not None:
             details["pnl"] = pnl
 
@@ -282,10 +282,10 @@ class AuditLogManager:
         self,
         bot_name: str,
         reason: str,
-        daily_pnl: Optional[float] = None,
-        daily_pnl_pct: Optional[float] = None,
+        daily_pnl: float | None = None,
+        daily_pnl_pct: float | None = None,
     ) -> None:
-        """리스크 한도 도달 로깅
+        """리스크 한도 도달 로깅.
 
         Args:
             bot_name: 봇 이름
@@ -293,7 +293,7 @@ class AuditLogManager:
             daily_pnl: 일일 손익
             daily_pnl_pct: 일일 손익률
         """
-        details: Dict[str, Any] = {"reason": reason}
+        details: dict[str, Any] = {"reason": reason}
         if daily_pnl is not None:
             details["daily_pnl"] = daily_pnl
         if daily_pnl_pct is not None:
@@ -310,10 +310,10 @@ class AuditLogManager:
     async def log_config_change(
         self,
         bot_name: str,
-        changes: Dict[str, Any],
-        user_id: Optional[str] = None,
+        changes: dict[str, Any],
+        user_id: str | None = None,
     ) -> None:
-        """설정 변경 로깅
+        """설정 변경 로깅.
 
         Args:
             bot_name: 봇 이름
@@ -335,11 +335,14 @@ class AuditLogManager:
 
     async def get_recent_logs(
         self,
-        bot_name: Optional[str] = None,
-        event_type: Optional[AuditEventType] = None,
+        bot_name: str | None = None,
+        event_type: AuditEventType | None = None,
         limit: int = 50,
-    ) -> List[AuditLog]:
-        """최근 로그 조회
+    ) -> list[AuditLog]:
+        """최근 로그 조회.
+
+        인메모리 로그를 먼저 조회하고, DB 연결이 있고 인메모리 결과가
+        부족한 경우 DB에서 추가 조회합니다.
 
         Args:
             bot_name: 봇 이름으로 필터링 (선택)
@@ -350,7 +353,7 @@ class AuditLogManager:
             AuditLog 리스트 (최신순)
         """
         # 인메모리에서 조회
-        logs = self._memory_logs.copy()
+        logs = list(self._memory_logs)
 
         # 필터링
         if bot_name:
@@ -361,15 +364,115 @@ class AuditLogManager:
 
         # 최신순 정렬 후 limit 적용
         logs.sort(key=lambda x: x.timestamp, reverse=True)
-        return logs[:limit]
+        memory_logs = logs[:limit]
+
+        # DB 폴백: 인메모리 결과가 limit보다 적고 DB 연결이 있으면 DB에서 추가 조회
+        if len(memory_logs) < limit and self._db_pool is not None:
+            try:
+                db_logs = await self._query_logs_from_db(
+                    bot_name=bot_name,
+                    event_type=event_type,
+                    limit=limit,
+                )
+                # 인메모리와 DB 로그를 병합 (중복 제거는 타임스탬프 기준)
+                # DB 로그 중 인메모리에 없는 것만 추가
+                memory_timestamps = {log.timestamp for log in memory_logs}
+                for db_log in db_logs:
+                    if db_log.timestamp not in memory_timestamps:
+                        memory_logs.append(db_log)
+
+                # 다시 정렬 후 limit 적용
+                memory_logs.sort(key=lambda x: x.timestamp, reverse=True)
+                memory_logs = memory_logs[:limit]
+            except Exception as e:
+                logger.warning(f"DB 로그 조회 실패, 인메모리 결과만 반환: {e}")
+
+        return memory_logs
+
+    async def _query_logs_from_db(
+        self,
+        bot_name: str | None = None,
+        event_type: AuditEventType | None = None,
+        limit: int = 50,
+    ) -> list[AuditLog]:
+        """DB에서 로그 조회 (내부 메서드).
+
+        Args:
+            bot_name: 봇 이름 필터 (선택)
+            event_type: 이벤트 타입 필터 (선택)
+            limit: 최대 반환 개수
+
+        Returns:
+            AuditLog 리스트
+        """
+        if self._db_pool is None:
+            return []
+
+        conditions = []
+        params: list[Any] = []
+        param_idx = 1
+
+        if bot_name:
+            conditions.append(f"bot_name = ${param_idx}")
+            params.append(bot_name)
+            param_idx += 1
+
+        if event_type:
+            conditions.append(f"event_type = ${param_idx}")
+            params.append(event_type.value)
+            param_idx += 1
+
+        where_clause = ""
+        if conditions:
+            where_clause = "WHERE " + " AND ".join(conditions)
+
+        query = (
+            "SELECT event_type, bot_name, user_id, "  # noqa: S608
+            "action_details, session_id, created_at "
+            "FROM audit_logs "
+            f"{where_clause} "
+            f"ORDER BY created_at DESC "
+            f"LIMIT ${param_idx}"
+        )
+        params.append(limit)
+
+        async with self._db_pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+
+        result = []
+        for row in rows:
+            try:
+                details = (
+                    json.loads(row["action_details"])
+                    if row["action_details"]
+                    else {}
+                )
+            except (json.JSONDecodeError, TypeError):
+                details = {}
+
+            log = AuditLog(
+                event_type=AuditEventType(row["event_type"]),
+                bot_name=row["bot_name"],
+                user_id=row["user_id"],
+                details=details,
+                session_id=row["session_id"],
+                timestamp=(
+                    row["created_at"]
+                    if row["created_at"]
+                    else datetime.now(timezone.utc)
+                ),
+            )
+            result.append(log)
+
+        return result
 
     async def get_logs_by_date_range(
         self,
         start_date: datetime,
         end_date: datetime,
-        bot_name: Optional[str] = None,
-    ) -> List[AuditLog]:
-        """날짜 범위로 로그 조회
+        bot_name: str | None = None,
+    ) -> list[AuditLog]:
+        """날짜 범위로 로그 조회.
 
         Args:
             start_date: 시작 날짜
@@ -394,13 +497,13 @@ class AuditLogManager:
         logs.sort(key=lambda x: x.timestamp, reverse=True)
         return logs
 
-    def get_stats(self) -> Dict[str, Any]:
-        """감사 로그 통계
+    def get_stats(self) -> dict[str, Any]:
+        """감사 로그 통계.
 
         Returns:
             통계 정보 딕셔너리
         """
-        event_counts: Dict[str, int] = {}
+        event_counts: dict[str, int] = {}
         for log in self._memory_logs:
             event_type = log.event_type.value
             event_counts[event_type] = event_counts.get(event_type, 0) + 1

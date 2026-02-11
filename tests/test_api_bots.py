@@ -4,15 +4,15 @@ Bots API 테스트
 /api/bots 엔드포인트 테스트입니다.
 """
 import os
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from src.api.main import create_app
-from src.bot_manager import MultiBotManager
 from src.bot_config import BotConfig
 from src.bot_instance import BotInstance
-
+from src.bot_manager import MultiBotManager
 
 # 테스트용 API 키
 TEST_API_KEY = "test-api-key-12345"

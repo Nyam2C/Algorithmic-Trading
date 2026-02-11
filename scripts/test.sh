@@ -4,6 +4,7 @@
 # =============================================================================
 # pytest + 커버리지 + 타입 체크
 # Usage: ./scripts/test.sh [--quick|--coverage|--ci]
+# 설정은 pyproject.toml에서 통합 관리 (ruff, pytest, coverage)
 # =============================================================================
 
 set -e
@@ -34,7 +35,7 @@ case "${1:---quick}" in
         echo ""
 
         info "pytest 실행 중..."
-        python3 -m pytest tests/ -v --tb=short
+        python3 -m pytest tests/ --no-cov
 
         echo ""
         success "테스트 통과!"
@@ -49,12 +50,7 @@ case "${1:---quick}" in
         echo ""
 
         info "pytest + coverage 실행 중..."
-        python3 -m pytest tests/ \
-            --cov=src \
-            --cov-report=term-missing \
-            --cov-report=html \
-            --cov-fail-under=80 \
-            -v
+        python3 -m pytest tests/
 
         echo ""
         success "테스트 통과!"
@@ -73,7 +69,7 @@ case "${1:---quick}" in
         # 1. 린트 체크
         info "Step 1/3: Lint 체크 (ruff)"
         if command -v ruff &> /dev/null; then
-            ruff check src/ tests/ --fix || warn "일부 린트 경고 있음"
+            ruff check src/ tests/ || warn "일부 린트 경고 있음"
             success "Lint OK"
         else
             warn "ruff 미설치 - 건너뜀"
@@ -90,13 +86,7 @@ case "${1:---quick}" in
 
         # 3. 테스트 + 커버리지
         info "Step 3/3: 테스트 + 커버리지"
-        python3 -m pytest tests/ \
-            --cov=src \
-            --cov-report=term-missing \
-            --cov-report=xml \
-            --cov-fail-under=80 \
-            -v \
-            --tb=short
+        python3 -m pytest tests/ --cov-report=xml
 
         echo ""
         success "CI 테스트 전체 통과!"
@@ -107,10 +97,12 @@ case "${1:---quick}" in
         echo "Usage: ./scripts/test.sh [command]"
         echo ""
         echo "Commands:"
-        echo "  --quick     빠른 테스트 (기본값)"
+        echo "  --quick     빠른 테스트 (기본값, 커버리지 없음)"
         echo "  --coverage  커버리지 포함 테스트"
         echo "  --ci        CI 환경 테스트 (lint + type + coverage)"
         echo "  --help      도움말"
+        echo ""
+        echo "설정: pyproject.toml (ruff, pytest, coverage 통합)"
         echo ""
         ;;
 

@@ -5,15 +5,15 @@ n8n API 테스트
 Phase 4.1: API 키 인증 테스트 추가
 """
 import os
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from src.api.main import create_app
-from src.bot_manager import MultiBotManager
 from src.bot_config import BotConfig
 from src.bot_instance import BotInstance
-
+from src.bot_manager import MultiBotManager
 
 # 테스트용 API 키
 TEST_N8N_API_KEY = "test-api-key-12345"

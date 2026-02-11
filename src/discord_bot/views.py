@@ -1,5 +1,4 @@
-"""
-Discord UI Views
+"""Discord UI Views.
 
 버튼 및 인터랙티브 UI 컴포넌트를 정의합니다.
 
@@ -8,13 +7,14 @@ Discord UI Views
 - 일시정지/재시작 버튼: TRADER 이상
 - 긴급청산 버튼: ADMIN 이상
 """
+import time
 from datetime import datetime
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import discord
 from loguru import logger
 
-from src.discord_bot.constants import Colors, Timeouts, Emojis, Messages
+from src.discord_bot.constants import Colors, Emojis, Messages, Timeouts
 from src.discord_bot.permissions import (
     PermissionLevel,
     check_permission,
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 
 class ConfirmationView(discord.ui.View):
-    """확인 대화상자 (위험한 작업용)
+    """확인 대화상자 (위험한 작업용).
 
     일시정지, 재시작, 긴급청산 등 확인이 필요한 작업에 사용됩니다.
 
@@ -46,11 +46,11 @@ class ConfirmationView(discord.ui.View):
         self,
         action: str,
         bot_state: dict,
-        action_data: Optional[Dict[str, Any]] = None,
+        action_data: dict[str, Any] | None = None,
         timeout: int = Timeouts.CONFIRMATION_VIEW,
-        original_user_id: Optional[int] = None,
+        original_user_id: int | None = None,
     ):
-        """ConfirmationView 초기화
+        """ConfirmationView 초기화.
 
         Args:
             action: 작업 유형 ("pause", "resume", "emergency")
@@ -74,15 +74,34 @@ class ConfirmationView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """확인 버튼 (권한 체크 포함)"""
+        """확인 버튼 (권한 체크 포함)."""
         try:
+            # 원래 명령어를 실행한 사용자만 확인 버튼을 클릭할 수 있음
+            if (
+                self.original_user_id is not None
+                and interaction.user.id != self.original_user_id
+            ):
+                await interaction.response.send_message(
+                    "🚫 이 확인 버튼은 원래 명령어를"
+                    " 실행한 사용자만 클릭할 수 있습니다.",
+                    ephemeral=True,
+                )
+                logger.warning(
+                    f"다른 사용자가 확인 버튼 클릭 시도: {interaction.user} "
+                    f"(원래 사용자 ID: {self.original_user_id})"
+                )
+                return
+
             # 권한 체크
             required_level = self.ACTION_PERMISSION_LEVELS.get(
                 self.action, PermissionLevel.ADMIN
             )
-            if not check_permission(interaction, required_level, self._permission_config):
+            if not check_permission(
+                interaction, required_level, self._permission_config
+            ):
                 await interaction.response.send_message(
-                    f"🚫 권한이 없습니다. 이 작업은 **{required_level.name}** 이상의 권한이 필요합니다.",
+                    "🚫 권한이 없습니다. 이 작업은"
+                    f" **{required_level.name}** 이상의 권한이 필요합니다.",
                     ephemeral=True,
                 )
                 logger.warning(
@@ -104,7 +123,7 @@ class ConfirmationView(discord.ui.View):
         except Exception as e:
             logger.error(f"확인 버튼 에러: {e}")
             await interaction.response.send_message(
-                f"❌ 오류: {str(e)}",
+                f"❌ 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -114,7 +133,18 @@ class ConfirmationView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """취소 버튼"""
+        """취소 버튼."""
+        # 원래 명령어를 실행한 사용자만 취소할 수 있음
+        if (
+            self.original_user_id is not None
+            and interaction.user.id != self.original_user_id
+        ):
+            await interaction.response.send_message(
+                "🚫 이 취소 버튼은 원래 명령어를 실행한 사용자만 클릭할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
+
         self.cancelled = True
         await interaction.response.send_message(
             Messages.CANCELLED,
@@ -123,19 +153,20 @@ class ConfirmationView(discord.ui.View):
         self.stop()
 
     async def _handle_pause(self, interaction: discord.Interaction):
-        """일시정지 처리"""
+        """일시정지 처리."""
         self.bot_state["is_paused"] = True
         self.bot_state["paused_by"] = str(interaction.user)
         self.bot_state["paused_at"] = datetime.now()
 
         await interaction.response.send_message(
-            f"{Messages.BOT_PAUSED}\n새 포지션 진입이 중지됩니다. 기존 포지션은 계속 관리됩니다.",
+            f"{Messages.BOT_PAUSED}\n새 포지션 진입이 중지됩니다."
+            " 기존 포지션은 계속 관리됩니다.",
             ephemeral=True
         )
         logger.warning(f"봇 일시정지: {interaction.user}")
 
     async def _handle_resume(self, interaction: discord.Interaction):
-        """재시작 처리"""
+        """재시작 처리."""
         was_paused = self.bot_state.get("is_paused", False)
         self.bot_state["is_paused"] = False
         self.bot_state["resumed_by"] = str(interaction.user)
@@ -156,7 +187,7 @@ class ConfirmationView(discord.ui.View):
         logger.info(f"봇 재시작: {interaction.user}")
 
     async def _handle_emergency(self, interaction: discord.Interaction):
-        """긴급 청산 처리"""
+        """긴급 청산 처리."""
         position = self.bot_state.get("position")
 
         if not position or not position.get("side"):
@@ -187,18 +218,21 @@ class ConfirmationView(discord.ui.View):
 
 
 class DashboardView(discord.ui.View):
-    """대시보드 메인 UI (7개 버튼)
+    """대시보드 메인 UI (7개 버튼).
 
     정보 조회 버튼 (Row 0): 상태, 포지션, 통계, 내역 - VIEWER 권한
     제어 버튼 (Row 1): 일시정지, 재시작, 긴급청산 - TRADER/ADMIN 권한
     """
+
+    # 버튼 클릭 쿨다운 (초)
+    BUTTON_COOLDOWN = 3.0
 
     def __init__(
         self,
         bot_client: "TradingBotClient",
         timeout: int = Timeouts.DASHBOARD_VIEW
     ):
-        """DashboardView 초기화
+        """DashboardView 초기화.
 
         Args:
             bot_client: TradingBotClient 인스턴스
@@ -207,6 +241,24 @@ class DashboardView(discord.ui.View):
         super().__init__(timeout=timeout)
         self.bot_client = bot_client
         self._permission_config = get_permission_config()
+        # 사용자별 마지막 클릭 시간 (user_id -> timestamp)
+        self._last_interaction: dict[int, float] = {}
+
+    def _check_cooldown(self, user_id: int) -> bool:
+        """사용자 쿨다운 확인.
+
+        Args:
+            user_id: Discord 사용자 ID
+
+        Returns:
+            True이면 요청 허용, False이면 쿨다운 중
+        """
+        now = time.monotonic()
+        last_time = self._last_interaction.get(user_id, 0.0)
+        if now - last_time < self.BUTTON_COOLDOWN:
+            return False
+        self._last_interaction[user_id] = now
+        return True
 
     # =========================================================================
     # Row 0: 정보 조회 버튼
@@ -218,7 +270,12 @@ class DashboardView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """상태 조회 버튼"""
+        """상태 조회 버튼."""
+        if not self._check_cooldown(interaction.user.id):
+            await interaction.response.send_message(
+                "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
+            )
+            return
         await interaction.response.defer(ephemeral=True)
         try:
             embed = await self.bot_client._get_status_embed()
@@ -226,7 +283,7 @@ class DashboardView(discord.ui.View):
             logger.info(f"대시보드 상태 버튼 클릭: {interaction.user}")
         except Exception as e:
             logger.error(f"상태 버튼 에러: {e}")
-            await interaction.followup.send(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 오류: {e!s}", ephemeral=True)
 
     @discord.ui.button(label="📍 포지션", style=discord.ButtonStyle.primary, row=0)
     async def position_button(
@@ -234,7 +291,12 @@ class DashboardView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """포지션 조회 버튼"""
+        """포지션 조회 버튼."""
+        if not self._check_cooldown(interaction.user.id):
+            await interaction.response.send_message(
+                "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
+            )
+            return
         await interaction.response.defer(ephemeral=True)
         try:
             embed = await self.bot_client._get_position_embed()
@@ -242,7 +304,7 @@ class DashboardView(discord.ui.View):
             logger.info(f"대시보드 포지션 버튼 클릭: {interaction.user}")
         except Exception as e:
             logger.error(f"포지션 버튼 에러: {e}")
-            await interaction.followup.send(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 오류: {e!s}", ephemeral=True)
 
     @discord.ui.button(label="📈 통계", style=discord.ButtonStyle.primary, row=0)
     async def stats_button(
@@ -250,7 +312,12 @@ class DashboardView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """통계 조회 버튼"""
+        """통계 조회 버튼."""
+        if not self._check_cooldown(interaction.user.id):
+            await interaction.response.send_message(
+                "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
+            )
+            return
         await interaction.response.defer(ephemeral=True)
         try:
             embed = await self.bot_client._get_stats_embed(hours=24)
@@ -258,7 +325,7 @@ class DashboardView(discord.ui.View):
             logger.info(f"대시보드 통계 버튼 클릭: {interaction.user}")
         except Exception as e:
             logger.error(f"통계 버튼 에러: {e}")
-            await interaction.followup.send(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 오류: {e!s}", ephemeral=True)
 
     @discord.ui.button(label="📜 내역", style=discord.ButtonStyle.primary, row=0)
     async def history_button(
@@ -266,7 +333,12 @@ class DashboardView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """거래 내역 버튼"""
+        """거래 내역 버튼."""
+        if not self._check_cooldown(interaction.user.id):
+            await interaction.response.send_message(
+                "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
+            )
+            return
         await interaction.response.defer(ephemeral=True)
         try:
             embed = await self.bot_client._get_history_embed(limit=5)
@@ -274,7 +346,7 @@ class DashboardView(discord.ui.View):
             logger.info(f"대시보드 내역 버튼 클릭: {interaction.user}")
         except Exception as e:
             logger.error(f"내역 버튼 에러: {e}")
-            await interaction.followup.send(f"❌ 오류: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ 오류: {e!s}", ephemeral=True)
 
     # =========================================================================
     # Row 1: 제어 버튼
@@ -286,14 +358,20 @@ class DashboardView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """일시정지 버튼 (확인 필요) - TRADER 권한 필요"""
+        """일시정지 버튼 (확인 필요) - TRADER 권한 필요."""
+        if not self._check_cooldown(interaction.user.id):
+            await interaction.response.send_message(
+                "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
+            )
+            return
         try:
             # 권한 체크
             if not check_permission(
                 interaction, PermissionLevel.TRADER, self._permission_config
             ):
                 await interaction.response.send_message(
-                    "🚫 권한이 없습니다. 이 버튼은 **TRADER** 이상의 권한이 필요합니다.",
+                    "🚫 권한이 없습니다. 이 버튼은"
+                    " **TRADER** 이상의 권한이 필요합니다.",
                     ephemeral=True,
                 )
                 logger.warning(f"권한 부족 (일시정지 버튼): {interaction.user}")
@@ -332,7 +410,7 @@ class DashboardView(discord.ui.View):
         except Exception as e:
             logger.error(f"일시정지 버튼 에러: {e}")
             await interaction.response.send_message(
-                f"❌ 오류: {str(e)}",
+                f"❌ 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -342,14 +420,20 @@ class DashboardView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """재시작 버튼 (확인 필요) - TRADER 권한 필요"""
+        """재시작 버튼 (확인 필요) - TRADER 권한 필요."""
+        if not self._check_cooldown(interaction.user.id):
+            await interaction.response.send_message(
+                "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
+            )
+            return
         try:
             # 권한 체크
             if not check_permission(
                 interaction, PermissionLevel.TRADER, self._permission_config
             ):
                 await interaction.response.send_message(
-                    "🚫 권한이 없습니다. 이 버튼은 **TRADER** 이상의 권한이 필요합니다.",
+                    "🚫 권한이 없습니다. 이 버튼은"
+                    " **TRADER** 이상의 권한이 필요합니다.",
                     ephemeral=True,
                 )
                 logger.warning(f"권한 부족 (재시작 버튼): {interaction.user}")
@@ -388,7 +472,7 @@ class DashboardView(discord.ui.View):
         except Exception as e:
             logger.error(f"재시작 버튼 에러: {e}")
             await interaction.response.send_message(
-                f"❌ 오류: {str(e)}",
+                f"❌ 오류: {e!s}",
                 ephemeral=True
             )
 
@@ -398,7 +482,12 @@ class DashboardView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-        """긴급청산 버튼 (확인 필요) - ADMIN 권한 필요"""
+        """긴급청산 버튼 (확인 필요) - ADMIN 권한 필요."""
+        if not self._check_cooldown(interaction.user.id):
+            await interaction.response.send_message(
+                "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
+            )
+            return
         try:
             # 권한 체크
             if not check_permission(
@@ -436,7 +525,11 @@ class DashboardView(discord.ui.View):
             emoji = Emojis.LONG if side == "LONG" else Emojis.SHORT
             embed.add_field(name=f"{emoji} 포지션", value=f"{side}", inline=True)
             embed.add_field(name="💵 진입가", value=f"${entry_price:,.2f}", inline=True)
-            embed.add_field(name="📊 현재가", value=f"${current_price:,.2f}", inline=True)
+            embed.add_field(
+                name="📊 현재가",
+                value=f"${current_price:,.2f}",
+                inline=True,
+            )
             embed.add_field(
                 name="⚠️ 안내",
                 value=(
@@ -462,6 +555,6 @@ class DashboardView(discord.ui.View):
         except Exception as e:
             logger.error(f"긴급청산 버튼 에러: {e}")
             await interaction.response.send_message(
-                f"❌ 오류: {str(e)}",
+                f"❌ 오류: {e!s}",
                 ephemeral=True
             )

@@ -1,5 +1,4 @@
-"""
-Circuit Breaker 패턴
+"""Circuit Breaker 패턴.
 
 Phase 6.2: API 호출 복원력 향상
 - 연속 실패 시 자동 차단
@@ -9,15 +8,17 @@ Phase 6.2: API 호출 복원력 향상
 import asyncio
 import functools
 import time
+import warnings
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, Optional, Type, TypeVar
+from typing import Any, TypeVar
 
 from loguru import logger
 
 
 class CircuitState(Enum):
-    """Circuit Breaker 상태
+    """Circuit Breaker 상태.
 
     Attributes:
         CLOSED: 정상 상태 - 모든 요청 통과
@@ -32,7 +33,7 @@ class CircuitState(Enum):
 
 @dataclass
 class CircuitBreakerConfig:
-    """Circuit Breaker 설정
+    """Circuit Breaker 설정.
 
     Attributes:
         failure_threshold: 연속 실패 횟수 임계값
@@ -46,12 +47,12 @@ class CircuitBreakerConfig:
     recovery_timeout: int = 60
     half_open_max_calls: int = 3
     success_threshold: int = 2
-    exceptions: tuple = (Exception,)
+    exceptions: tuple[type[Exception], ...] = (Exception,)
 
 
 @dataclass
 class CircuitBreakerStats:
-    """Circuit Breaker 통계
+    """Circuit Breaker 통계.
 
     Attributes:
         total_calls: 총 호출 수
@@ -68,11 +69,11 @@ class CircuitBreakerStats:
     failed_calls: int = 0
     rejected_calls: int = 0
     state_changes: int = 0
-    last_failure_time: Optional[float] = None
-    last_success_time: Optional[float] = None
+    last_failure_time: float | None = None
+    last_success_time: float | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환"""
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리로 변환."""
         return {
             "total_calls": self.total_calls,
             "successful_calls": self.successful_calls,
@@ -89,8 +90,8 @@ class CircuitBreakerStats:
         }
 
 
-class CircuitBreakerOpen(Exception):
-    """Circuit Breaker가 열려있을 때 발생하는 예외"""
+class CircuitBreakerOpen(Exception):  # noqa: N818
+    """Circuit Breaker가 열려있을 때 발생하는 예외."""
 
     def __init__(
         self,
@@ -106,7 +107,7 @@ class CircuitBreakerOpen(Exception):
 
 
 class CircuitBreaker:
-    """Circuit Breaker 구현
+    """Circuit Breaker 구현.
 
     연속 실패 시 자동으로 요청을 차단하고,
     일정 시간 후 복구를 테스트합니다.
@@ -125,9 +126,9 @@ class CircuitBreaker:
     def __init__(
         self,
         name: str,
-        config: Optional[CircuitBreakerConfig] = None,
+        config: CircuitBreakerConfig | None = None,
     ) -> None:
-        """Circuit Breaker 초기화
+        """Circuit Breaker 초기화.
 
         Args:
             name: Circuit Breaker 이름
@@ -138,7 +139,7 @@ class CircuitBreaker:
         self._state = CircuitState.CLOSED
         self._failure_count = 0
         self._success_count = 0
-        self._last_failure_time: Optional[float] = None
+        self._last_failure_time: float | None = None
         self._half_open_calls = 0
         self._lock = asyncio.Lock()
         self._stats = CircuitBreakerStats()
@@ -146,16 +147,16 @@ class CircuitBreaker:
 
     @property
     def state(self) -> CircuitState:
-        """현재 상태"""
+        """현재 상태."""
         return self._state
 
     @property
     def stats(self) -> CircuitBreakerStats:
-        """통계"""
+        """통계."""
         return self._stats
 
     def _change_state(self, new_state: CircuitState) -> None:
-        """상태 변경"""
+        """상태 변경."""
         if new_state != self._state:
             old_state = self._state
             self._state = new_state
@@ -163,7 +164,7 @@ class CircuitBreaker:
             self._log.info(f"상태 변경: {old_state.value} → {new_state.value}")
 
     async def _check_state(self) -> bool:
-        """상태 확인 및 요청 허용 여부 결정
+        """상태 확인 및 요청 허용 여부 결정.
 
         Returns:
             True면 요청 허용, False면 차단
@@ -188,16 +189,22 @@ class CircuitBreaker:
                 return False
 
             if self._state == CircuitState.HALF_OPEN:
-                # 테스트 호출 허용 여부
-                if self._half_open_calls < self.config.half_open_max_calls:
+                # HALF_OPEN 상태에서 허용된 테스트 호출 수 제한 확인
+                # _half_open_calls: 현재까지 허용된 테스트 호출 수
+                # half_open_max_calls: 최대 허용 테스트 호출 수
+                calls_remaining = (
+                    self.config.half_open_max_calls - self._half_open_calls
+                )
+                if calls_remaining > 0:
                     self._half_open_calls += 1
                     return True
+                # 최대 테스트 호출 수 도달 - 추가 호출 차단
                 return False
 
             return False
 
     def _get_remaining_time(self) -> float:
-        """복구까지 남은 시간"""
+        """복구까지 남은 시간."""
         if self._last_failure_time is None:
             return 0.0
 
@@ -206,7 +213,7 @@ class CircuitBreaker:
         return max(0.0, remaining)
 
     async def _record_success(self) -> None:
-        """성공 기록"""
+        """성공 기록."""
         async with self._lock:
             self._stats.total_calls += 1
             self._stats.successful_calls += 1
@@ -226,7 +233,7 @@ class CircuitBreaker:
                 self._failure_count = 0
 
     async def _record_failure(self, exc: Exception) -> None:
-        """실패 기록"""
+        """실패 기록."""
         async with self._lock:
             self._stats.total_calls += 1
             self._stats.failed_calls += 1
@@ -249,7 +256,7 @@ class CircuitBreaker:
                     )
 
     async def __aenter__(self) -> "CircuitBreaker":
-        """비동기 컨텍스트 매니저 진입"""
+        """비동기 컨텍스트 매니저 진입."""
         allowed = await self._check_state()
 
         if not allowed:
@@ -263,11 +270,11 @@ class CircuitBreaker:
 
     async def __aexit__(
         self,
-        exc_type: Optional[Type[BaseException]],
-        exc_val: Optional[BaseException],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
         exc_tb: Any,
     ) -> bool:
-        """비동기 컨텍스트 매니저 종료"""
+        """비동기 컨텍스트 매니저 종료."""
         if exc_val is None:
             await self._record_success()
         elif isinstance(exc_val, self.config.exceptions):
@@ -279,7 +286,7 @@ class CircuitBreaker:
         self,
         func: Callable,
     ) -> Callable:
-        """함수 데코레이터
+        """함수 데코레이터.
 
         Args:
             func: 래핑할 함수
@@ -296,7 +303,11 @@ class CircuitBreaker:
         return wrapper
 
     def reset(self) -> None:
-        """상태 리셋 (테스트용)"""
+        """상태 리셋 (동기 버전, 테스트용).
+
+        주의: 비동기 컨텍스트에서는 async_reset()을 사용하세요.
+        이 메서드는 하위 호환성을 위해 유지됩니다.
+        """
         self._state = CircuitState.CLOSED
         self._failure_count = 0
         self._success_count = 0
@@ -304,8 +315,21 @@ class CircuitBreaker:
         self._half_open_calls = 0
         self._log.info("Circuit 리셋")
 
-    def get_status(self) -> Dict[str, Any]:
-        """현재 상태 정보"""
+    async def async_reset(self) -> None:
+        """상태 리셋 (비동기 버전, 락 보호).
+
+        비동기 컨텍스트에서 안전하게 상태를 리셋합니다.
+        """
+        async with self._lock:
+            self._state = CircuitState.CLOSED
+            self._failure_count = 0
+            self._success_count = 0
+            self._last_failure_time = None
+            self._half_open_calls = 0
+            self._log.info("Circuit 비동기 리셋")
+
+    def get_status(self) -> dict[str, Any]:
+        """현재 상태 정보."""
         return {
             "name": self.name,
             "state": self._state.value,
@@ -321,32 +345,48 @@ class CircuitBreaker:
 
 
 # 전역 Circuit Breaker 레지스트리
-_circuit_breakers: Dict[str, CircuitBreaker] = {}
+_circuit_breakers: dict[str, CircuitBreaker] = {}
 
 
 def get_circuit_breaker(
     name: str,
-    config: Optional[CircuitBreakerConfig] = None,
+    config: CircuitBreakerConfig | None = None,
 ) -> CircuitBreaker:
-    """Circuit Breaker 인스턴스 조회/생성
+    """Circuit Breaker 인스턴스 조회/생성.
 
     Args:
         name: Circuit Breaker 이름
-        config: 설정 (첫 생성 시에만 적용)
+        config: 설정 (첫 생성 시에만 적용, 이미 존재하면 경고)
 
     Returns:
         CircuitBreaker 인스턴스
     """
     if name not in _circuit_breakers:
         _circuit_breakers[name] = CircuitBreaker(name, config)
+    elif config is not None:
+        # 이미 존재하는 이름에 다른 config를 전달하면 경고
+        warnings.warn(
+            f"Circuit breaker '{name}' already exists. "
+            f"New config is ignored. Use clear_registry() to reset.",
+            stacklevel=2,
+        )
 
     return _circuit_breakers[name]
 
 
 def reset_all_circuit_breakers() -> None:
-    """모든 Circuit Breaker 리셋 (테스트용)"""
+    """모든 Circuit Breaker 리셋 (테스트용)."""
     for breaker in _circuit_breakers.values():
         breaker.reset()
+
+
+def clear_registry() -> None:
+    """전역 레지스트리 초기화 (테스트 격리용).
+
+    테스트 간 Circuit Breaker 인스턴스가 공유되는 것을 방지합니다.
+    테스트 teardown에서 호출하세요.
+    """
+    _circuit_breakers.clear()
 
 
 # ============================================================================
@@ -360,9 +400,9 @@ def circuit_breaker(
     name: str,
     failure_threshold: int = 5,
     recovery_timeout: int = 60,
-    exceptions: tuple = (Exception,),
+    exceptions: tuple[type[Exception], ...] = (Exception,),
 ) -> Callable[[F], F]:
-    """Circuit Breaker 데코레이터 팩토리
+    """Circuit Breaker 데코레이터 팩토리.
 
     Args:
         name: Circuit Breaker 이름
@@ -374,7 +414,9 @@ def circuit_breaker(
         데코레이터
 
     Example:
-        >>> @circuit_breaker(name="binance_api", failure_threshold=5, recovery_timeout=60)
+        >>> @circuit_breaker(
+        ...     name="binance_api", failure_threshold=5, recovery_timeout=60
+        ... )
         ... async def api_call():
         ...     pass
     """

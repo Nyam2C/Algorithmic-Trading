@@ -1,5 +1,4 @@
-"""
-Gemini AI client for trading signal generation
+"""Gemini AI client for trading signal generation.
 
 Phase 6.1: 신호 생성 이유 로깅 추가
 - Temperature 0.1 → 0.3 (더 다양한 응답)
@@ -7,8 +6,8 @@ Phase 6.1: 신호 생성 이유 로깅 추가
 - JSON 형식 응답 지원
 """
 import json
-from typing import Dict, Tuple
 from pathlib import Path
+
 from google import genai
 from google.genai.errors import ClientError, ServerError
 from loguru import logger
@@ -17,7 +16,7 @@ from src.utils.retry import async_retry
 
 
 class GeminiSignalGenerator:
-    """Generate trading signals using Gemini AI
+    """Generate trading signals using Gemini AI.
 
     Phase 6.1: 신호 생성 이유 포함 응답 지원
     """
@@ -31,8 +30,7 @@ class GeminiSignalGenerator:
         model: str = "gemini-2.0-flash-exp",
         temperature: float = DEFAULT_TEMPERATURE,
     ):
-        """
-        Initialize Gemini client
+        """Initialize Gemini client.
 
         Args:
             api_key: Gemini API key
@@ -46,13 +44,14 @@ class GeminiSignalGenerator:
         # Load prompts
         self.system_prompt = self._load_prompt("system.txt")
         self.analysis_template = self._load_prompt("analysis.txt")
-        self.analysis_with_reason_template = self._load_prompt("analysis_with_reason.txt")
+        self.analysis_with_reason_template = self._load_prompt(
+            "analysis_with_reason.txt"
+        )
 
         logger.info(f"Gemini client initialized (model: {model}, temp: {temperature})")
 
     def _load_prompt(self, filename: str) -> str:
-        """
-        Load prompt from file
+        """Load prompt from file.
 
         Args:
             filename: Prompt filename (system.txt, analysis.txt, etc.)
@@ -63,23 +62,73 @@ class GeminiSignalGenerator:
         try:
             prompt_dir = Path(__file__).parent / "prompts"
             prompt_path = prompt_dir / filename
-            with open(prompt_path, "r", encoding="utf-8") as f:
+            with open(prompt_path, encoding="utf-8") as f:  # noqa: PTH123
                 content = f.read()
             logger.debug(f"Loaded prompt: {filename}")
             return content
         except FileNotFoundError:
             # analysis_with_reason.txt가 없으면 기본 템플릿 사용
             if filename == "analysis_with_reason.txt":
-                logger.warning(f"Prompt {filename} not found, using default analysis.txt")
+                logger.warning(
+                    f"Prompt {filename} not found, using default analysis.txt"
+                )
                 return self._load_prompt("analysis.txt")
             raise
         except Exception as e:
             logger.error(f"Failed to load prompt {filename}: {e}")
             raise
 
-    def _build_market_prompt(self, market_data: Dict) -> str:
+    def _format_market_data(self, market_data: dict) -> dict[str, str | int]:
+        """시장 데이터를 템플릿 변수 형식으로 포맷팅.
+
+        Args:
+            market_data: Dictionary with market indicators
+
+        Returns:
+            Formatted data dictionary for template substitution
         """
-        Build market analysis prompt from data
+        return {
+            "symbol": "BTCUSDT",
+            # Price action
+            "trend_2h_pct": f"{market_data['trend_2h_pct']:+.2f}",
+            "trend_30min_pct": f"{market_data['trend_30min_pct']:+.2f}",
+            "bullish_candles": market_data["bullish_candles"],
+            "bearish_candles": market_data["bearish_candles"],
+            "highest": f"{market_data['resistance']:,.0f}",
+            "lowest": f"{market_data['support']:,.0f}",
+            # Current state
+            "current_price": f"{market_data['current_price']:,.2f}",
+            "high_24h": f"{market_data['high_24h']:,.2f}",
+            "low_24h": f"{market_data['low_24h']:,.2f}",
+            "change_24h_pct": f"{market_data['change_24h_pct']:+.2f}",
+            # Technical indicators
+            "rsi": f"{market_data['rsi']:.2f}",
+            "rsi_trend": market_data["rsi_trend"],
+            "ma_7": f"{market_data['ma_7']:,.2f}",
+            "ma_25": f"{market_data['ma_25']:,.2f}",
+            "ma_99": f"{market_data['ma_99']:,.2f}",
+            "price_vs_ma7_pct": f"{market_data['price_vs_ma7_pct']:+.2f}",
+            "price_vs_ma7_pos": market_data["price_vs_ma7_pos"],
+            "price_vs_ma25_pct": f"{market_data['price_vs_ma25_pct']:+.2f}",
+            "price_vs_ma25_pos": market_data["price_vs_ma25_pos"],
+            # Volume
+            "current_volume": f"{market_data['current_volume']:.0f}",
+            "avg_volume": f"{market_data['avg_volume']:.0f}",
+            "volume_ratio": f"{market_data['volume_ratio']:.2f}",
+            "volume_trend": market_data["volume_trend"],
+            # Volatility
+            "atr": f"{market_data['atr']:.2f}",
+            "atr_pct": f"{market_data['atr_pct']:.2f}",
+            "volatility_state": market_data["volatility_state"],
+            # Support/Resistance
+            "resistance": f"{market_data['resistance']:,.2f}",
+            "support": f"{market_data['support']:,.2f}",
+            "dist_resistance_pct": f"{market_data['dist_resistance_pct']:+.2f}",
+            "dist_support_pct": f"{market_data['dist_support_pct']:+.2f}",
+        }
+
+    def _build_market_prompt(self, market_data: dict) -> str:
+        """Build market analysis prompt from data.
 
         Args:
             market_data: Dictionary with market indicators
@@ -88,46 +137,7 @@ class GeminiSignalGenerator:
             Formatted prompt string
         """
         try:
-            # Format all values for the template
-            formatted_data = {
-                "symbol": "BTCUSDT",
-                # Price action
-                "trend_2h_pct": f"{market_data['trend_2h_pct']:+.2f}",
-                "trend_30min_pct": f"{market_data['trend_30min_pct']:+.2f}",
-                "bullish_candles": market_data["bullish_candles"],
-                "bearish_candles": market_data["bearish_candles"],
-                "highest": f"{market_data['resistance']:,.0f}",
-                "lowest": f"{market_data['support']:,.0f}",
-                # Current state
-                "current_price": f"{market_data['current_price']:,.2f}",
-                "high_24h": f"{market_data['high_24h']:,.2f}",
-                "low_24h": f"{market_data['low_24h']:,.2f}",
-                "change_24h_pct": f"{market_data['change_24h_pct']:+.2f}",
-                # Technical indicators
-                "rsi": f"{market_data['rsi']:.2f}",
-                "rsi_trend": market_data["rsi_trend"],
-                "ma_7": f"{market_data['ma_7']:,.2f}",
-                "ma_25": f"{market_data['ma_25']:,.2f}",
-                "ma_99": f"{market_data['ma_99']:,.2f}",
-                "price_vs_ma7_pct": f"{market_data['price_vs_ma7_pct']:+.2f}",
-                "price_vs_ma7_pos": market_data["price_vs_ma7_pos"],
-                "price_vs_ma25_pct": f"{market_data['price_vs_ma25_pct']:+.2f}",
-                "price_vs_ma25_pos": market_data["price_vs_ma25_pos"],
-                # Volume
-                "current_volume": f"{market_data['current_volume']:.0f}",
-                "avg_volume": f"{market_data['avg_volume']:.0f}",
-                "volume_ratio": f"{market_data['volume_ratio']:.2f}",
-                "volume_trend": market_data["volume_trend"],
-                # Volatility
-                "atr": f"{market_data['atr']:.2f}",
-                "atr_pct": f"{market_data['atr_pct']:.2f}",
-                "volatility_state": market_data["volatility_state"],
-                # Support/Resistance
-                "resistance": f"{market_data['resistance']:,.2f}",
-                "support": f"{market_data['support']:,.2f}",
-                "dist_resistance_pct": f"{market_data['dist_resistance_pct']:+.2f}",
-                "dist_support_pct": f"{market_data['dist_support_pct']:+.2f}",
-            }
+            formatted_data = self._format_market_data(market_data)
 
             # Replace template variables
             prompt = self.analysis_template
@@ -146,9 +156,8 @@ class GeminiSignalGenerator:
         backoff=2.0,
         exceptions=(ClientError, ServerError, ConnectionError, TimeoutError),
     )
-    async def get_signal(self, market_data: Dict) -> str:
-        """
-        Generate trading signal from market data (with retry)
+    async def get_signal(self, market_data: dict) -> str:
+        """Generate trading signal from market data (with retry).
 
         Args:
             market_data: Dictionary with market indicators
@@ -195,9 +204,8 @@ class GeminiSignalGenerator:
             logger.warning("Defaulting to WAIT due to error")
             return "WAIT"
 
-    def get_signal_sync(self, market_data: Dict) -> str:
-        """
-        Synchronous version of get_signal (for testing)
+    def get_signal_sync(self, market_data: dict) -> str:
+        """Synchronous version of get_signal (for testing).
 
         Args:
             market_data: Dictionary with market indicators
@@ -248,9 +256,8 @@ class GeminiSignalGenerator:
     # Phase 6.1: 신호 생성 이유 포함 메서드
     # =========================================================================
 
-    def _build_market_prompt_with_reason(self, market_data: Dict) -> str:
-        """
-        Build market analysis prompt with reason format
+    def _build_market_prompt_with_reason(self, market_data: dict) -> str:
+        """Build market analysis prompt with reason format.
 
         Args:
             market_data: Dictionary with market indicators
@@ -259,46 +266,7 @@ class GeminiSignalGenerator:
             Formatted prompt string for JSON response
         """
         try:
-            # Format all values for the template
-            formatted_data = {
-                "symbol": "BTCUSDT",
-                # Price action
-                "trend_2h_pct": f"{market_data['trend_2h_pct']:+.2f}",
-                "trend_30min_pct": f"{market_data['trend_30min_pct']:+.2f}",
-                "bullish_candles": market_data["bullish_candles"],
-                "bearish_candles": market_data["bearish_candles"],
-                "highest": f"{market_data['resistance']:,.0f}",
-                "lowest": f"{market_data['support']:,.0f}",
-                # Current state
-                "current_price": f"{market_data['current_price']:,.2f}",
-                "high_24h": f"{market_data['high_24h']:,.2f}",
-                "low_24h": f"{market_data['low_24h']:,.2f}",
-                "change_24h_pct": f"{market_data['change_24h_pct']:+.2f}",
-                # Technical indicators
-                "rsi": f"{market_data['rsi']:.2f}",
-                "rsi_trend": market_data["rsi_trend"],
-                "ma_7": f"{market_data['ma_7']:,.2f}",
-                "ma_25": f"{market_data['ma_25']:,.2f}",
-                "ma_99": f"{market_data['ma_99']:,.2f}",
-                "price_vs_ma7_pct": f"{market_data['price_vs_ma7_pct']:+.2f}",
-                "price_vs_ma7_pos": market_data["price_vs_ma7_pos"],
-                "price_vs_ma25_pct": f"{market_data['price_vs_ma25_pct']:+.2f}",
-                "price_vs_ma25_pos": market_data["price_vs_ma25_pos"],
-                # Volume
-                "current_volume": f"{market_data['current_volume']:.0f}",
-                "avg_volume": f"{market_data['avg_volume']:.0f}",
-                "volume_ratio": f"{market_data['volume_ratio']:.2f}",
-                "volume_trend": market_data["volume_trend"],
-                # Volatility
-                "atr": f"{market_data['atr']:.2f}",
-                "atr_pct": f"{market_data['atr_pct']:.2f}",
-                "volatility_state": market_data["volatility_state"],
-                # Support/Resistance
-                "resistance": f"{market_data['resistance']:,.2f}",
-                "support": f"{market_data['support']:,.2f}",
-                "dist_resistance_pct": f"{market_data['dist_resistance_pct']:+.2f}",
-                "dist_support_pct": f"{market_data['dist_support_pct']:+.2f}",
-            }
+            formatted_data = self._format_market_data(market_data)
 
             # Replace template variables
             prompt = self.analysis_with_reason_template
@@ -311,9 +279,8 @@ class GeminiSignalGenerator:
             logger.error(f"Failed to build market prompt with reason: {e}")
             raise
 
-    def _parse_signal_with_reason(self, response_text: str) -> Tuple[str, str]:
-        """
-        Parse JSON response to extract signal and reason
+    def _parse_signal_with_reason(self, response_text: str) -> tuple[str, str]:
+        """Parse JSON response to extract signal and reason.
 
         Args:
             response_text: Raw response from Gemini
@@ -358,10 +325,9 @@ class GeminiSignalGenerator:
             upper_text = text.upper()
             if "LONG" in upper_text:
                 return "LONG", "JSON 파싱 실패, 텍스트에서 추출"
-            elif "SHORT" in upper_text:
+            if "SHORT" in upper_text:
                 return "SHORT", "JSON 파싱 실패, 텍스트에서 추출"
-            else:
-                return "WAIT", "JSON 파싱 실패"
+            return "WAIT", "JSON 파싱 실패"
 
     @async_retry(
         max_attempts=3,
@@ -369,9 +335,8 @@ class GeminiSignalGenerator:
         backoff=2.0,
         exceptions=(ClientError, ServerError, ConnectionError, TimeoutError),
     )
-    async def get_signal_with_reason(self, market_data: Dict) -> Tuple[str, str]:
-        """
-        Generate trading signal with reasoning (with retry)
+    async def get_signal_with_reason(self, market_data: dict) -> tuple[str, str]:
+        """Generate trading signal with reasoning (with retry).
 
         Phase 6.1: 신호와 함께 이유도 반환
 
@@ -415,9 +380,8 @@ class GeminiSignalGenerator:
             logger.warning("Defaulting to WAIT due to error")
             return "WAIT", f"API 오류: {str(e)[:50]}"
 
-    def get_signal_with_reason_sync(self, market_data: Dict) -> Tuple[str, str]:
-        """
-        Synchronous version of get_signal_with_reason (for testing)
+    def get_signal_with_reason_sync(self, market_data: dict) -> tuple[str, str]:
+        """Synchronous version of get_signal_with_reason (for testing).
 
         Args:
             market_data: Dictionary with market indicators

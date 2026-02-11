@@ -1,19 +1,35 @@
-"""
-n8n 콜백 서비스 모듈
+"""n8n 콜백 서비스 모듈.
 
 n8n 웹훅으로 이벤트 콜백을 발송합니다.
 Phase 4.1: aiohttp 세션 재사용 및 URL 마스킹
 """
-from typing import Any, Optional
+from enum import Enum
+from typing import Any
 
 import aiohttp
 from loguru import logger
 
 from src.api.schemas.n8n import N8NCallbackPayload
 
+# HTTP 상태 코드 범위 상수
+CALLBACK_TIMEOUT = 30
+HTTP_OK = 200
+HTTP_REDIRECT = 300
+
+
+class CallbackResult(Enum):
+    """콜백 발송 결과.
+
+    콜백 비활성화, 성공, 실패를 구분합니다.
+    """
+
+    SUCCESS = "success"
+    DISABLED = "disabled"
+    FAILED = "failed"
+
 
 class N8NCallbackService:
-    """n8n 콜백 서비스
+    """n8n 콜백 서비스.
 
     n8n 웹훅 URL로 이벤트 콜백을 발송합니다.
 
@@ -26,25 +42,29 @@ class N8NCallbackService:
         - 웹훅 URL 마스킹으로 보안 강화
     """
 
-    def __init__(self, webhook_url: Optional[str] = None) -> None:
-        """n8n 콜백 서비스 초기화
+    def __init__(self, webhook_url: str | None = None) -> None:
+        """n8n 콜백 서비스 초기화.
 
         Args:
             webhook_url: n8n 웹훅 URL (없으면 비활성화)
         """
         self.webhook_url = webhook_url
         self.is_enabled = webhook_url is not None
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
 
         if self.is_enabled:
             # URL 마스킹 (보안)
-            masked_url = webhook_url[:30] + "***" if webhook_url and len(webhook_url) > 30 else webhook_url
+            masked_url = (
+                webhook_url[:CALLBACK_TIMEOUT] + "***"
+                if webhook_url and len(webhook_url) > CALLBACK_TIMEOUT
+                else webhook_url
+            )
             logger.info(f"n8n 콜백 서비스 활성화: {masked_url}")
         else:
             logger.info("n8n 콜백 서비스 비활성화 (URL 없음)")
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """세션 반환 (재사용)
+        """세션 반환 (재사용).
 
         세션이 없거나 닫혀있으면 새로 생성합니다.
 
@@ -58,7 +78,7 @@ class N8NCallbackService:
         return self._session
 
     async def close(self) -> None:
-        """세션 종료
+        """세션 종료.
 
         서비스 종료 시 호출하여 리소스를 정리합니다.
         """
@@ -67,18 +87,21 @@ class N8NCallbackService:
             self._session = None
             logger.debug("n8n 콜백 서비스 세션 종료")
 
-    async def send_callback(self, payload: N8NCallbackPayload) -> bool:
-        """콜백 발송
+    async def send_callback(self, payload: N8NCallbackPayload) -> CallbackResult:
+        """콜백 발송.
 
         Args:
             payload: 콜백 페이로드
 
         Returns:
-            발송 성공 여부
+            CallbackResult: 발송 결과
+                - SUCCESS: 발송 성공
+                - DISABLED: 콜백 비활성화 (URL 미설정)
+                - FAILED: 발송 실패 (네트워크 에러 등)
         """
         if not self.is_enabled:
             logger.debug("n8n 콜백 비활성화됨, 발송 스킵")
-            return False
+            return CallbackResult.DISABLED
 
         try:
             session = await self._get_session()
@@ -87,24 +110,23 @@ class N8NCallbackService:
                 json=payload.model_dump(mode="json"),
                 headers={"Content-Type": "application/json"},
             ) as response:
-                if response.status >= 200 and response.status < 300:
+                if response.status >= HTTP_OK and response.status < HTTP_REDIRECT:
                     logger.debug(
                         f"n8n 콜백 발송 성공: {payload.event_type} "
                         f"(bot={payload.bot_name})"
                     )
-                    return True
-                else:
-                    logger.warning(
-                        f"n8n 콜백 발송 실패: HTTP {response.status}"
-                    )
-                    return False
+                    return CallbackResult.SUCCESS
+                logger.warning(
+                    f"n8n 콜백 발송 실패: HTTP {response.status}"
+                )
+                return CallbackResult.FAILED
 
         except aiohttp.ClientError as e:
             logger.error(f"n8n 콜백 발송 에러 (네트워크): {e}")
-            return False
+            return CallbackResult.FAILED
         except Exception as e:
             logger.error(f"n8n 콜백 발송 에러: {e}")
-            return False
+            return CallbackResult.FAILED
 
     async def send_signal(
         self,
@@ -112,9 +134,9 @@ class N8NCallbackService:
         signal: str,
         price: float,
         confidence: float = 1.0,
-        metadata: Optional[dict[str, Any]] = None,
-    ) -> bool:
-        """시그널 콜백 발송
+        metadata: dict[str, Any] | None = None,
+    ) -> CallbackResult:
+        """시그널 콜백 발송.
 
         Args:
             bot_name: 봇 이름
@@ -124,7 +146,7 @@ class N8NCallbackService:
             metadata: 추가 메타데이터
 
         Returns:
-            발송 성공 여부
+            CallbackResult: 발송 결과
         """
         payload = N8NCallbackPayload(
             event_type="signal",
@@ -144,11 +166,11 @@ class N8NCallbackService:
         action: str,
         side: str,
         price: float,
-        pnl: Optional[float] = None,
-        quantity: Optional[float] = None,
-        metadata: Optional[dict[str, Any]] = None,
-    ) -> bool:
-        """거래 콜백 발송
+        pnl: float | None = None,
+        quantity: float | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> CallbackResult:
+        """거래 콜백 발송.
 
         Args:
             bot_name: 봇 이름
@@ -160,7 +182,7 @@ class N8NCallbackService:
             metadata: 추가 메타데이터
 
         Returns:
-            발송 성공 여부
+            CallbackResult: 발송 결과
         """
         data: dict[str, Any] = {
             "action": action,
@@ -186,9 +208,9 @@ class N8NCallbackService:
         self,
         bot_name: str,
         error: Exception,
-        context: Optional[str] = None,
-    ) -> bool:
-        """에러 콜백 발송
+        context: str | None = None,
+    ) -> CallbackResult:
+        """에러 콜백 발송.
 
         Args:
             bot_name: 봇 이름
@@ -196,7 +218,7 @@ class N8NCallbackService:
             context: 에러 컨텍스트
 
         Returns:
-            발송 성공 여부
+            CallbackResult: 발송 결과
         """
         payload = N8NCallbackPayload(
             event_type="error",
@@ -213,15 +235,15 @@ class N8NCallbackService:
         self,
         bot_name: str,
         status: dict[str, Any],
-    ) -> bool:
-        """상태 콜백 발송
+    ) -> CallbackResult:
+        """상태 콜백 발송.
 
         Args:
             bot_name: 봇 이름
             status: 상태 정보
 
         Returns:
-            발송 성공 여부
+            CallbackResult: 발송 결과
         """
         payload = N8NCallbackPayload(
             event_type="status",

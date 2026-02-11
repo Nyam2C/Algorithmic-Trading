@@ -1,15 +1,14 @@
-"""
-n8n 웹훅 라우트
+"""n8n 웹훅 라우트.
 
 n8n과의 통합을 위한 웹훅 엔드포인트입니다.
 Phase 4.1: API 키 인증 추가
 """
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 
 from src.api.dependencies import get_bot_manager, verify_n8n_api_key
-from src.api.schemas.n8n import N8NSignalPayload, N8NCommandPayload
 from src.api.schemas.common import SuccessResponse
+from src.api.schemas.n8n import N8NCommandPayload, N8NSignalPayload
 from src.bot_manager import MultiBotManager
 
 router = APIRouter(prefix="/n8n", tags=["n8n"])
@@ -26,19 +25,30 @@ async def receive_signal(
     manager: MultiBotManager = Depends(get_bot_manager),
     _: str = Depends(verify_n8n_api_key),
 ) -> SuccessResponse:
-    """외부 시그널 수신
+    """외부 시그널 수신.
 
     n8n이나 다른 외부 시스템에서 보내는 트레이딩 시그널을 수신합니다.
 
     Args:
         payload: 시그널 페이로드
+        manager: MultiBotManager 인스턴스 (DI)
     """
     logger.info(
         f"n8n 시그널 수신: {payload.signal} from {payload.source}"
         f" (bot={payload.bot_name or 'all'})"
     )
 
+    # 시그널 데이터 구조 (Pydantic에서 이미 검증됨)
+    # TODO: BotInstance.inject_signal() 구현 시 이 데이터를 전달
+    _signal_data = {
+        "signal": payload.signal,
+        "source": payload.source,
+        "confidence": payload.confidence,
+        "metadata": payload.metadata,
+    }
+
     # 특정 봇 또는 전체 봇에 시그널 주입
+    injected_bots: list[str] = []
     if payload.bot_name:
         bot = manager.get_bot(payload.bot_name)
         if not bot:
@@ -47,17 +57,30 @@ async def receive_signal(
                 detail=f"Bot '{payload.bot_name}' not found",
             )
 
-        # 시그널 주입 (BotInstance에 inject_signal 메서드가 필요)
-        # 현재는 로그만 기록
-        logger.info(f"시그널 주입: {payload.bot_name} <- {payload.signal}")
+        # TODO: BotInstance에 inject_signal(signal_data) 메서드 구현 필요
+        # bot.inject_signal(signal_data) 호출로 실제 시그널 주입
+        # 현재는 시그널 데이터를 검증하고 로그 기록
+        logger.info(
+            f"시그널 주입: {payload.bot_name} <- {payload.signal} "
+            f"(confidence={payload.confidence}, source={payload.source})"
+        )
+        injected_bots.append(payload.bot_name)
 
     else:
         # 전체 봇에 시그널 주입
-        for bot_name, bot in manager.bots.items():
-            logger.info(f"시그널 주입: {bot_name} <- {payload.signal}")
+        for bot_name, _bot in manager.bots.items():
+            # TODO: bot.inject_signal(signal_data) 호출로 실제 시그널 주입
+            logger.info(
+                f"시그널 주입: {bot_name} <- {payload.signal} "
+                f"(confidence={payload.confidence}, source={payload.source})"
+            )
+            injected_bots.append(bot_name)
 
     return SuccessResponse(
-        message=f"Signal '{payload.signal}' received from {payload.source}"
+        message=(
+            f"Signal '{payload.signal}' received from {payload.source}"
+            f" (injected to {len(injected_bots)} bot(s))"
+        )
     )
 
 
@@ -67,17 +90,18 @@ async def receive_signal(
 
 
 @router.post("/command", response_model=SuccessResponse)
-async def receive_command(
+async def receive_command(  # noqa: PLR0912
     payload: N8NCommandPayload,
     manager: MultiBotManager = Depends(get_bot_manager),
     _: str = Depends(verify_n8n_api_key),
 ) -> SuccessResponse:
-    """외부 명령 수신
+    """외부 명령 수신.
 
     n8n이나 다른 외부 시스템에서 보내는 봇 제어 명령을 수신합니다.
 
     Args:
         payload: 명령 페이로드
+        manager: MultiBotManager 인스턴스 (DI)
     """
     logger.info(
         f"n8n 명령 수신: {payload.command}"
@@ -104,20 +128,19 @@ async def receive_command(
                     bot.request_emergency_close()
                 else:
                     raise ValueError(f"Bot '{bot_name}' not found")
-        else:
-            # 전체 봇에 명령 실행
-            if command == "start":
-                await manager.start_all()
-            elif command == "stop":
-                await manager.stop_all()
-            elif command == "pause":
-                manager.pause_all()
-            elif command == "resume":
-                manager.resume_all()
-            elif command == "emergency_close":
-                # 전체 봇 긴급 청산
-                for bot in manager.bots.values():
-                    bot.request_emergency_close()
+        # 전체 봇에 명령 실행
+        elif command == "start":
+            await manager.start_all()
+        elif command == "stop":
+            await manager.stop_all()
+        elif command == "pause":
+            manager.pause_all()
+        elif command == "resume":
+            manager.resume_all()
+        elif command == "emergency_close":
+            # 전체 봇 긴급 청산
+            for bot in manager.bots.values():
+                bot.request_emergency_close()
 
         return SuccessResponse(
             message=f"Command '{command}' executed successfully"
@@ -127,10 +150,10 @@ async def receive_command(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
-        )
+        ) from e
     except Exception as e:
         logger.error(f"명령 실행 에러: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
-        )
+        ) from e

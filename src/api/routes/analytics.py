@@ -1,16 +1,52 @@
-"""
-Analytics API 라우터
+"""Analytics API 라우터.
 
 Phase 4: AI 메모리 시스템 - 분석 API 엔드포인트
 거래 분석 결과 및 패턴 인사이트 제공
 """
-from typing import Optional, List, Any
-from fastapi import APIRouter, Query, HTTPException, status
-from pydantic import BaseModel
+import re
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Query, status
 from loguru import logger
+from pydantic import BaseModel
 
 from src.api.dependencies import get_trade_analyzer
 
+# 통계 분석에 사용되는 상수
+WIN_RATE_GOOD = 70
+WIN_RATE_GREAT = 75
+WIN_RATE_LOW = 40
+MIN_TRADES_FOR_STATS = 5
+
+# bot_id 검증 패턴: 영숫자, 하이픈, 언더스코어만 허용
+_BOT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9\-_]{0,63}$")
+
+
+def _validate_bot_id(bot_id: str | None) -> str | None:
+    """bot_id 형식 검증.
+
+    Args:
+        bot_id: 검증할 봇 ID (None이면 검증 스킵)
+
+    Returns:
+        검증된 bot_id 또는 None
+
+    Raises:
+        HTTPException: bot_id 형식이 올바르지 않은 경우
+    """
+    if bot_id is None:
+        return None
+
+    if not _BOT_ID_PATTERN.match(bot_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Invalid bot_id format: '{bot_id}'. "
+                "Must be alphanumeric with hyphens/underscores, "
+                "1-64 characters, starting with alphanumeric."
+            ),
+        )
+    return bot_id
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -21,7 +57,7 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
 class TradingStatsResponse(BaseModel):
-    """거래 통계 응답"""
+    """거래 통계 응답."""
 
     total_trades: int
     winning_trades: int
@@ -42,7 +78,7 @@ class TradingStatsResponse(BaseModel):
 
 
 class PatternInsightResponse(BaseModel):
-    """패턴 인사이트 응답"""
+    """패턴 인사이트 응답."""
 
     pattern_type: str
     description: str
@@ -55,7 +91,7 @@ class PatternInsightResponse(BaseModel):
 
 
 class RSIConditionStatsResponse(BaseModel):
-    """RSI 조건별 통계 응답"""
+    """RSI 조건별 통계 응답."""
 
     rsi_zone: str
     side: str
@@ -69,7 +105,7 @@ class RSIConditionStatsResponse(BaseModel):
 
 
 class TimeBasedStatsResponse(BaseModel):
-    """시간대별 통계 응답"""
+    """시간대별 통계 응답."""
 
     hour_of_day: int
     side: str
@@ -82,21 +118,21 @@ class TimeBasedStatsResponse(BaseModel):
 
 
 class StreakResponse(BaseModel):
-    """연승/연패 응답"""
+    """연승/연패 응답."""
 
-    streak_type: Optional[str]
+    streak_type: str | None
     streak_count: int
-    last_trade_time: Optional[str]
+    last_trade_time: str | None
 
 
 class RecommendationsResponse(BaseModel):
-    """추천 응답"""
+    """추천 응답."""
 
-    recommendations: List[str]
-    best_long_condition: Optional[str]
-    best_short_condition: Optional[str]
-    best_hour: Optional[int]
-    avoid_conditions: List[str]
+    recommendations: list[str]
+    best_long_condition: str | None
+    best_short_condition: str | None
+    best_hour: int | None
+    avoid_conditions: list[str]
 
 
 # =============================================================================
@@ -105,11 +141,11 @@ class RecommendationsResponse(BaseModel):
 
 
 class APIResponse(BaseModel):
-    """표준 API 응답"""
+    """표준 API 응답."""
 
     success: bool
     data: Any
-    message: Optional[str] = None
+    message: str | None = None
 
 
 # =============================================================================
@@ -119,10 +155,10 @@ class APIResponse(BaseModel):
 
 @router.get("/summary", response_model=APIResponse)
 async def get_analytics_summary(
-    bot_id: Optional[str] = Query(None, description="봇 ID"),
+    bot_id: str | None = Query(None, description="봇 ID"),
     days: int = Query(7, ge=1, le=90, description="분석 기간 (일)"),
 ) -> APIResponse:
-    """전체 성과 요약 조회
+    """전체 성과 요약 조회.
 
     Args:
         bot_id: 봇 ID (선택, 미지정 시 전체)
@@ -131,6 +167,9 @@ async def get_analytics_summary(
     Returns:
         APIResponse: 거래 통계
     """
+    # bot_id 형식 검증
+    bot_id = _validate_bot_id(bot_id)
+
     analyzer = get_trade_analyzer()
     if analyzer is None:
         raise HTTPException(
@@ -150,17 +189,17 @@ async def get_analytics_summary(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
-        )
+        ) from e
 
 
 @router.get("/patterns", response_model=APIResponse)
 async def get_analytics_patterns(
-    bot_id: Optional[str] = Query(None, description="봇 ID"),
+    bot_id: str | None = Query(None, description="봇 ID"),
     days: int = Query(7, ge=1, le=90, description="분석 기간 (일)"),
     min_sample_size: int = Query(5, ge=1, description="최소 샘플 수"),
     min_win_rate: float = Query(70.0, ge=0, le=100, description="최소 승률 (%)"),
 ) -> APIResponse:
-    """발견된 패턴 조회
+    """발견된 패턴 조회.
 
     높은 승률을 보이는 조건들과 피해야 할 조건들을 분석
 
@@ -173,6 +212,9 @@ async def get_analytics_patterns(
     Returns:
         APIResponse: 패턴 인사이트
     """
+    # bot_id 형식 검증
+    bot_id = _validate_bot_id(bot_id)
+
     analyzer = get_trade_analyzer()
     if analyzer is None:
         raise HTTPException(
@@ -210,15 +252,15 @@ async def get_analytics_patterns(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
-        )
+        ) from e
 
 
 @router.get("/recommendations", response_model=APIResponse)
 async def get_analytics_recommendations(
-    bot_id: Optional[str] = Query(None, description="봇 ID"),
+    bot_id: str | None = Query(None, description="봇 ID"),
     days: int = Query(7, ge=1, le=90, description="분석 기간 (일)"),
 ) -> APIResponse:
-    """AI 추천 파라미터 조회
+    """AI 추천 파라미터 조회.
 
     과거 성과를 기반으로 최적 조건 추천
 
@@ -229,6 +271,9 @@ async def get_analytics_recommendations(
     Returns:
         APIResponse: 추천 파라미터
     """
+    # bot_id 형식 검증
+    bot_id = _validate_bot_id(bot_id)
+
     analyzer = get_trade_analyzer()
     if analyzer is None:
         raise HTTPException(
@@ -248,30 +293,52 @@ async def get_analytics_recommendations(
         avoid_conditions = []
 
         # LONG 최적 RSI
-        long_rsi = [s for s in rsi_stats if s.side == "LONG" and s.win_rate >= 70 and s.total_trades >= 5]
+        long_rsi = [
+            s for s in rsi_stats
+            if s.side == "LONG"
+            and s.win_rate >= WIN_RATE_GOOD
+            and s.total_trades >= MIN_TRADES_FOR_STATS
+        ]
         if long_rsi:
             best = max(long_rsi, key=lambda x: x.win_rate)
             best_long_condition = f"RSI {best.rsi_zone} (승률 {best.win_rate:.1f}%)"
             recommendations.append(f"LONG: {best_long_condition}")
 
         # SHORT 최적 RSI
-        short_rsi = [s for s in rsi_stats if s.side == "SHORT" and s.win_rate >= 70 and s.total_trades >= 5]
+        short_rsi = [
+            s for s in rsi_stats
+            if s.side == "SHORT"
+            and s.win_rate >= WIN_RATE_GOOD
+            and s.total_trades >= MIN_TRADES_FOR_STATS
+        ]
         if short_rsi:
             best = max(short_rsi, key=lambda x: x.win_rate)
             best_short_condition = f"RSI {best.rsi_zone} (승률 {best.win_rate:.1f}%)"
             recommendations.append(f"SHORT: {best_short_condition}")
 
         # 최적 시간
-        good_hours = [h for h in hourly_stats if h.win_rate >= 75 and h.total_trades >= 5]
+        good_hours = [
+            h for h in hourly_stats
+            if h.win_rate >= WIN_RATE_GREAT
+            and h.total_trades >= MIN_TRADES_FOR_STATS
+        ]
         if good_hours:
             best_hourly = max(good_hours, key=lambda x: x.win_rate)
             best_hour = best_hourly.hour_of_day
-            recommendations.append(f"최적 시간: {best_hour}시 (승률 {best_hourly.win_rate:.1f}%)")
+            recommendations.append(
+                f"최적 시간: {best_hour}시 (승률 {best_hourly.win_rate:.1f}%)"
+            )
 
         # 피해야 할 조건
-        bad_conditions = [s for s in rsi_stats if s.win_rate <= 40 and s.total_trades >= 5]
+        bad_conditions = [
+            s for s in rsi_stats
+            if s.win_rate <= WIN_RATE_LOW
+            and s.total_trades >= MIN_TRADES_FOR_STATS
+        ]
         for cond in bad_conditions:
-            avoid_conditions.append(f"{cond.side} RSI {cond.rsi_zone} (승률 {cond.win_rate:.1f}%)")
+            avoid_conditions.append(
+                f"{cond.side} RSI {cond.rsi_zone} (승률 {cond.win_rate:.1f}%)"
+            )
 
         return APIResponse(
             success=True,
@@ -290,15 +357,15 @@ async def get_analytics_recommendations(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
-        )
+        ) from e
 
 
 @router.get("/rsi-stats", response_model=APIResponse)
 async def get_rsi_stats(
-    bot_id: Optional[str] = Query(None, description="봇 ID"),
+    bot_id: str | None = Query(None, description="봇 ID"),
     days: int = Query(7, ge=1, le=90, description="분석 기간 (일)"),
 ) -> APIResponse:
-    """RSI 조건별 통계 조회
+    """RSI 조건별 통계 조회.
 
     Args:
         bot_id: 봇 ID (선택)
@@ -307,6 +374,9 @@ async def get_rsi_stats(
     Returns:
         APIResponse: RSI 조건별 통계
     """
+    # bot_id 형식 검증
+    bot_id = _validate_bot_id(bot_id)
+
     analyzer = get_trade_analyzer()
     if analyzer is None:
         raise HTTPException(
@@ -326,15 +396,15 @@ async def get_rsi_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
-        )
+        ) from e
 
 
 @router.get("/hourly-stats", response_model=APIResponse)
 async def get_hourly_stats(
-    bot_id: Optional[str] = Query(None, description="봇 ID"),
+    bot_id: str | None = Query(None, description="봇 ID"),
     days: int = Query(7, ge=1, le=90, description="분석 기간 (일)"),
 ) -> APIResponse:
-    """시간대별 통계 조회
+    """시간대별 통계 조회.
 
     Args:
         bot_id: 봇 ID (선택)
@@ -343,6 +413,9 @@ async def get_hourly_stats(
     Returns:
         APIResponse: 시간대별 통계
     """
+    # bot_id 형식 검증
+    bot_id = _validate_bot_id(bot_id)
+
     analyzer = get_trade_analyzer()
     if analyzer is None:
         raise HTTPException(
@@ -362,14 +435,14 @@ async def get_hourly_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
-        )
+        ) from e
 
 
 @router.get("/streak", response_model=APIResponse)
 async def get_streak(
-    bot_id: Optional[str] = Query(None, description="봇 ID"),
+    bot_id: str | None = Query(None, description="봇 ID"),
 ) -> APIResponse:
-    """연승/연패 조회
+    """연승/연패 조회.
 
     Args:
         bot_id: 봇 ID (선택)
@@ -377,6 +450,9 @@ async def get_streak(
     Returns:
         APIResponse: 연승/연패 정보
     """
+    # bot_id 형식 검증
+    bot_id = _validate_bot_id(bot_id)
+
     analyzer = get_trade_analyzer()
     if analyzer is None:
         raise HTTPException(
@@ -401,4 +477,4 @@ async def get_streak(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
-        )
+        ) from e

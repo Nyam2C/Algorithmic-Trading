@@ -2,11 +2,12 @@
 Tests for MarketDataFormatter
 """
 import pytest
+
 from src.data.market_data_formatter import (
     CompactMarketData,
     MarketDataFormatter,
-    format_market_data,
     build_gemini_prompt,
+    format_market_data,
     formatter,
 )
 

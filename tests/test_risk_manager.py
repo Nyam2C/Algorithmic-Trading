@@ -4,8 +4,9 @@ Tests for RiskManager
 Phase 5.2: 일일 손실 한도
 Phase 5.3: 연속 손실 카운터
 """
-import pytest
 from datetime import datetime, timedelta, timezone
+
+import pytest
 
 from src.trading.risk_manager import RiskManager
 

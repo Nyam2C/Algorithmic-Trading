@@ -1,14 +1,43 @@
-"""
-Discord 봇 유틸리티 함수
+"""Discord 봇 유틸리티 함수.
 
 계산, 포맷팅 등의 헬퍼 함수를 제공합니다.
 """
+import re
 from datetime import datetime
-from typing import Optional, Tuple
+
+# Discord 옵션/시간 상수
+MAX_OPTION_LENGTH = 64
+SECONDS_PER_MINUTE = 60
 
 
-def format_uptime(start_time: Optional[datetime]) -> str:
-    """가동 시간을 문자열로 포맷팅
+
+def validate_bot_name(bot_name: str) -> str:
+    """봇 이름 검증 (경로 조작 방지).
+
+    영숫자, 하이픈, 언더스코어만 허용합니다.
+    경로 조작 문자 (../, / 등)를 차단합니다.
+
+    Args:
+        bot_name: 검증할 봇 이름
+
+    Returns:
+        검증된 봇 이름
+
+    Raises:
+        ValueError: 유효하지 않은 봇 이름인 경우
+    """
+    if not bot_name or len(bot_name) > MAX_OPTION_LENGTH:
+        raise ValueError(f"유효하지 않은 봇 이름: {bot_name}")
+    if len(bot_name) == 1:
+        if not re.match(r'^[a-zA-Z0-9]$', bot_name):
+            raise ValueError(f"유효하지 않은 봇 이름: {bot_name}")
+    elif not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}[a-zA-Z0-9]$', bot_name):
+        raise ValueError(f"유효하지 않은 봇 이름: {bot_name}")
+    return bot_name
+
+
+def format_uptime(start_time: datetime | None) -> str:
+    """가동 시간을 문자열로 포맷팅.
 
     Args:
         start_time: 시작 시간
@@ -25,8 +54,8 @@ def format_uptime(start_time: Optional[datetime]) -> str:
     return f"{hours}시간 {mins}분"
 
 
-def format_time_ago(timestamp: Optional[datetime]) -> str:
-    """타임스탬프를 '~전' 형식으로 포맷팅
+def format_time_ago(timestamp: datetime | None) -> str:
+    """타임스탬프를 '~전' 형식으로 포맷팅.
 
     Args:
         timestamp: 시간
@@ -40,15 +69,14 @@ def format_time_ago(timestamp: Optional[datetime]) -> str:
     time_diff = datetime.now() - timestamp
     mins_ago = int(time_diff.total_seconds() / 60)
 
-    if mins_ago < 60:
+    if mins_ago < SECONDS_PER_MINUTE:
         return f"{mins_ago}분 전"
-    else:
-        hours_ago = mins_ago // 60
-        return f"{hours_ago}시간 전"
+    hours_ago = mins_ago // 60
+    return f"{hours_ago}시간 전"
 
 
-def format_duration(start_time: Optional[datetime]) -> str:
-    """시작 시간부터 현재까지의 경과 시간을 포맷팅
+def format_duration(start_time: datetime | None) -> str:
+    """시작 시간부터 현재까지의 경과 시간을 포맷팅.
 
     Args:
         start_time: 시작 시간
@@ -62,19 +90,18 @@ def format_duration(start_time: Optional[datetime]) -> str:
     duration_delta = datetime.now() - start_time
     duration_mins = int(duration_delta.total_seconds() / 60)
 
-    if duration_mins < 60:
+    if duration_mins < SECONDS_PER_MINUTE:
         return f"{duration_mins}분"
-    else:
-        duration_hours = duration_mins // 60
-        duration_mins_remain = duration_mins % 60
-        return f"{duration_hours}시간 {duration_mins_remain}분"
+    duration_hours = duration_mins // 60
+    duration_mins_remain = duration_mins % 60
+    return f"{duration_hours}시간 {duration_mins_remain}분"
 
 
 def format_pause_duration(
-    paused_at: Optional[datetime],
-    paused_by: Optional[str] = None
+    paused_at: datetime | None,
+    paused_by: str | None = None
 ) -> str:
-    """일시정지 정보를 포맷팅
+    """일시정지 정보를 포맷팅.
 
     Args:
         paused_at: 일시정지 시간
@@ -97,8 +124,8 @@ def format_pause_duration(
     return result
 
 
-def format_timecut_remaining(timecut_at: Optional[datetime]) -> str:
-    """타임컷까지 남은 시간을 포맷팅
+def format_timecut_remaining(timecut_at: datetime | None) -> str:
+    """타임컷까지 남은 시간을 포맷팅.
 
     Args:
         timecut_at: 타임컷 시간
@@ -114,8 +141,7 @@ def format_timecut_remaining(timecut_at: Optional[datetime]) -> str:
 
     if timecut_mins > 0:
         return f"{timecut_mins}분 남음"
-    else:
-        return "만료됨"
+    return "만료됨"
 
 
 def calculate_pnl(
@@ -124,8 +150,8 @@ def calculate_pnl(
     side: str,
     leverage: int = 1,
     size: float = 0
-) -> Tuple[float, float]:
-    """PnL 계산
+) -> tuple[float, float]:
+    """PnL 계산.
 
     Args:
         entry_price: 진입가
@@ -148,7 +174,7 @@ def calculate_pnl(
 
 
 def get_status_emoji(is_running: bool, is_paused: bool) -> str:
-    """상태에 따른 이모지 반환
+    """상태에 따른 이모지 반환.
 
     Args:
         is_running: 실행 중 여부
@@ -165,7 +191,7 @@ def get_status_emoji(is_running: bool, is_paused: bool) -> str:
 
 
 def get_status_text(is_running: bool, is_paused: bool) -> str:
-    """상태에 따른 텍스트 반환
+    """상태에 따른 텍스트 반환.
 
     Args:
         is_running: 실행 중 여부
@@ -182,7 +208,7 @@ def get_status_text(is_running: bool, is_paused: bool) -> str:
 
 
 def get_position_emoji(side: str) -> str:
-    """포지션 방향에 따른 이모지 반환
+    """포지션 방향에 따른 이모지 반환.
 
     Args:
         side: 포지션 방향 ("LONG" or "SHORT")
@@ -194,7 +220,7 @@ def get_position_emoji(side: str) -> str:
 
 
 def get_pnl_emoji(pnl: float) -> str:
-    """손익에 따른 이모지 반환
+    """손익에 따른 이모지 반환.
 
     Args:
         pnl: 손익 값
@@ -206,7 +232,7 @@ def get_pnl_emoji(pnl: float) -> str:
 
 
 def format_price(price: float, decimals: int = 2) -> str:
-    """가격을 포맷팅
+    """가격을 포맷팅.
 
     Args:
         price: 가격
@@ -219,7 +245,7 @@ def format_price(price: float, decimals: int = 2) -> str:
 
 
 def format_percentage(value: float, with_sign: bool = True) -> str:
-    """퍼센트를 포맷팅
+    """퍼센트를 포맷팅.
 
     Args:
         value: 퍼센트 값
@@ -234,7 +260,7 @@ def format_percentage(value: float, with_sign: bool = True) -> str:
 
 
 def truncate_id(id_str: str, length: int = 8) -> str:
-    """ID를 잘라서 반환
+    """ID를 잘라서 반환.
 
     Args:
         id_str: ID 문자열

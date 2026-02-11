@@ -1,21 +1,27 @@
-"""
-멀티봇 관리자 모듈
+"""멀티봇 관리자 모듈.
 
 여러 BotInstance를 생성, 시작, 중지, 모니터링하는 MultiBotManager 클래스.
 
 Phase 5.4: 멀티봇 총 노출도 제한
 """
 import asyncio
-from typing import Optional, Any, Union, Tuple
+import contextlib
+from typing import Any, Union
+
 from loguru import logger
 
 from src.bot_config import BotConfig
-from src.bot_instance import BotInstance, OnSignalCallback, OnTradeCallback, OnErrorCallback
-from src.storage.redis_state import RedisStateManager, DummyRedisStateManager
+from src.bot_instance import (
+    BotInstance,
+    OnErrorCallback,
+    OnSignalCallback,
+    OnTradeCallback,
+)
+from src.storage.redis_state import DummyRedisStateManager, RedisStateManager
 
 
 class MultiBotManager:
-    """멀티봇 관리자
+    """멀티봇 관리자.
 
     여러 BotInstance를 관리하고 조율하는 클래스입니다.
     각 봇의 생명주기(시작, 중지, 일시정지)를 관리하고,
@@ -38,14 +44,17 @@ class MultiBotManager:
         binance_secret_key: str,
         gemini_api_key: str = "",
         discord_webhook_url: str = "",
-        database_url: Optional[str] = None,
+        database_url: str | None = None,
         loop_interval_seconds: int = 300,
-        configs: Optional[list[BotConfig]] = None,
-        redis_state_manager: Optional[Union[RedisStateManager, DummyRedisStateManager]] = None,
+        configs: list[BotConfig] | None = None,
+        redis_state_manager: Union[
+            RedisStateManager, DummyRedisStateManager
+        ]
+        | None = None,
         # Phase 5.4: 총 노출도 제한
         max_total_exposure: float = 0.0,  # 0 = 제한 없음
     ) -> None:
-        """멀티봇 관리자 초기화
+        """멀티봇 관리자 초기화.
 
         Args:
             binance_api_key: Binance API 키
@@ -76,9 +85,9 @@ class MultiBotManager:
         self._tasks: dict[str, asyncio.Task] = {}
 
         # 글로벌 콜백
-        self._on_signal_callback: Optional[OnSignalCallback] = None
-        self._on_trade_callback: Optional[OnTradeCallback] = None
-        self._on_error_callback: Optional[OnErrorCallback] = None
+        self._on_signal_callback: OnSignalCallback | None = None
+        self._on_trade_callback: OnTradeCallback | None = None
+        self._on_error_callback: OnErrorCallback | None = None
 
         # 초기 봇 설정 등록
         if configs:
@@ -87,9 +96,15 @@ class MultiBotManager:
                     self.add_bot(config)
 
         logger.info(
-            f"MultiBotManager 초기화 완료: {len(self._bots)}개 봇 등록, "
-            f"max_exposure=${max_total_exposure:,.2f}" if max_total_exposure > 0 else
-            f"MultiBotManager 초기화 완료: {len(self._bots)}개 봇 등록 (노출도 제한 없음)"
+            (
+                f"MultiBotManager 초기화 완료: {len(self._bots)}개 봇 등록, "
+                f"max_exposure=${max_total_exposure:,.2f}"
+            )
+            if max_total_exposure > 0
+            else (
+                f"MultiBotManager 초기화 완료: "
+                f"{len(self._bots)}개 봇 등록 (노출도 제한 없음)"
+            )
         )
 
     # =========================================================================
@@ -98,38 +113,38 @@ class MultiBotManager:
 
     @property
     def bots(self) -> dict[str, BotInstance]:
-        """등록된 봇 인스턴스 딕셔너리"""
+        """등록된 봇 인스턴스 딕셔너리."""
         return self._bots
 
     @property
     def bot_count(self) -> int:
-        """등록된 봇 수"""
+        """등록된 봇 수."""
         return len(self._bots)
 
     @property
     def running_count(self) -> int:
-        """실행 중인 봇 수"""
+        """실행 중인 봇 수."""
         return sum(1 for bot in self._bots.values() if bot.is_running)
 
     @property
     def paused_count(self) -> int:
-        """일시정지된 봇 수"""
+        """일시정지된 봇 수."""
         return sum(1 for bot in self._bots.values() if bot.is_paused)
 
     @property
     def redis_state_manager(
         self,
-    ) -> Optional[Union[RedisStateManager, DummyRedisStateManager]]:
-        """Redis 상태 관리자"""
+    ) -> Union[RedisStateManager, DummyRedisStateManager] | None:
+        """Redis 상태 관리자."""
         return self._redis_state_manager
 
     @property
     def max_total_exposure(self) -> float:
-        """최대 총 노출도 (Phase 5.4)"""
+        """최대 총 노출도 (Phase 5.4)."""
         return self._max_total_exposure
 
     def set_max_total_exposure(self, value: float) -> None:
-        """최대 총 노출도 설정 (Phase 5.4)"""
+        """최대 총 노출도 설정 (Phase 5.4)."""
         self._max_total_exposure = value
         logger.info(f"최대 총 노출도 설정: ${value:,.2f}")
 
@@ -138,7 +153,7 @@ class MultiBotManager:
     # =========================================================================
 
     async def get_total_exposure(self) -> float:
-        """모든 봇의 총 포지션 가치 계산
+        """모든 봇의 총 포지션 가치 계산.
 
         Returns:
             총 노출도 (USDT)
@@ -160,15 +175,16 @@ class MultiBotManager:
 
                 logger.debug(
                     f"[{bot.bot_name}] 포지션 노출도: "
-                    f"{quantity} x ${entry_price:,.2f} x {leverage}x = ${position_value:,.2f}"
+                    f"{quantity} x ${entry_price:,.2f} "
+                    f"x {leverage}x = ${position_value:,.2f}"
                 )
 
         return total
 
     async def can_open_position(
         self, bot_name: str, position_value: float
-    ) -> Tuple[bool, str]:
-        """새 포지션 진입 가능 여부 확인 (Phase 5.4)
+    ) -> tuple[bool, str]:
+        """새 포지션 진입 가능 여부 확인 (Phase 5.4).
 
         Args:
             bot_name: 봇 이름
@@ -186,8 +202,10 @@ class MultiBotManager:
 
         if new_total > self._max_total_exposure:
             reason = (
-                f"총 노출도 한도 초과: ${new_total:,.2f} > ${self._max_total_exposure:,.2f} "
-                f"(현재=${current_exposure:,.2f}, 신규=${position_value:,.2f})"
+                f"총 노출도 한도 초과: "
+                f"${new_total:,.2f} > ${self._max_total_exposure:,.2f} "
+                f"(현재=${current_exposure:,.2f}, "
+                f"신규=${position_value:,.2f})"
             )
             logger.warning(f"[{bot_name}] {reason}")
             return False, reason
@@ -199,12 +217,12 @@ class MultiBotManager:
         return True, ""
 
     def get_exposure_summary(self) -> dict[str, Any]:
-        """노출도 요약 정보 (Phase 5.4)
+        """노출도 요약 정보 (Phase 5.4).
 
         Returns:
             노출도 요약 딕셔너리
         """
-        import asyncio
+        import asyncio  # noqa: PLC0415
 
         # 비동기 함수를 동기적으로 호출
         try:
@@ -230,8 +248,16 @@ class MultiBotManager:
         return {
             "current_exposure": total,
             "max_exposure": self._max_total_exposure,
-            "available_exposure": max(0, self._max_total_exposure - total) if self._max_total_exposure > 0 else float("inf"),
-            "utilization_pct": (total / self._max_total_exposure * 100) if self._max_total_exposure > 0 else 0,
+            "available_exposure": (
+                max(0, self._max_total_exposure - total)
+                if self._max_total_exposure > 0
+                else float("inf")
+            ),
+            "utilization_pct": (
+                (total / self._max_total_exposure * 100)
+                if self._max_total_exposure > 0
+                else 0
+            ),
             "limit_enabled": self._max_total_exposure > 0,
         }
 
@@ -242,7 +268,7 @@ class MultiBotManager:
     def set_redis_state_manager(
         self, manager: Union[RedisStateManager, DummyRedisStateManager]
     ) -> None:
-        """Redis 상태 관리자 설정
+        """Redis 상태 관리자 설정.
 
         Args:
             manager: Redis 상태 관리자
@@ -254,7 +280,7 @@ class MultiBotManager:
         logger.info("Redis 상태 관리자 설정됨")
 
     async def restore_bots_from_redis(self) -> list[str]:
-        """Redis에서 등록된 봇 목록 복구
+        """Redis에서 등록된 봇 목록 복구.
 
         Returns:
             복구된 봇 이름 리스트
@@ -278,7 +304,7 @@ class MultiBotManager:
             return []
 
     async def get_redis_bot_states(self) -> dict[str, dict[str, Any]]:
-        """Redis에 저장된 모든 봇 상태 조회
+        """Redis에 저장된 모든 봇 상태 조회.
 
         Returns:
             봇 이름 -> 상태 딕셔너리
@@ -303,7 +329,7 @@ class MultiBotManager:
     # =========================================================================
 
     def set_on_signal_callback(self, callback: OnSignalCallback) -> None:
-        """전체 봇에 적용될 시그널 콜백 설정"""
+        """전체 봇에 적용될 시그널 콜백 설정."""
         self._on_signal_callback = callback
         # 기존 봇에도 적용
         for bot in self._bots.values():
@@ -311,14 +337,14 @@ class MultiBotManager:
         logger.debug("글로벌 시그널 콜백 설정됨")
 
     def set_on_trade_callback(self, callback: OnTradeCallback) -> None:
-        """전체 봇에 적용될 거래 콜백 설정"""
+        """전체 봇에 적용될 거래 콜백 설정."""
         self._on_trade_callback = callback
         for bot in self._bots.values():
             bot._on_trade_callback = callback
         logger.debug("글로벌 거래 콜백 설정됨")
 
     def set_on_error_callback(self, callback: OnErrorCallback) -> None:
-        """전체 봇에 적용될 에러 콜백 설정"""
+        """전체 봇에 적용될 에러 콜백 설정."""
         self._on_error_callback = callback
         for bot in self._bots.values():
             bot._on_error_callback = callback
@@ -329,7 +355,7 @@ class MultiBotManager:
     # =========================================================================
 
     def add_bot(self, config: BotConfig) -> BotInstance:
-        """봇 추가
+        """봇 추가.
 
         Args:
             config: 봇 설정
@@ -363,7 +389,7 @@ class MultiBotManager:
         return instance
 
     def remove_bot(self, bot_name: str) -> None:
-        """봇 제거
+        """봇 제거.
 
         Args:
             bot_name: 제거할 봇 이름
@@ -386,8 +412,8 @@ class MultiBotManager:
     # 봇 조회
     # =========================================================================
 
-    def get_bot(self, bot_name: str) -> Optional[BotInstance]:
-        """봇 인스턴스 조회
+    def get_bot(self, bot_name: str) -> BotInstance | None:
+        """봇 인스턴스 조회.
 
         Args:
             bot_name: 봇 이름
@@ -398,7 +424,7 @@ class MultiBotManager:
         return self._bots.get(bot_name)
 
     def get_all_states(self) -> list[dict[str, Any]]:
-        """전체 봇 상태 조회
+        """전체 봇 상태 조회.
 
         Returns:
             봇 상태 리스트
@@ -406,7 +432,7 @@ class MultiBotManager:
         return [bot.get_state() for bot in self._bots.values()]
 
     def get_summary(self) -> dict[str, Any]:
-        """관리자 요약 정보
+        """관리자 요약 정보.
 
         Returns:
             요약 정보 딕셔너리
@@ -434,7 +460,7 @@ class MultiBotManager:
     # =========================================================================
 
     def pause_bot(self, bot_name: str) -> None:
-        """특정 봇 일시정지
+        """특정 봇 일시정지.
 
         Args:
             bot_name: 봇 이름
@@ -450,7 +476,7 @@ class MultiBotManager:
         logger.info(f"봇 일시정지: {bot_name}")
 
     def resume_bot(self, bot_name: str) -> None:
-        """특정 봇 재개
+        """특정 봇 재개.
 
         Args:
             bot_name: 봇 이름
@@ -466,7 +492,7 @@ class MultiBotManager:
         logger.info(f"봇 재개: {bot_name}")
 
     async def start_bot(self, bot_name: str) -> None:
-        """특정 봇 시작
+        """특정 봇 시작.
 
         Args:
             bot_name: 봇 이름
@@ -489,7 +515,7 @@ class MultiBotManager:
         logger.info(f"봇 시작됨: {bot_name}")
 
     async def stop_bot(self, bot_name: str) -> None:
-        """특정 봇 정지
+        """특정 봇 정지.
 
         Args:
             bot_name: 봇 이름
@@ -508,10 +534,8 @@ class MultiBotManager:
             task = self._tasks[bot_name]
             if not task.done():
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
             del self._tasks[bot_name]
 
         logger.info(f"봇 정지됨: {bot_name}")
@@ -521,19 +545,19 @@ class MultiBotManager:
     # =========================================================================
 
     def pause_all(self) -> None:
-        """전체 봇 일시정지"""
+        """전체 봇 일시정지."""
         for bot in self._bots.values():
             bot.pause()
         logger.info(f"전체 봇 일시정지: {self.bot_count}개")
 
     def resume_all(self) -> None:
-        """전체 봇 재개"""
+        """전체 봇 재개."""
         for bot in self._bots.values():
             bot.resume()
         logger.info(f"전체 봇 재개: {self.bot_count}개")
 
     async def start_all(self) -> None:
-        """전체 봇 시작"""
+        """전체 봇 시작."""
         tasks = []
         for bot_name, bot in self._bots.items():
             if bot_name not in self._tasks or self._tasks[bot_name].done():
@@ -544,7 +568,7 @@ class MultiBotManager:
         logger.info(f"전체 봇 시작: {len(tasks)}개")
 
     async def stop_all(self) -> None:
-        """전체 봇 정지"""
+        """전체 봇 정지."""
         # 모든 봇에 정지 요청
         for bot in self._bots.values():
             await bot.stop()
@@ -554,10 +578,8 @@ class MultiBotManager:
             for task in self._tasks.values():
                 if not task.done():
                     task.cancel()
-                    try:
+                    with contextlib.suppress(asyncio.CancelledError):
                         await task
-                    except asyncio.CancelledError:
-                        pass
 
         self._tasks.clear()
         logger.info(f"전체 봇 정지: {self.bot_count}개")
@@ -567,7 +589,7 @@ class MultiBotManager:
     # =========================================================================
 
     async def run(self) -> None:
-        """모든 봇 시작 및 대기
+        """모든 봇 시작 및 대기.
 
         Ctrl+C로 종료될 때까지 실행합니다.
         """

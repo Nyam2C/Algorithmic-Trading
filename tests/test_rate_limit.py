@@ -4,18 +4,18 @@ Rate Limiting 미들웨어 테스트
 Phase 6.1: RateLimiter, RateLimitMiddleware 테스트
 """
 import asyncio
-import pytest
 import time
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.api.middleware.rate_limit import (
-    TokenBucket,
     RateLimitConfig,
     RateLimiter,
     RateLimitMiddleware,
+    TokenBucket,
 )
 
 
@@ -278,7 +278,12 @@ class TestRateLimitMiddleware:
 
     def test_middleware_different_clients(self, app):
         """클라이언트별 별도 제한 테스트"""
-        limiter = RateLimiter(default_limit=2, burst_multiplier=1.0)
+        # testclient을 신뢰할 수 있는 프록시로 설정해야 X-Forwarded-For가 적용됨
+        limiter = RateLimiter(
+            default_limit=2,
+            burst_multiplier=1.0,
+            trusted_proxies={"testclient"},
+        )
         app.add_middleware(RateLimitMiddleware, limiter=limiter)
         client = TestClient(app)
 
@@ -288,7 +293,7 @@ class TestRateLimitMiddleware:
         response = client.get("/api/test")
         assert response.status_code == 429
 
-        # 클라이언트 2 (다른 IP)
+        # 클라이언트 2 (다른 IP via X-Forwarded-For, 신뢰할 수 있는 프록시 경유)
         response = client.get(
             "/api/test",
             headers={"X-Forwarded-For": "10.0.0.1"}

@@ -3,8 +3,8 @@
 # ===========================================
 
 # Claude AI context (private)
-.claude/
-CLAUDE.md
+.claude/*
+!.claude/PROJECT_OVERVIEW.md
 mcp.json
 .mcp.json
 

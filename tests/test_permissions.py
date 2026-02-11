@@ -9,12 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.discord_bot.permissions import (
-    PermissionLevel,
     PermissionConfig,
+    PermissionLevel,
     check_permission,
     requires_permission,
 )
-
 
 # =============================================================================
 # PermissionLevel 테스트

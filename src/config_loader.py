@@ -1,5 +1,4 @@
-"""
-YAML 봇 설정 로더
+"""YAML 봇 설정 로더.
 
 멀티봇 YAML 설정 파일을 로드하고 BotConfig 리스트로 변환합니다.
 
@@ -11,7 +10,6 @@ Example:
     ...         manager.add_bot(config)
 """
 from pathlib import Path
-from typing import Optional
 
 import yaml
 from loguru import logger
@@ -21,7 +19,7 @@ from src.bot_config import BotConfig
 
 
 class GlobalConfig(BaseModel):
-    """YAML 글로벌 설정 모델
+    """YAML 글로벌 설정 모델.
 
     Attributes:
         is_testnet: 테스트넷 사용 여부
@@ -33,7 +31,7 @@ class GlobalConfig(BaseModel):
 
 
 class BotYamlEntry(BaseModel):
-    """YAML 봇 항목 모델
+    """YAML 봇 항목 모델.
 
     YAML 파일에서 파싱된 봇 설정을 나타냅니다.
 
@@ -52,20 +50,20 @@ class BotYamlEntry(BaseModel):
     @field_validator("symbol")
     @classmethod
     def validate_symbol(cls, v: str) -> str:
-        """심볼 대문자 변환"""
+        """심볼 대문자 변환."""
         return v.upper()
 
     @field_validator("risk_level")
     @classmethod
     def validate_risk_level(cls, v: str) -> str:
-        """위험도 검증"""
+        """위험도 검증."""
         valid_levels = ["low", "medium", "high"]
         if v not in valid_levels:
             raise ValueError(f"risk_level must be one of {valid_levels}")
         return v
 
-    def to_bot_config(self, global_config: Optional[GlobalConfig] = None) -> BotConfig:
-        """BotConfig로 변환
+    def to_bot_config(self, global_config: GlobalConfig | None = None) -> BotConfig:
+        """BotConfig로 변환.
 
         Args:
             global_config: 글로벌 설정 (없으면 기본값 사용)
@@ -88,7 +86,7 @@ class BotYamlEntry(BaseModel):
 def load_bots_from_yaml(
     yaml_path: str,
 ) -> tuple[list[BotConfig], GlobalConfig]:
-    """YAML 파일에서 봇 설정을 로드
+    """YAML 파일에서 봇 설정을 로드.
 
     Args:
         yaml_path: YAML 파일 경로
@@ -104,7 +102,7 @@ def load_bots_from_yaml(
     if not path.exists():
         raise FileNotFoundError(f"YAML 설정 파일을 찾을 수 없습니다: {yaml_path}")
 
-    with open(path, "r", encoding="utf-8") as f:
+    with path.open(encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     if data is None:
@@ -129,9 +127,9 @@ def load_bots_from_yaml(
 
 
 def load_bots_from_yaml_optional(
-    yaml_path: Optional[str] = None,
-) -> tuple[list[BotConfig], Optional[GlobalConfig]]:
-    """YAML 파일에서 봇 설정을 선택적으로 로드 (하위 호환성)
+    yaml_path: str | None = None,
+) -> tuple[list[BotConfig], GlobalConfig | None]:
+    """YAML 파일에서 봇 설정을 선택적으로 로드 (하위 호환성).
 
     파일이 없으면 빈 리스트를 반환합니다.
 

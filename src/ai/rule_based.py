@@ -1,16 +1,15 @@
-"""
-Rule-based signal generator (temporary fallback for Gemini API)
+"""Rule-based signal generator (temporary fallback for Gemini API).
 
 Uses technical indicators (RSI, MA, volume) to generate trading signals.
 This is a temporary solution until Gemini API becomes available.
 """
-from typing import Dict, Any
+from typing import Any
+
 from loguru import logger
 
 
 class RuleBasedSignalGenerator:
-    """
-    Rule-based trading signal generator using technical indicators
+    """Rule-based trading signal generator using technical indicators.
 
     Strategy:
     - LONG: RSI < oversold AND price > MA_7 (uptrend) AND volume > threshold
@@ -34,8 +33,7 @@ class RuleBasedSignalGenerator:
         rsi_overbought: float = 55.0,  # 테스트용 기본값, 프로덕션에선 70 권장
         volume_threshold: float = 0.5,
     ):
-        """
-        Initialize rule-based signal generator
+        """Initialize rule-based signal generator.
 
         Args:
             rsi_oversold: RSI threshold for oversold condition (프로덕션 권장: 30)
@@ -52,9 +50,8 @@ class RuleBasedSignalGenerator:
             f"Volume: {volume_threshold}x)"
         )
 
-    def get_signal(self, market_data: Dict[str, Any]) -> str:
-        """
-        Generate trading signal based on technical indicators
+    def get_signal(self, market_data: dict[str, Any]) -> str:
+        """Generate trading signal based on technical indicators.
 
         Args:
             market_data: Dictionary containing:

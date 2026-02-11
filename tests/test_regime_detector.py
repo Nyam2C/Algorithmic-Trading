@@ -5,7 +5,7 @@ Phase 6.2: 마켓 레짐 감지 테스트
 """
 import pytest
 
-from src.data.regime_detector import RegimeDetector, MarketRegime
+from src.data.regime_detector import MarketRegime, RegimeDetector
 
 
 @pytest.fixture

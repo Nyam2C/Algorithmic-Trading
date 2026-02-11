@@ -1,18 +1,19 @@
-"""
-슬리피지 모델
+"""슬리피지 모델.
 
 Phase 6.2: 백테스트 현실화
 - 볼륨 기반 슬리피지 계산
 - 변동성 영향 반영
 """
 from dataclasses import dataclass
-from typing import Dict, Optional
+
+# 슬리피지 상수
+MIN_SPREAD = 0.1
 
 
 
 @dataclass
 class SlippageModel:
-    """슬리피지 모델
+    """슬리피지 모델.
 
     실제 거래에서 발생하는 슬리피지를 시뮬레이션합니다.
 
@@ -43,7 +44,7 @@ class SlippageModel:
         avg_volume: float,
         volatility: float = 0.0,
     ) -> float:
-        """슬리피지 계산
+        """슬리피지 계산.
 
         Args:
             order_size: 주문 크기 (USD 또는 BTC)
@@ -69,9 +70,8 @@ class SlippageModel:
 
         # 최대값 제한
         max_slip = self.max_slippage_pct / 100
-        slippage = min(slippage, max_slip)
+        return min(slippage, max_slip)
 
-        return slippage
 
     def apply_to_price(
         self,
@@ -81,7 +81,7 @@ class SlippageModel:
         avg_volume: float,
         volatility: float = 0.0,
     ) -> float:
-        """가격에 슬리피지 적용
+        """가격에 슬리피지 적용.
 
         Args:
             price: 원래 가격
@@ -99,55 +99,18 @@ class SlippageModel:
         # SHORT (매도): 가격 하락 (불리)
         if side == "LONG":
             return price * (1 + slippage_pct)
-        else:  # SHORT
-            return price * (1 - slippage_pct)
-
-
-@dataclass
-class MarketImpactModel:
-    """시장 영향 모델
-
-    대량 주문이 시장에 미치는 영향을 모델링합니다.
-
-    Attributes:
-        impact_coefficient: 영향 계수
-        decay_factor: 영향 감소 계수
-    """
-
-    impact_coefficient: float = 0.1
-    decay_factor: float = 0.5
-
-    def calculate_impact(
-        self,
-        order_size: float,
-        market_depth: float,
-    ) -> float:
-        """시장 영향 계산
-
-        Args:
-            order_size: 주문 크기
-            market_depth: 시장 깊이 (호가창 깊이)
-
-        Returns:
-            가격 영향 비율
-        """
-        if market_depth <= 0:
-            return 0.0
-
-        # 선형 영향 모델
-        impact = self.impact_coefficient * (order_size / market_depth)
-
-        return min(impact, 0.05)  # 최대 5% 영향
+        # SHORT
+        return price * (1 - slippage_pct)
 
 
 def calculate_realistic_entry_price(
-    candle: Dict,
+    candle: dict,
     side: str,
-    slippage_model: Optional[SlippageModel] = None,
+    slippage_model: SlippageModel | None = None,
     order_size: float = 1000.0,
     avg_volume: float = 10000.0,
 ) -> float:
-    """현실적인 진입 가격 계산
+    """현실적인 진입 가격 계산.
 
     종가 대신 high/low를 고려한 진입 가격
 
@@ -185,14 +148,14 @@ def calculate_realistic_entry_price(
 
 
 def calculate_realistic_exit_price(
-    candle: Dict,
+    candle: dict,
     position_side: str,
     exit_reason: str,
     entry_price: float,
     tp_pct: float = 0.01,
     sl_pct: float = 0.005,
 ) -> float:
-    """현실적인 청산 가격 계산
+    """현실적인 청산 가격 계산.
 
     TP/SL은 정확한 가격이 아닌 high/low 기준으로 체결
 
@@ -220,27 +183,25 @@ def calculate_realistic_exit_price(
             if high_price >= tp_target:
                 return tp_target
             return close_price
-        elif exit_reason == "SL":
+        if exit_reason == "SL":
             # SL은 저가에 도달해야 체결
             if low_price <= sl_target:
                 return sl_target
             return close_price
-        else:
-            return close_price
+        return close_price
 
-    else:  # SHORT
-        tp_target = entry_price * (1 - tp_pct)
-        sl_target = entry_price * (1 + sl_pct)
+    # SHORT
+    tp_target = entry_price * (1 - tp_pct)
+    sl_target = entry_price * (1 + sl_pct)
 
-        if exit_reason == "TP":
-            # TP는 저가에 도달해야 체결
-            if low_price <= tp_target:
-                return tp_target
-            return close_price
-        elif exit_reason == "SL":
-            # SL은 고가에 도달해야 체결
-            if high_price >= sl_target:
-                return sl_target
-            return close_price
-        else:
-            return close_price
+    if exit_reason == "TP":
+        # TP는 저가에 도달해야 체결
+        if low_price <= tp_target:
+            return tp_target
+        return close_price
+    if exit_reason == "SL":
+        # SL은 고가에 도달해야 체결
+        if high_price >= sl_target:
+            return sl_target
+        return close_price
+    return close_price

@@ -1,34 +1,32 @@
-"""
-FastAPI 앱 팩토리
+"""FastAPI 앱 팩토리.
 
 REST API 앱을 생성하고 라우터를 등록합니다.
 Phase 4.1: CORS 환경변수 설정 추가
 Phase 6.1: Rate Limiting 미들웨어 추가
 """
 import os
-from typing import Optional
 
 from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from loguru import logger
 
-from src.bot_manager import MultiBotManager
 from src.api.config import APIConfig
-from src.api.dependencies import set_bot_manager, set_api_config
-from src.api.routes.health import router as health_router
-from src.api.routes.bots import router as bots_router
-from src.api.routes.n8n import router as n8n_router
-from src.api.routes.analytics import router as analytics_router
-from src.api.routes.dashboard import router as dashboard_router
+from src.api.dependencies import set_api_config, set_bot_manager
 from src.api.middleware.rate_limit import RateLimiter, RateLimitMiddleware
+from src.api.routes.analytics import router as analytics_router
+from src.api.routes.bots import router as bots_router
+from src.api.routes.dashboard import router as dashboard_router
+from src.api.routes.health import router as health_router
+from src.api.routes.n8n import router as n8n_router
+from src.bot_manager import MultiBotManager
 
 
 def create_app(
-    bot_manager: Optional[MultiBotManager] = None,
-    api_config: Optional[APIConfig] = None,
+    bot_manager: MultiBotManager | None = None,
+    api_config: APIConfig | None = None,
 ) -> FastAPI:
-    """FastAPI 앱 생성
+    """FastAPI 앱 생성.
 
     Args:
         bot_manager: MultiBotManager 인스턴스 (선택)
@@ -71,43 +69,68 @@ def create_app(
         n8n_limit = int(os.getenv("RATE_LIMIT_N8N", "30"))
         limiter = RateLimiter(default_limit=default_limit, n8n_limit=n8n_limit)
         app.add_middleware(RateLimitMiddleware, limiter=limiter)
-        logger.info(f"Rate limiting 활성화: default={default_limit}/min, n8n={n8n_limit}/min")
+        logger.info(
+            f"Rate limiting 활성화: default={default_limit}/min, "
+            f"n8n={n8n_limit}/min"
+        )
 
-    # 전역 예외 핸들러
+    # 전역 예외 핸들러 (통일된 에러 응답 구조)
+    def _build_error_response(
+        code: str, message: str, detail: str | None = None
+    ) -> dict:
+        """통일된 에러 응답 구조 생성.
+
+        Args:
+            code: 에러 코드 (예: BAD_REQUEST, INTERNAL_ERROR)
+            message: 사용자에게 보여줄 에러 메시지
+            detail: 상세 에러 정보 (선택)
+
+        Returns:
+            통일된 에러 응답 딕셔너리
+        """
+        error_body: dict = {
+            "code": code,
+            "message": message,
+        }
+        if detail is not None:
+            error_body["detail"] = detail
+        return {
+            "success": False,
+            "error": error_body,
+        }
+
     @app.exception_handler(ValueError)
-    async def value_error_handler(request: Request, exc: ValueError):
+    async def value_error_handler(_request: Request, exc: ValueError):
         logger.warning(f"ValueError: {exc}")
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
-            content={
-                "success": False,
-                "error": "bad_request",
-                "message": str(exc),
-            },
+            content=_build_error_response(
+                code="BAD_REQUEST",
+                message=str(exc),
+            ),
         )
 
     @app.exception_handler(RuntimeError)
-    async def runtime_error_handler(request: Request, exc: RuntimeError):
+    async def runtime_error_handler(_request: Request, exc: RuntimeError):
         logger.error(f"RuntimeError: {exc}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "success": False,
-                "error": "internal_error",
-                "message": str(exc),
-            },
+            content=_build_error_response(
+                code="INTERNAL_ERROR",
+                message=str(exc),
+            ),
         )
 
     @app.exception_handler(Exception)
-    async def general_exception_handler(request: Request, exc: Exception):
+    async def general_exception_handler(_request: Request, exc: Exception):
         logger.exception(f"Unhandled exception: {exc}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "success": False,
-                "error": "internal_error",
-                "message": "An unexpected error occurred",
-            },
+            content=_build_error_response(
+                code="INTERNAL_ERROR",
+                message="An unexpected error occurred",
+                detail=type(exc).__name__,
+            ),
         )
 
     # 라우터 등록
@@ -134,18 +157,18 @@ app = create_app()
 
 
 def run_server(
-    host: str = "0.0.0.0",
+    host: str = "0.0.0.0",  # noqa: S104
     port: int = 8000,
     reload: bool = False,
 ) -> None:
-    """서버 실행
+    """서버 실행.
 
     Args:
         host: 바인딩 호스트
         port: 포트 번호
         reload: 자동 리로드 활성화
     """
-    import uvicorn
+    import uvicorn  # noqa: PLC0415
 
     uvicorn.run(
         "src.api.main:app",
@@ -157,10 +180,10 @@ def run_server(
 
 async def run_embedded_server(
     app: FastAPI,
-    host: str = "0.0.0.0",
+    host: str = "0.0.0.0",  # noqa: S104
     port: int = 8000,
 ) -> None:
-    """서버를 내장 모드로 비동기 실행
+    """서버를 내장 모드로 비동기 실행.
 
     main.py에서 FastAPI를 내장하여 실행할 때 사용합니다.
     uvicorn.Server.serve()를 사용하여 non-blocking으로 실행합니다.
@@ -170,7 +193,7 @@ async def run_embedded_server(
         host: 바인딩 호스트
         port: 포트 번호
     """
-    import uvicorn
+    import uvicorn  # noqa: PLC0415
 
     config = uvicorn.Config(app, host=host, port=port, log_level="info")
     server = uvicorn.Server(config)

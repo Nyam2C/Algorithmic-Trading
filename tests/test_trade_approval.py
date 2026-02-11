@@ -6,8 +6,8 @@ Phase 7.4: 수동 승인 모드
 import pytest
 
 from src.trading.trade_approval import (
-    TradeApprovalManager,
     ApprovalStatus,
+    TradeApprovalManager,
     TradeApprovalRequest,
 )
 
@@ -206,3 +206,176 @@ class TestTradeApprovalManagerStats:
         assert stats["total_requests"] == 2
         assert stats["pending"] == 1
         assert stats["approved"] == 1
+
+
+# =============================================================================
+# From test_trading_coverage.py: TradeApproval tests
+# =============================================================================
+
+
+class TestTradeApprovalEdgeCases:
+    """TradeApproval 추가 커버리지"""
+
+    @pytest.mark.asyncio
+    async def test_approve_nonexistent_request(self):
+        """존재하지 않는 요청 승인 -> False"""
+        manager = TradeApprovalManager()
+        result = await manager.approve("nonexistent", "user_1")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_reject_nonexistent_request(self):
+        """존재하지 않는 요청 거부 -> False"""
+        manager = TradeApprovalManager()
+        result = await manager.reject("nonexistent", "user_1")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_approve_already_processed(self):
+        """이미 승인된 요청 재승인 -> False"""
+        manager = TradeApprovalManager()
+        request = await manager.create_request("bot", "LONG", 50000, 0.001)
+        await manager.approve(request.request_id, "user_1")
+
+        # 다시 승인 시도
+        result = await manager.approve(request.request_id, "user_2")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_reject_already_processed(self):
+        """이미 거부된 요청 재거부 -> False"""
+        manager = TradeApprovalManager()
+        request = await manager.create_request("bot", "SHORT", 50000, 0.001)
+        await manager.reject(request.request_id, "user_1", "Bad signal")
+
+        result = await manager.reject(request.request_id, "user_2")
+        assert result is False
+
+
+class TestTradeApprovalRequestTimeout:
+    """TradeApprovalRequest timeout 테스트"""
+
+    def test_timeout(self):
+        """시간 초과 처리"""
+        request = TradeApprovalRequest(
+            bot_name="btc-bot",
+            signal="LONG",
+            price=50000.0,
+            quantity=0.001,
+        )
+
+        request.timeout()
+        assert request.status == ApprovalStatus.TIMEOUT
+
+
+class TestTradeApprovalManagerGetRequest:
+    """get_request 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_get_existing_request(self):
+        """존재하는 요청 조회"""
+        manager = TradeApprovalManager()
+        request = await manager.create_request("bot", "LONG", 50000, 0.001)
+
+        found = await manager.get_request(request.request_id)
+        assert found is not None
+        assert found.signal == "LONG"
+
+    @pytest.mark.asyncio
+    async def test_get_nonexistent_request(self):
+        """존재하지 않는 요청 조회 -> None"""
+        manager = TradeApprovalManager()
+        found = await manager.get_request("nonexistent")
+        assert found is None
+
+
+class TestTradeApprovalManagerStatsAllStatuses:
+    """통계 조회 추가 테스트 (모든 상태)"""
+
+    @pytest.mark.asyncio
+    async def test_stats_with_all_statuses(self):
+        """모든 상태의 요청이 있는 통계"""
+        manager = TradeApprovalManager()
+
+        # pending
+        await manager.create_request("bot", "LONG", 50000, 0.001)
+
+        # approved
+        req = await manager.create_request("bot", "SHORT", 50000, 0.001)
+        await manager.approve(req.request_id, "user")
+
+        # rejected
+        req = await manager.create_request("bot", "LONG", 51000, 0.001)
+        await manager.reject(req.request_id, "user", "risk")
+
+        # timeout
+        req = await manager.create_request("bot", "SHORT", 49000, 0.001)
+        req.timeout()
+
+        stats = manager.get_stats()
+        assert stats["total_requests"] == 4
+        assert stats["pending"] == 1
+        assert stats["approved"] == 1
+        assert stats["rejected"] == 1
+        assert stats["timeout"] == 1
+
+
+class TestTradeApprovalManagerPendingFilter:
+    """대기 중 요청 필터 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_get_pending_by_bot_name(self):
+        """봇 이름으로 필터링"""
+        manager = TradeApprovalManager()
+        await manager.create_request("bot-a", "LONG", 50000, 0.001)
+        await manager.create_request("bot-b", "SHORT", 50000, 0.001)
+
+        pending = await manager.get_pending_requests(bot_name="bot-a")
+        assert len(pending) == 1
+        assert pending[0].bot_name == "bot-a"
+
+
+class TestTradeApprovalManagerResetCounter:
+    """카운터 리셋 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_reset_counter(self):
+        """봇 거래 카운터 리셋"""
+        manager = TradeApprovalManager(manual_approval_enabled=True, manual_approval_trades=5)
+
+        # 5거래 완료
+        for _ in range(5):
+            await manager.record_trade_completed("bot-a")
+
+        # 승인 불필요
+        assert await manager.requires_approval("bot-a") is False
+
+        # 카운터 리셋
+        manager.reset_bot_counter("bot-a")
+
+        # 다시 승인 필요
+        assert await manager.requires_approval("bot-a") is True
+
+
+class TestTradeApprovalRequestCreateWithRsiAtr:
+    """RSI/ATR 정보 포함 요청"""
+
+    @pytest.mark.asyncio
+    async def test_create_request_with_rsi_atr(self):
+        """RSI, ATR 정보 포함 요청 생성"""
+        manager = TradeApprovalManager()
+        request = await manager.create_request(
+            bot_name="btc-bot",
+            signal="LONG",
+            price=50000.0,
+            quantity=0.001,
+            rsi=35.0,
+            atr=500.0,
+        )
+
+        assert request.rsi == 35.0
+        assert request.atr == 500.0
+
+        data = request.to_dict()
+        assert data["market_data"]["rsi"] == 35.0
+        assert data["market_data"]["atr"] == 500.0

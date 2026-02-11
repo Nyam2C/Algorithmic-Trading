@@ -1,30 +1,29 @@
-"""
-거래 이력 저장소 (PostgreSQL)
+"""거래 이력 저장소 (PostgreSQL).
 
 모든 거래 진입/청산 기록을 분석 및 리포트용으로 저장
 """
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
 import asyncpg
 from asyncpg import Connection
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
 from loguru import logger
 
 
 class TradeHistoryDB:
-    """PostgreSQL 거래 이력 데이터베이스"""
+    """PostgreSQL 거래 이력 데이터베이스."""
 
     def __init__(self, database_url: str):
-        """
-        거래 이력 데이터베이스 초기화
+        """거래 이력 데이터베이스 초기화.
 
         Args:
             database_url: PostgreSQL 연결 URL
         """
         self.database_url = database_url
-        self.pool: Optional[asyncpg.Pool] = None
+        self.pool: asyncpg.Pool | None = None
 
     async def connect(self):
-        """데이터베이스 연결 풀 생성"""
+        """데이터베이스 연결 풀 생성."""
         try:
             self.pool = await asyncpg.create_pool(
                 self.database_url,
@@ -42,13 +41,13 @@ class TradeHistoryDB:
             raise
 
     async def disconnect(self):
-        """데이터베이스 연결 풀 종료"""
+        """데이터베이스 연결 풀 종료."""
         if self.pool:
             await self.pool.close()
             logger.info("거래 이력 데이터베이스 연결 종료")
 
     async def create_tables(self):
-        """데이터베이스 테이블 확인 - db/init.sql 스키마 사용"""
+        """데이터베이스 테이블 확인 - db/init.sql 스키마 사용."""
         if self.pool is None:
             raise RuntimeError("Database pool not initialized. Call connect() first.")
         # 테이블은 db/init.sql로 생성됨, 연결만 확인
@@ -73,10 +72,9 @@ class TradeHistoryDB:
         quantity: float,
         leverage: int,
         symbol: str = "BTCUSDT",
-        bot_id: Optional[str] = None,
+        bot_id: str | None = None,
     ) -> str:
-        """
-        거래 진입 기록
+        """거래 진입 기록.
 
         Args:
             entry_time: 진입 시간
@@ -96,15 +94,22 @@ class TradeHistoryDB:
             if bot_id:
                 trade_id = await conn.fetchval("""
                     INSERT INTO trades (
-                        entry_time, entry_price, side, quantity, leverage, symbol, bot_id, status
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7::uuid, 'OPEN')
+                        entry_time, entry_price, side, quantity,
+                        leverage, symbol, bot_id, status
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, $7::uuid, 'OPEN'
+                    )
                     RETURNING id
-                """, entry_time, entry_price, side, quantity, leverage, symbol, bot_id)
+                """, entry_time, entry_price, side, quantity,
+                    leverage, symbol, bot_id)
             else:
                 trade_id = await conn.fetchval("""
                     INSERT INTO trades (
-                        entry_time, entry_price, side, quantity, leverage, symbol, status
-                    ) VALUES ($1, $2, $3, $4, $5, $6, 'OPEN')
+                        entry_time, entry_price, side, quantity,
+                        leverage, symbol, status
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, 'OPEN'
+                    )
                     RETURNING id
                 """, entry_time, entry_price, side, quantity, leverage, symbol)
 
@@ -119,9 +124,9 @@ class TradeHistoryDB:
         exit_reason: str,
         pnl: float,
         pnl_pct: float,
-        duration_minutes: Optional[int] = None
+        duration_minutes: int | None = None
     ):
-        """거래 청산 기록"""
+        """거래 청산 기록."""
         if self.pool is None:
             raise RuntimeError("Database pool not initialized. Call connect() first.")
         async with self.pool.acquire() as conn:
@@ -136,7 +141,8 @@ class TradeHistoryDB:
                     status = 'CLOSED',
                     updated_at = NOW()
                 WHERE id = $1::uuid
-            """, trade_id, exit_time, exit_price, exit_reason, pnl, pnl_pct, duration_minutes)
+            """, trade_id, exit_time, exit_price, exit_reason,
+                pnl, pnl_pct, duration_minutes)
 
             logger.info(
                 f"거래 청산 기록: ID={trade_id}, "
@@ -147,9 +153,9 @@ class TradeHistoryDB:
     async def get_recent_trades(
         self,
         limit: int = 10,
-        bot_id: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        """최근 완료된 거래 조회
+        bot_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """최근 완료된 거래 조회.
 
         Args:
             limit: 조회할 거래 수
@@ -189,10 +195,9 @@ class TradeHistoryDB:
     async def get_statistics(
         self,
         hours: int = 24,
-        bot_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        최근 N시간 동안의 거래 통계 조회
+        bot_id: str | None = None,
+    ) -> dict[str, Any]:
+        """최근 N시간 동안의 거래 통계 조회.
 
         Args:
             hours: 조회 기간 (시간)
@@ -204,27 +209,30 @@ class TradeHistoryDB:
         if self.pool is None:
             raise RuntimeError("Database pool not initialized. Call connect() first.")
         async with self.pool.acquire() as conn:
-            cutoff_time = datetime.now() - timedelta(hours=hours)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-            # 통계 조회: bot_id 유무에 따라 별도 쿼리 사용
-            if bot_id:
-                stats = await self._get_statistics_with_bot_id(
-                    conn, cutoff_time, bot_id
-                )
-            else:
-                stats = await self._get_statistics_all(conn, cutoff_time)
+            # 통계 조회: 단일 메서드에서 bot_id 유무에 따라 분기
+            stats = await self._get_statistics_query(conn, cutoff_time, bot_id)
 
             stats["period_hours"] = hours
             return stats
 
-    async def _get_statistics_all(
+    async def _get_statistics_query(
         self,
         conn: Connection,
         cutoff_time: datetime,
-    ) -> Dict[str, Any]:
-        """모든 봇의 통계 조회 (내부 메서드)"""
-        # 단일 쿼리로 모든 통계 조회
-        row = await conn.fetchrow("""
+        bot_id: str | None = None,
+    ) -> dict[str, Any]:
+        """통계 조회 (내부 메서드).
+
+        bot_id가 지정되면 해당 봇의 통계만, 없으면 전체 통계를 조회합니다.
+
+        Args:
+            conn: DB 연결
+            cutoff_time: 조회 시작 시간
+            bot_id: 봇 ID (선택)
+        """
+        base_query = """
             SELECT
                 COUNT(*) as total_trades,
                 COUNT(*) FILTER (WHERE pnl > 0) as winners,
@@ -235,61 +243,16 @@ class TradeHistoryDB:
             FROM trades
             WHERE status = 'CLOSED'
             AND exit_time >= $1
-        """, cutoff_time)
+        """
 
-        total_trades = row["total_trades"]
-        if total_trades == 0:
-            return {
-                "total_trades": 0,
-                "winners": 0,
-                "losers": 0,
-                "win_rate": 0,
-                "total_pnl": 0,
-                "best_trade": 0,
-                "worst_trade": 0,
-                "long_trades": 0,
-                "short_trades": 0,
-            }
-
-        winners = row["winners"]
-        losers = total_trades - winners
-        win_rate = (winners / total_trades * 100) if total_trades > 0 else 0
-        long_trades = row["long_trades"]
-        short_trades = total_trades - long_trades
-
-        return {
-            "total_trades": total_trades,
-            "winners": winners,
-            "losers": losers,
-            "win_rate": round(win_rate, 2),
-            "total_pnl": float(row["total_pnl"]),
-            "best_trade": float(row["best_trade"]),
-            "worst_trade": float(row["worst_trade"]),
-            "long_trades": long_trades,
-            "short_trades": short_trades,
-        }
-
-    async def _get_statistics_with_bot_id(
-        self,
-        conn: Connection,
-        cutoff_time: datetime,
-        bot_id: str,
-    ) -> Dict[str, Any]:
-        """특정 봇의 통계 조회 (내부 메서드)"""
-        # 단일 쿼리로 모든 통계 조회
-        row = await conn.fetchrow("""
-            SELECT
-                COUNT(*) as total_trades,
-                COUNT(*) FILTER (WHERE pnl > 0) as winners,
-                COALESCE(SUM(pnl), 0) as total_pnl,
-                COALESCE(MAX(pnl_pct), 0) as best_trade,
-                COALESCE(MIN(pnl_pct), 0) as worst_trade,
-                COUNT(*) FILTER (WHERE side = 'LONG') as long_trades
-            FROM trades
-            WHERE status = 'CLOSED'
-            AND exit_time >= $1
-            AND bot_id = $2::uuid
-        """, cutoff_time, bot_id)
+        if bot_id:
+            row = await conn.fetchrow(
+                base_query + " AND bot_id = $2::uuid",
+                cutoff_time,
+                bot_id,
+            )
+        else:
+            row = await conn.fetchrow(base_query, cutoff_time)
 
         total_trades = row["total_trades"]
         if total_trades == 0:
@@ -325,9 +288,9 @@ class TradeHistoryDB:
 
     async def get_open_trade(
         self,
-        bot_id: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
-        """현재 열린 거래 조회 (아직 청산되지 않음)
+        bot_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """현재 열린 거래 조회 (아직 청산되지 않음).
 
         Args:
             bot_id: 봇 ID (지정 시 해당 봇 거래만 조회)
@@ -341,7 +304,8 @@ class TradeHistoryDB:
             if bot_id:
                 row = await conn.fetchrow("""
                     SELECT
-                        id, entry_time, entry_price, side, quantity, leverage, symbol, bot_id
+                        id, entry_time, entry_price, side, quantity,
+                        leverage, symbol, bot_id
                     FROM trades
                     WHERE status = 'OPEN' AND bot_id = $1::uuid
                     ORDER BY entry_time DESC
@@ -360,14 +324,17 @@ class TradeHistoryDB:
             return dict(row) if row else None
 
     async def cleanup_old_trades(self, days: int = 30):
-        """N일 이상 지난 거래 삭제"""
+        """N일 이상 지난 CLOSED 거래 삭제.
+
+        OPEN 상태의 거래는 exit_time이 NULL이거나 아직 활성 중이므로 삭제하지 않습니다.
+        """
         if self.pool is None:
             raise RuntimeError("Database pool not initialized. Call connect() first.")
         async with self.pool.acquire() as conn:
-            cutoff_time = datetime.now() - timedelta(days=days)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(days=days)
 
             result = await conn.execute("""
-                DELETE FROM trades WHERE exit_time < $1
+                DELETE FROM trades WHERE exit_time < $1 AND status = 'CLOSED'
             """, cutoff_time)
             # result 형식: "DELETE N" -> N 추출
             deleted = int(result.split()[-1]) if result else 0

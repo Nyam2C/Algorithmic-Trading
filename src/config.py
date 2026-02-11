@@ -1,18 +1,16 @@
-"""
-Configuration management for High-Win Survival System
-"""
+"""Configuration management for High-Win Survival System."""
 import os
-from typing import Optional
-from pydantic import BaseModel, Field, validator
+
 from dotenv import load_dotenv
 from loguru import logger
+from pydantic import BaseModel, Field, validator
 
 # Load environment variables
 load_dotenv()
 
 
 class TradingConfig(BaseModel):
-    """Trading configuration with validation"""
+    """Trading configuration with validation."""
 
     # Bot Info
     bot_name: str = Field(default="trading-bot")
@@ -27,8 +25,8 @@ class TradingConfig(BaseModel):
     mainnet_confirmation: str = Field(default="")
 
     # Redis Configuration
-    redis_url: Optional[str] = Field(default=None)
-    redis_password: Optional[str] = Field(default=None)
+    redis_url: str | None = Field(default=None)
+    redis_password: str | None = Field(default=None)
     redis_db: int = Field(default=0, ge=0, le=15)
     enable_redis_state: bool = Field(default=True)
 
@@ -41,7 +39,8 @@ class TradingConfig(BaseModel):
     time_cut_minutes: int = Field(default=120, gt=0)
 
     # Phase 5.1: 실제 잔고 기반 포지션 사이징
-    use_real_balance: bool = Field(default=False)  # True면 실제 잔고 사용, False면 1000 USDT 기본값
+    # True면 실제 잔고 사용, False면 1000 USDT 기본값
+    use_real_balance: bool = Field(default=False)
 
     # Phase 6.1: ATR 기반 동적 TP/SL
     use_atr_tp_sl: bool = Field(default=False)
@@ -55,10 +54,10 @@ class TradingConfig(BaseModel):
 
     # Discord Configuration
     discord_webhook_url: str
-    discord_bot_token: Optional[str] = None
+    discord_bot_token: str | None = None
 
     # Database Configuration
-    database_url: Optional[str] = None
+    database_url: str | None = None
 
     # Trading Loop
     loop_interval_seconds: int = Field(default=300, gt=0)  # 5 minutes
@@ -68,13 +67,13 @@ class TradingConfig(BaseModel):
     log_level: str = Field(default="INFO")
 
     # API Configuration
-    api_host: str = Field(default="0.0.0.0")
+    api_host: str = Field(default="0.0.0.0")  # noqa: S104
     api_port: int = Field(default=8000, ge=1, le=65535)
     api_debug: bool = Field(default=False)
 
     @validator("symbol")
     def validate_symbol(cls, v):
-        """Validate symbol format"""
+        """Validate symbol format."""
         # 먼저 대문자로 변환
         v = v.upper()
         # 그 다음 USDT로 끝나는지 확인
@@ -84,14 +83,14 @@ class TradingConfig(BaseModel):
 
     @validator("position_size_pct")
     def validate_position_size(cls, v):
-        """Validate position size is reasonable"""
-        if v > 0.1:  # Max 10% of capital
+        """Validate position size is reasonable."""
+        max_position_pct = 0.1  # Max 10% of capital
+        if v > max_position_pct:
             logger.warning(f"Position size {v*100}% is high, recommended: <=10%")
         return v
 
     def validate_mainnet_switch(self) -> bool:
-        """
-        Phase 7.1: 메인넷 전환 시 안전 검증
+        """Phase 7.1: 메인넷 전환 시 안전 검증.
 
         실거래(메인넷) 활성화 시 명시적 확인 문자열을 요구합니다.
         이는 실수로 실거래를 활성화하는 것을 방지합니다.
@@ -102,13 +101,13 @@ class TradingConfig(BaseModel):
         Raises:
             ValueError: If mainnet is enabled without proper confirmation
         """
-        REQUIRED_CONFIRMATION = "I_UNDERSTAND_THIS_IS_REAL_MONEY"
+        required_confirmation = "I_UNDERSTAND_THIS_IS_REAL_MONEY"
 
         if not self.binance_testnet:
-            if self.mainnet_confirmation != REQUIRED_CONFIRMATION:
+            if self.mainnet_confirmation != required_confirmation:
                 raise ValueError(
                     f"메인넷(실거래) 전환을 위해 MAINNET_CONFIRMATION 환경변수를 "
-                    f"'{REQUIRED_CONFIRMATION}'으로 설정하세요.\n"
+                    f"'{required_confirmation}'으로 설정하세요.\n"
                     f"주의: 실거래 모드에서는 실제 자금이 사용됩니다!"
                 )
             logger.critical(
@@ -121,7 +120,7 @@ class TradingConfig(BaseModel):
 
 
 def load_config() -> TradingConfig:
-    """Load configuration from environment variables"""
+    """Load configuration from environment variables."""
     try:
         config = TradingConfig(
             bot_name=os.getenv("BOT_NAME", "trading-bot"),
@@ -147,12 +146,16 @@ def load_config() -> TradingConfig:
             redis_url=os.getenv("REDIS_URL"),
             redis_password=os.getenv("REDIS_PASSWORD"),
             redis_db=int(os.getenv("REDIS_DB", "0")),
-            enable_redis_state=os.getenv("ENABLE_REDIS_STATE", "true").lower() == "true",
+            enable_redis_state=(
+                os.getenv("ENABLE_REDIS_STATE", "true").lower() == "true"
+            ),
             # Logging Configuration
-            enable_json_logging=os.getenv("ENABLE_JSON_LOGGING", "true").lower() == "true",
+            enable_json_logging=(
+                os.getenv("ENABLE_JSON_LOGGING", "true").lower() == "true"
+            ),
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
             # API Configuration
-            api_host=os.getenv("API_HOST", "0.0.0.0"),
+            api_host=os.getenv("API_HOST", "0.0.0.0"),  # noqa: S104
             api_port=int(os.getenv("API_PORT", "8000")),
             api_debug=os.getenv("API_DEBUG", "false").lower() == "true",
         )
@@ -165,7 +168,9 @@ def load_config() -> TradingConfig:
         logger.info(f"Symbol: {config.symbol}")
         logger.info(f"Leverage: {config.leverage}x")
         logger.info(f"Position Size: {config.position_size_pct*100}%")
-        logger.info(f"TP/SL: {config.take_profit_pct*100}% / {config.stop_loss_pct*100}%")
+        logger.info(
+            f"TP/SL: {config.take_profit_pct*100}% / {config.stop_loss_pct*100}%"
+        )
         logger.info(f"Testnet: {config.binance_testnet}")
 
         return config
@@ -176,12 +181,12 @@ def load_config() -> TradingConfig:
 
 
 # Singleton instance
-_config: Optional[TradingConfig] = None
+_config: TradingConfig | None = None
 
 
 def get_config() -> TradingConfig:
-    """Get singleton configuration instance"""
-    global _config
+    """Get singleton configuration instance."""
+    global _config  # noqa: PLW0603
     if _config is None:
         _config = load_config()
     return _config

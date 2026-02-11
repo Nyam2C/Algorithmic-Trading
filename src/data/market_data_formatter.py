@@ -1,17 +1,17 @@
-"""
-Gemini API용 시장 데이터 포맷터
+"""Gemini API용 시장 데이터 포맷터.
 
 토큰 효율성을 위해 시장 데이터를 압축 포맷으로 변환
 목표: ~100 토큰 이하로 모든 필수 정보 전달
 """
-from typing import Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Any
+
 from loguru import logger
 
 
 @dataclass
 class CompactMarketData:
-    """압축된 시장 데이터 구조"""
+    """압축된 시장 데이터 구조."""
 
     # 가격 정보
     price: int                    # 현재가 (정수)
@@ -32,17 +32,16 @@ class CompactMarketData:
     volatility: str               # 변동성 상태 (낮음/보통/높음)
 
     # 시장 심리 (선택)
-    funding_rate: Optional[float] = None   # 펀딩비 (%)
-    long_short_ratio: Optional[float] = None  # 롱숏 비율
+    funding_rate: float | None = None   # 펀딩비 (%)
+    long_short_ratio: float | None = None  # 롱숏 비율
 
     # 포지션 정보
     position: str = "없음"        # 현재 포지션 (LONG/SHORT/없음)
-    entry_price: Optional[int] = None  # 진입가
-    unrealized_pnl_pct: Optional[float] = None  # 미실현 손익률
+    entry_price: int | None = None  # 진입가
+    unrealized_pnl_pct: float | None = None  # 미실현 손익률
 
     def to_compact_string(self) -> str:
-        """
-        압축 문자열 포맷으로 변환
+        """압축 문자열 포맷으로 변환.
 
         예시:
         BTC $106,500 | 24h: +2.3% (고:108k 저:104k)
@@ -56,13 +55,16 @@ class CompactMarketData:
         high_k = f"{self.high_24h // 1000}k"
         low_k = f"{self.low_24h // 1000}k"
         lines.append(
-            f"BTC ${self.price:,} | 24h: {self.change_24h:+.1f}% (고:{high_k} 저:{low_k})"
+            f"BTC ${self.price:,} | 24h: {self.change_24h:+.1f}% "
+            f"(고:{high_k} 저:{low_k})"
         )
 
         # 2줄: 기술적 지표
         lines.append(
             f"RSI:{self.rsi}{self.rsi_trend} | MA:{self.ma_position} | "
-            f"추세:{self.trend_2h:+.1f}% | 거래량:{self.volume_ratio:.1f}x | 변동성:{self.volatility}"
+            f"추세:{self.trend_2h:+.1f}% | "
+            f"거래량:{self.volume_ratio:.1f}x | "
+            f"변동성:{self.volatility}"
         )
 
         # 3줄: 시장 심리 (있는 경우만)
@@ -79,7 +81,11 @@ class CompactMarketData:
 
         # 4줄: 포지션 정보
         if self.position != "없음" and self.entry_price:
-            pnl_str = f"{self.unrealized_pnl_pct:+.2f}%" if self.unrealized_pnl_pct is not None else "N/A"
+            pnl_str = (
+                f"{self.unrealized_pnl_pct:+.2f}%"
+                if self.unrealized_pnl_pct is not None
+                else "N/A"
+            )
             lines.append(
                 f"포지션:{self.position} @ ${self.entry_price:,} "
                 f"({pnl_str})"
@@ -90,8 +96,7 @@ class CompactMarketData:
         return "\n".join(lines)
 
     def to_minimal_string(self) -> str:
-        """
-        최소 토큰 포맷 (~50 토큰)
+        """최소 토큰 포맷 (~50 토큰).
 
         예시:
         BTC|106500|+2.3%|RSI:45↑|MA:상|Vol:1.5x|펀딩:+0.01%|포지션:없음
@@ -109,7 +114,11 @@ class CompactMarketData:
             parts.append(f"펀딩:{self.funding_rate:+.3f}%")
 
         if self.position != "없음":
-            pnl_str = f"{self.unrealized_pnl_pct:+.1f}%" if self.unrealized_pnl_pct is not None else "N/A"
+            pnl_str = (
+                f"{self.unrealized_pnl_pct:+.1f}%"
+                if self.unrealized_pnl_pct is not None
+                else "N/A"
+            )
             parts.append(f"포지션:{self.position}({pnl_str})")
         else:
             parts.append("포지션:없음")
@@ -118,21 +127,20 @@ class CompactMarketData:
 
 
 class MarketDataFormatter:
-    """시장 데이터를 Gemini API용으로 포맷팅"""
+    """시장 데이터를 Gemini API용으로 포맷팅."""
 
     def __init__(self):
-        self.last_data: Optional[CompactMarketData] = None
+        self.last_data: CompactMarketData | None = None
 
     def format_for_gemini(
         self,
-        market_data: Dict[str, Any],
-        position: Optional[Dict[str, Any]] = None,
-        funding_rate: Optional[float] = None,
-        long_short_ratio: Optional[float] = None,
+        market_data: dict[str, Any],
+        position: dict[str, Any] | None = None,
+        funding_rate: float | None = None,
+        long_short_ratio: float | None = None,
         minimal: bool = False
     ) -> str:
-        """
-        시장 데이터를 Gemini API용 문자열로 변환
+        """시장 데이터를 Gemini API용 문자열로 변환.
 
         Args:
             market_data: indicators.py의 analyze_market() 결과
@@ -187,9 +195,13 @@ class MarketDataFormatter:
             if entry_price > 0:
                 current_price = market_data.get("current_price", entry_price)
                 if pos_side == "LONG":
-                    unrealized_pnl_pct = (current_price - entry_price) / entry_price * 100
+                    unrealized_pnl_pct = (
+                        (current_price - entry_price) / entry_price * 100
+                    )
                 else:
-                    unrealized_pnl_pct = (entry_price - current_price) / entry_price * 100
+                    unrealized_pnl_pct = (
+                        (entry_price - current_price) / entry_price * 100
+                    )
 
         # CompactMarketData 생성
         compact_data = CompactMarketData(
@@ -222,13 +234,12 @@ class MarketDataFormatter:
 
     def build_gemini_prompt(
         self,
-        market_data: Dict[str, Any],
-        position: Optional[Dict[str, Any]] = None,
-        funding_rate: Optional[float] = None,
-        long_short_ratio: Optional[float] = None,
+        market_data: dict[str, Any],
+        position: dict[str, Any] | None = None,
+        funding_rate: float | None = None,
+        long_short_ratio: float | None = None,
     ) -> str:
-        """
-        Gemini API용 완전한 프롬프트 생성
+        """Gemini API용 완전한 프롬프트 생성.
 
         Returns:
             시스템 지시 + 데이터 + 질문 포함 프롬프트
@@ -237,7 +248,7 @@ class MarketDataFormatter:
             market_data, position, funding_rate, long_short_ratio
         )
 
-        prompt = f"""당신은 비트코인 선물 트레이딩 전문가입니다.
+        return f"""당신은 비트코인 선물 트레이딩 전문가입니다.
 아래 시장 데이터를 분석하고 1-2시간 내 포지션을 추천하세요.
 
 [시장 데이터]
@@ -252,12 +263,11 @@ class MarketDataFormatter:
 신호: LONG/SHORT/WAIT
 이유: (한 문장)"""
 
-        return prompt
 
     def estimate_tokens(self, text: str) -> int:
-        """
-        대략적인 토큰 수 추정 (영어 기준 4문자 = 1토큰)
-        한글은 약 2문자 = 1토큰
+        """대략적인 토큰 수 추정 (영어 기준 4문자 = 1토큰).
+
+        한글은 약 2문자 = 1토큰.
         """
         # 간단한 추정: 공백으로 분리된 단어 수 + 특수문자
         words = text.split()
@@ -269,29 +279,25 @@ formatter = MarketDataFormatter()
 
 
 def format_market_data(
-    market_data: Dict[str, Any],
-    position: Optional[Dict[str, Any]] = None,
-    funding_rate: Optional[float] = None,
-    long_short_ratio: Optional[float] = None,
+    market_data: dict[str, Any],
+    position: dict[str, Any] | None = None,
+    funding_rate: float | None = None,
+    long_short_ratio: float | None = None,
     minimal: bool = False
 ) -> str:
-    """
-    시장 데이터를 Gemini용 문자열로 포맷팅 (편의 함수)
-    """
+    """시장 데이터를 Gemini용 문자열로 포맷팅 (편의 함수)."""
     return formatter.format_for_gemini(
         market_data, position, funding_rate, long_short_ratio, minimal
     )
 
 
 def build_gemini_prompt(
-    market_data: Dict[str, Any],
-    position: Optional[Dict[str, Any]] = None,
-    funding_rate: Optional[float] = None,
-    long_short_ratio: Optional[float] = None,
+    market_data: dict[str, Any],
+    position: dict[str, Any] | None = None,
+    funding_rate: float | None = None,
+    long_short_ratio: float | None = None,
 ) -> str:
-    """
-    Gemini API용 프롬프트 생성 (편의 함수)
-    """
+    """Gemini API용 프롬프트 생성 (편의 함수)."""
     return formatter.build_gemini_prompt(
         market_data, position, funding_rate, long_short_ratio
     )

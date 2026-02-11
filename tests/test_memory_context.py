@@ -4,22 +4,22 @@ AIMemoryContextBuilder 테스트
 Phase 4: AI 메모리 시스템 - 메모리 컨텍스트 빌더 테스트
 TDD 방식으로 작성
 """
-import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from src.analytics.memory_context import (
     AIMemoryContextBuilder,
     MemoryContext,
 )
 from src.analytics.trade_analyzer import (
-    TradeHistoryAnalyzer,
-    TradingStats,
+    PatternInsight,
     RSIConditionStats,
     TimeBasedStats,
-    PatternInsight,
+    TradeHistoryAnalyzer,
+    TradingStats,
 )
-
 
 # =============================================================================
 # Fixtures

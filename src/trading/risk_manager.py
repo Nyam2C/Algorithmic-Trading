@@ -1,5 +1,4 @@
-"""
-리스크 매니저 모듈
+"""리스크 매니저 모듈.
 
 Phase 5: 리스크 관리 강화
 - 일일 손실 한도 (-5% 시 전체 봇 정지)
@@ -7,12 +6,12 @@ Phase 5: 리스크 관리 강화
 - 드로다운 모니터링
 """
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
+
 from loguru import logger
 
 
 class RiskManager:
-    """리스크 매니저
+    """리스크 매니저.
 
     봇의 리스크를 관리하는 클래스입니다.
     일일 손실 한도, 연속 손실 카운터, 최대 드로다운 등을 추적합니다.
@@ -40,7 +39,7 @@ class RiskManager:
         max_consecutive_losses: int = 3,
         cooldown_minutes: int = 30,
     ) -> None:
-        """리스크 매니저 초기화
+        """리스크 매니저 초기화.
 
         Args:
             max_daily_loss_pct: 일일 최대 손실률 (0.05 = 5%)
@@ -57,11 +56,11 @@ class RiskManager:
         # 일일 통계
         self._daily_pnl: float = 0.0
         self._daily_start_balance: float = 0.0
-        self._daily_reset_time: Optional[datetime] = None
+        self._daily_reset_time: datetime | None = None
 
         # 연속 손실 추적
         self._consecutive_losses: int = 0
-        self._cooldown_until: Optional[datetime] = None
+        self._cooldown_until: datetime | None = None
 
         # 드로다운 추적
         self._peak_balance: float = 0.0
@@ -82,7 +81,7 @@ class RiskManager:
     # =========================================================================
 
     async def reset_daily_stats(self, current_balance: float) -> None:
-        """일일 통계 리셋 (매일 UTC 00:00 또는 봇 시작 시 호출)
+        """일일 통계 리셋 (매일 UTC 00:00 또는 봇 시작 시 호출).
 
         Args:
             current_balance: 현재 잔고
@@ -92,8 +91,7 @@ class RiskManager:
         self._daily_reset_time = datetime.now(timezone.utc)
 
         # Peak balance 업데이트
-        if current_balance > self._peak_balance:
-            self._peak_balance = current_balance
+        self._peak_balance = max(self._peak_balance, current_balance)
 
         logger.info(
             f"일일 통계 리셋: 시작 잔고=${current_balance:,.2f}, "
@@ -101,7 +99,7 @@ class RiskManager:
         )
 
     async def track_trade_pnl(self, pnl: float) -> None:
-        """거래 PnL 추적
+        """거래 PnL 추적.
 
         Args:
             pnl: 실현 손익 (양수=이익, 음수=손실)
@@ -119,7 +117,7 @@ class RiskManager:
         )
 
     async def track_trade_result(self, is_win: bool) -> None:
-        """거래 결과 추적 (연속 손실 카운터용)
+        """거래 결과 추적 (연속 손실 카운터용).
 
         Args:
             is_win: 승리 여부
@@ -141,8 +139,8 @@ class RiskManager:
                     f"쿨다운 시작: {self._cooldown_until.isoformat()} 까지"
                 )
 
-    async def should_halt_trading(self) -> Tuple[bool, str]:
-        """거래 중단 여부 확인
+    async def should_halt_trading(self) -> tuple[bool, str]:
+        """거래 중단 여부 확인.
 
         Returns:
             (중단 여부, 중단 사유)
@@ -156,14 +154,17 @@ class RiskManager:
 
         # 일일 손실 한도 체크
         if self._daily_pnl < 0 and daily_loss_pct >= self.max_daily_loss_pct:
-            reason = f"일일 손실 한도 도달: {daily_loss_pct:.2%} >= {self.max_daily_loss_pct:.2%}"
+            reason = (
+                f"일일 손실 한도 도달: {daily_loss_pct:.2%} "
+                f">= {self.max_daily_loss_pct:.2%}"
+            )
             logger.warning(reason)
             return True, reason
 
         return False, ""
 
     async def is_in_cooldown(self) -> bool:
-        """쿨다운 상태 확인 (Phase 5.3)
+        """쿨다운 상태 확인 (Phase 5.3).
 
         Returns:
             쿨다운 중이면 True
@@ -188,14 +189,13 @@ class RiskManager:
     # =========================================================================
 
     async def update_balance(self, current_balance: float) -> None:
-        """잔고 업데이트 및 드로다운 계산
+        """잔고 업데이트 및 드로다운 계산.
 
         Args:
             current_balance: 현재 잔고
         """
         # Peak balance 업데이트
-        if current_balance > self._peak_balance:
-            self._peak_balance = current_balance
+        self._peak_balance = max(self._peak_balance, current_balance)
 
         # 드로다운 계산
         if self._peak_balance > 0:
@@ -203,8 +203,8 @@ class RiskManager:
                 self._peak_balance - current_balance
             ) / self._peak_balance
 
-    async def check_max_drawdown(self) -> Tuple[bool, str]:
-        """최대 드로다운 체크
+    async def check_max_drawdown(self) -> tuple[bool, str]:
+        """최대 드로다운 체크.
 
         Returns:
             (한도 도달 여부, 사유)
@@ -224,25 +224,25 @@ class RiskManager:
     # =========================================================================
 
     def get_daily_pnl(self) -> float:
-        """일일 PnL 조회"""
+        """일일 PnL 조회."""
         return self._daily_pnl
 
     def get_daily_pnl_pct(self) -> float:
-        """일일 PnL 비율 조회"""
+        """일일 PnL 비율 조회."""
         if self._daily_start_balance <= 0:
             return 0.0
         return self._daily_pnl / self._daily_start_balance
 
     def get_consecutive_losses(self) -> int:
-        """연속 손실 횟수 조회"""
+        """연속 손실 횟수 조회."""
         return self._consecutive_losses
 
     def get_current_drawdown(self) -> float:
-        """현재 드로다운 조회"""
+        """현재 드로다운 조회."""
         return self._current_drawdown
 
     def get_stats(self) -> dict:
-        """전체 통계 조회
+        """전체 통계 조회.
 
         Returns:
             리스크 통계 딕셔너리
@@ -256,7 +256,11 @@ class RiskManager:
             "daily_pnl_pct": self.get_daily_pnl_pct(),
             "daily_start_balance": self._daily_start_balance,
             "consecutive_losses": self._consecutive_losses,
-            "cooldown_until": self._cooldown_until.isoformat() if self._cooldown_until else None,
+            "cooldown_until": (
+                self._cooldown_until.isoformat()
+                if self._cooldown_until
+                else None
+            ),
             "current_drawdown": self._current_drawdown,
             "peak_balance": self._peak_balance,
             "total_trades": self._total_trades,
@@ -269,13 +273,13 @@ class RiskManager:
         }
 
     def reset_consecutive_losses(self) -> None:
-        """연속 손실 카운터 수동 리셋"""
+        """연속 손실 카운터 수동 리셋."""
         self._consecutive_losses = 0
         self._cooldown_until = None
         logger.info("연속 손실 카운터 수동 리셋")
 
-    async def should_skip_trade(self) -> Tuple[bool, str]:
-        """거래 스킵 여부 확인 (통합 체크)
+    async def should_skip_trade(self) -> tuple[bool, str]:
+        """거래 스킵 여부 확인 (통합 체크).
 
         쿨다운 및 일일 손실 한도를 한번에 체크합니다.
 

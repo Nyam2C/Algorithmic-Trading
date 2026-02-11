@@ -1,14 +1,13 @@
-"""
-Prometheus 메트릭 모듈
+"""Prometheus 메트릭 모듈.
 
 Phase 7.2: 실시간 모니터링 대시보드
 - 거래 메트릭 (trades_total, position_pnl, trade_duration)
 - 시스템 메트릭 (api_latency, signal_confidence)
 """
 from typing import Optional
-from prometheus_client import Counter, Gauge, Histogram, CollectorRegistry, REGISTRY
-from loguru import logger
 
+from loguru import logger
+from prometheus_client import REGISTRY, CollectorRegistry, Counter, Gauge, Histogram
 
 # 기본 레지스트리 (싱글톤)
 _metrics_instance: Optional["TradingMetrics"] = None
@@ -16,7 +15,7 @@ _initialized: bool = False
 
 
 class TradingMetrics:
-    """트레이딩 메트릭 관리 클래스
+    """트레이딩 메트릭 관리 클래스.
 
     Prometheus 메트릭을 생성하고 관리합니다.
     싱글톤 패턴을 사용하여 메트릭 중복 등록을 방지합니다.
@@ -35,19 +34,19 @@ class TradingMetrics:
     """
 
     # 클래스 레벨 메트릭 (기본 레지스트리용, 한번만 생성)
-    _default_trades_total: Optional[Counter] = None
-    _default_trade_duration: Optional[Histogram] = None
-    _default_position_pnl: Optional[Gauge] = None
-    _default_api_latency: Optional[Histogram] = None
-    _default_signal_confidence: Optional[Gauge] = None
+    _default_trades_total: Counter | None = None
+    _default_trade_duration: Histogram | None = None
+    _default_position_pnl: Gauge | None = None
+    _default_api_latency: Histogram | None = None
+    _default_signal_confidence: Gauge | None = None
 
-    def __init__(self, registry: Optional[CollectorRegistry] = None) -> None:
-        """메트릭 초기화
+    def __init__(self, registry: CollectorRegistry | None = None) -> None:
+        """메트릭 초기화.
 
         Args:
             registry: Prometheus 레지스트리 (None이면 기본 레지스트리 사용)
         """
-        global _initialized
+        global _initialized  # noqa: PLW0603
 
         self._registry = registry or REGISTRY
         self._use_default = registry is None
@@ -71,7 +70,7 @@ class TradingMetrics:
         logger.debug("TradingMetrics 초기화 완료")
 
     def _create_metrics(self) -> None:
-        """메트릭 생성"""
+        """메트릭 생성."""
         # 거래 메트릭
         trades_total = Counter(
             "trading_trades_total",
@@ -130,32 +129,37 @@ class TradingMetrics:
 
     @property
     def trades_total(self) -> Counter:
-        """거래 카운터"""
-        assert self._trades_total is not None
+        """거래 카운터."""
+        if self._trades_total is None:
+            raise RuntimeError("TradingMetrics not initialized")
         return self._trades_total
 
     @property
     def trade_duration(self) -> Histogram:
-        """거래 지속시간 히스토그램"""
-        assert self._trade_duration is not None
+        """거래 지속시간 히스토그램."""
+        if self._trade_duration is None:
+            raise RuntimeError("TradingMetrics not initialized")
         return self._trade_duration
 
     @property
     def position_pnl(self) -> Gauge:
-        """포지션 PnL 게이지"""
-        assert self._position_pnl is not None
+        """포지션 PnL 게이지."""
+        if self._position_pnl is None:
+            raise RuntimeError("TradingMetrics not initialized")
         return self._position_pnl
 
     @property
     def api_latency(self) -> Histogram:
-        """API 지연시간 히스토그램"""
-        assert self._api_latency is not None
+        """API 지연시간 히스토그램."""
+        if self._api_latency is None:
+            raise RuntimeError("TradingMetrics not initialized")
         return self._api_latency
 
     @property
     def signal_confidence(self) -> Gauge:
-        """시그널 신뢰도 게이지"""
-        assert self._signal_confidence is not None
+        """시그널 신뢰도 게이지."""
+        if self._signal_confidence is None:
+            raise RuntimeError("TradingMetrics not initialized")
         return self._signal_confidence
 
     def record_trade(
@@ -165,7 +169,7 @@ class TradingMetrics:
         result: str,
         duration_seconds: float,
     ) -> None:
-        """거래 기록
+        """거래 기록.
 
         Args:
             bot_name: 봇 이름
@@ -191,7 +195,7 @@ class TradingMetrics:
         endpoint: str,
         latency_seconds: float,
     ) -> None:
-        """API 지연시간 기록
+        """API 지연시간 기록.
 
         Args:
             endpoint: API 엔드포인트 이름
@@ -204,7 +208,7 @@ class TradingMetrics:
         bot_name: str,
         pnl_percent: float,
     ) -> None:
-        """포지션 PnL 기록
+        """포지션 PnL 기록.
 
         Args:
             bot_name: 봇 이름
@@ -217,7 +221,7 @@ class TradingMetrics:
         bot_name: str,
         confidence: float,
     ) -> None:
-        """시그널 신뢰도 기록
+        """시그널 신뢰도 기록.
 
         Args:
             bot_name: 봇 이름
@@ -226,7 +230,7 @@ class TradingMetrics:
         self.signal_confidence.labels(bot_name=bot_name).set(confidence)
 
     def clear_position_metrics(self, bot_name: str) -> None:
-        """포지션 청산 시 메트릭 클리어
+        """포지션 청산 시 메트릭 클리어.
 
         Args:
             bot_name: 봇 이름
@@ -241,15 +245,15 @@ class TradingMetrics:
 
 
 def _get_metrics() -> TradingMetrics:
-    """싱글톤 메트릭 인스턴스 반환"""
-    global _metrics_instance
+    """싱글톤 메트릭 인스턴스 반환."""
+    global _metrics_instance  # noqa: PLW0603
     if _metrics_instance is None:
         _metrics_instance = TradingMetrics()
     return _metrics_instance
 
 
 def get_metrics_registry() -> CollectorRegistry:
-    """메트릭 레지스트리 반환
+    """메트릭 레지스트리 반환.
 
     Returns:
         Prometheus CollectorRegistry
@@ -263,7 +267,7 @@ def record_trade(
     result: str,
     duration_seconds: float,
 ) -> None:
-    """거래 기록 (편의 함수)
+    """거래 기록 (편의 함수).
 
     Args:
         bot_name: 봇 이름
@@ -278,7 +282,7 @@ def record_api_latency(
     endpoint: str,
     latency_seconds: float,
 ) -> None:
-    """API 지연시간 기록 (편의 함수)
+    """API 지연시간 기록 (편의 함수).
 
     Args:
         endpoint: API 엔드포인트 이름
@@ -291,7 +295,7 @@ def record_position_pnl(
     bot_name: str,
     pnl_percent: float,
 ) -> None:
-    """포지션 PnL 기록 (편의 함수)
+    """포지션 PnL 기록 (편의 함수).
 
     Args:
         bot_name: 봇 이름
@@ -304,7 +308,7 @@ def record_signal_confidence(
     bot_name: str,
     confidence: float,
 ) -> None:
-    """시그널 신뢰도 기록 (편의 함수)
+    """시그널 신뢰도 기록 (편의 함수).
 
     Args:
         bot_name: 봇 이름

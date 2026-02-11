@@ -1,8 +1,9 @@
 """
 Tests for GeminiSignalGenerator
 """
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
 
 from src.ai.gemini import GeminiSignalGenerator
 
@@ -316,3 +317,217 @@ class TestGetSignalSync:
         signal = generator.get_signal_sync(sample_market_data)
 
         assert signal == "WAIT"
+
+
+# =============================================================================
+# Coverage tests merged from test_ai_coverage.py
+# =============================================================================
+
+
+def _make_generator(
+    system_prompt="System",
+    analysis_template="Analysis {{current_price}}",
+    analysis_with_reason_template="AnalysisWithReason {{current_price}}",
+):
+    """Gemini generator 생성 헬퍼"""
+    with patch("src.ai.gemini.genai.Client"):
+        with patch.object(GeminiSignalGenerator, "_load_prompt") as mock_load:
+            mock_load.side_effect = [
+                system_prompt,
+                analysis_template,
+                analysis_with_reason_template,
+            ]
+            return GeminiSignalGenerator(api_key="test_key")
+
+
+def _sample_market_data():
+    """샘플 시장 데이터"""
+    return {
+        "current_price": 105000.0,
+        "high_24h": 108000.0,
+        "low_24h": 102000.0,
+        "change_24h_pct": 2.5,
+        "trend_2h_pct": 1.2,
+        "trend_30min_pct": 0.5,
+        "bullish_candles": 15,
+        "bearish_candles": 9,
+        "resistance": 108000.0,
+        "support": 102000.0,
+        "rsi": 55.0,
+        "rsi_trend": "rising",
+        "ma_7": 104500.0,
+        "ma_25": 103000.0,
+        "ma_99": 100000.0,
+        "price_vs_ma7_pct": 0.48,
+        "price_vs_ma7_pos": "above",
+        "price_vs_ma25_pct": 1.94,
+        "price_vs_ma25_pos": "above",
+        "current_volume": 1500.0,
+        "avg_volume": 1200.0,
+        "volume_ratio": 1.25,
+        "volume_trend": "increasing",
+        "atr": 1500.0,
+        "atr_pct": 1.43,
+        "volatility_state": "normal",
+        "dist_resistance_pct": 2.86,
+        "dist_support_pct": -2.86,
+    }
+
+
+class TestGeminiLoadPromptErrors:
+    """_load_prompt 에러 처리 테스트 (lines 70-78)"""
+
+    def test_load_prompt_file_not_found_analysis_with_reason(self, tmp_path):
+        """analysis_with_reason.txt 없을 때 analysis.txt로 폴백 (lines 72-74)"""
+        # 프롬프트 디렉토리 생성 (analysis_with_reason.txt 제외)
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "system.txt").write_text("system prompt")
+        (prompts_dir / "analysis.txt").write_text("analysis prompt")
+        # analysis_with_reason.txt는 생성하지 않음
+
+        with patch("src.ai.gemini.genai.Client"):
+            with patch("src.ai.gemini.Path") as mock_path_cls:
+                # Path(__file__).parent가 tmp_path를 가리키도록 설정
+                mock_parent = MagicMock()
+                mock_parent.__truediv__ = Mock(return_value=prompts_dir)
+                mock_path_cls.return_value.parent = mock_parent
+
+                generator = GeminiSignalGenerator.__new__(GeminiSignalGenerator)
+                generator.client = MagicMock()
+                generator.model = "test"
+                generator.temperature = 0.3
+
+                # system.txt 로드
+                generator.system_prompt = generator._load_prompt("system.txt")
+                assert generator.system_prompt == "system prompt"
+
+                # analysis.txt 로드
+                generator.analysis_template = generator._load_prompt("analysis.txt")
+                assert generator.analysis_template == "analysis prompt"
+
+                # analysis_with_reason.txt → FileNotFoundError → analysis.txt 폴백
+                generator.analysis_with_reason_template = generator._load_prompt("analysis_with_reason.txt")
+                assert generator.analysis_with_reason_template == "analysis prompt"
+
+    def test_load_prompt_file_not_found_other_file_raises(self, tmp_path):
+        """system.txt 등 다른 파일이 없으면 예외 발생 (line 75: raise)"""
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        # 파일 생성하지 않음
+
+        with patch("src.ai.gemini.genai.Client"):
+            with patch("src.ai.gemini.Path") as mock_path_cls:
+                mock_parent = MagicMock()
+                mock_parent.__truediv__ = Mock(return_value=prompts_dir)
+                mock_path_cls.return_value.parent = mock_parent
+
+                generator = GeminiSignalGenerator.__new__(GeminiSignalGenerator)
+                generator.client = MagicMock()
+                generator.model = "test"
+                generator.temperature = 0.3
+
+                with pytest.raises(FileNotFoundError):
+                    generator._load_prompt("system.txt")
+
+    def test_load_prompt_generic_exception(self):
+        """일반 예외 발생 시 re-raise (lines 76-78)"""
+        with patch("src.ai.gemini.genai.Client"):
+
+            def smart_open(path, *args, **kwargs):
+                raise PermissionError("Permission denied")
+
+            with patch("builtins.open", side_effect=smart_open):
+                generator = GeminiSignalGenerator.__new__(GeminiSignalGenerator)
+                generator.client = MagicMock()
+                generator.model = "test"
+                generator.temperature = 0.3
+
+                with pytest.raises(PermissionError):
+                    generator._load_prompt("system.txt")
+
+
+class TestGeminiBuildMarketPromptError:
+    """_build_market_prompt 에러 처리 (lines 139-141)"""
+
+    def test_build_market_prompt_missing_key(self):
+        """필수 데이터 누락 시 예외 (lines 139-141)"""
+        generator = _make_generator()
+        # 불완전한 데이터
+        bad_data = {"current_price": 100000.0}  # 나머지 필드 없음
+
+        with pytest.raises(KeyError):
+            generator._build_market_prompt(bad_data)
+
+
+class TestGeminiGetSignalSyncEdgeCases:
+    """get_signal_sync 엣지 케이스 (lines 227-228, 234-237)"""
+
+    def test_get_signal_sync_null_response(self):
+        """동기 호출 시 null 응답 → WAIT (lines 227-228)"""
+        generator = _make_generator()
+        mock_response = Mock()
+        mock_response.text = None
+        generator.client.models.generate_content = Mock(return_value=mock_response)
+
+        signal = generator.get_signal_sync(_sample_market_data())
+        assert signal == "WAIT"
+
+    def test_get_signal_sync_invalid_signal(self):
+        """동기 호출 시 잘못된 신호 → WAIT (lines 234-237)"""
+        generator = _make_generator()
+        mock_response = Mock()
+        mock_response.text = "INVALID_RESPONSE"
+        generator.client.models.generate_content = Mock(return_value=mock_response)
+
+        signal = generator.get_signal_sync(_sample_market_data())
+        assert signal == "WAIT"
+
+
+class TestGeminiBuildMarketPromptWithReasonError:
+    """_build_market_prompt_with_reason 에러 처리 (lines 310-312)"""
+
+    def test_build_market_prompt_with_reason_error(self):
+        """_build_market_prompt_with_reason 데이터 누락 시 예외"""
+        generator = _make_generator()
+        bad_data = {"current_price": 100000.0}  # 불완전
+
+        with pytest.raises(KeyError):
+            generator._build_market_prompt_with_reason(bad_data)
+
+
+class TestGeminiGetSignalWithReasonSync:
+    """get_signal_with_reason_sync 테스트 (lines 428-458)"""
+
+    def test_sync_with_reason_success(self):
+        """동기 신호+이유 정상 반환 (lines 428-453)"""
+        generator = _make_generator()
+        mock_response = Mock()
+        mock_response.text = '{"signal": "LONG", "reason": "RSI 과매도"}'
+        generator.client.models.generate_content = Mock(return_value=mock_response)
+
+        signal, reason = generator.get_signal_with_reason_sync(_sample_market_data())
+        assert signal == "LONG"
+        assert "RSI" in reason or "과매도" in reason
+
+    def test_sync_with_reason_null_response(self):
+        """동기 null 응답 → WAIT + 응답 없음 (lines 446-448)"""
+        generator = _make_generator()
+        mock_response = Mock()
+        mock_response.text = None
+        generator.client.models.generate_content = Mock(return_value=mock_response)
+
+        signal, reason = generator.get_signal_with_reason_sync(_sample_market_data())
+        assert signal == "WAIT"
+        assert "응답 없음" in reason
+
+    def test_sync_with_reason_api_error(self):
+        """동기 API 에러 → WAIT + 오류 메시지 (lines 455-458)"""
+        generator = _make_generator()
+        generator.client.models.generate_content = Mock(
+            side_effect=Exception("Connection error")
+        )
+
+        signal, reason = generator.get_signal_with_reason_sync(_sample_market_data())
+        assert signal == "WAIT"
+        assert "API 오류" in reason

@@ -1,31 +1,30 @@
-"""
-Discord Embed 생성 함수
+"""Discord Embed 생성 함수.
 
 봇 상태, 포지션, 통계, 내역 등의 임베드를 생성합니다.
 """
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Any
 
 import discord
 
 from src.discord_bot.constants import Colors, Emojis
 from src.discord_bot.utils import (
-    format_uptime,
-    format_time_ago,
-    format_duration,
-    format_timecut_remaining,
     calculate_pnl,
+    format_duration,
+    format_percentage,
+    format_price,
+    format_time_ago,
+    format_timecut_remaining,
+    format_uptime,
+    get_pnl_emoji,
+    get_position_emoji,
     get_status_emoji,
     get_status_text,
-    get_position_emoji,
-    get_pnl_emoji,
-    format_price,
-    format_percentage,
 )
 
 
 def create_status_embed(bot_state: dict) -> discord.Embed:
-    """봇 상태 임베드 생성
+    """봇 상태 임베드 생성.
 
     Args:
         bot_state: 공유 봇 상태 딕셔너리
@@ -52,7 +51,11 @@ def create_status_embed(bot_state: dict) -> discord.Embed:
 
     embed.add_field(name="⚡ 상태", value=f"{status_color} {status_value}", inline=True)
     embed.add_field(name="⏰ 가동시간", value=format_uptime(uptime_start), inline=True)
-    embed.add_field(name="💰 심볼", value=bot_state.get("symbol", "BTCUSDT"), inline=True)
+    embed.add_field(
+        name="💰 심볼",
+        value=bot_state.get("symbol", "BTCUSDT"),
+        inline=True,
+    )
     embed.add_field(name="📊 현재가", value=format_price(current_price), inline=True)
 
     # 포지션 정보
@@ -74,7 +77,7 @@ def create_status_embed(bot_state: dict) -> discord.Embed:
 
 
 def create_position_embed(bot_state: dict) -> discord.Embed:
-    """포지션 상세 임베드 생성
+    """포지션 상세 임베드 생성.
 
     Args:
         bot_state: 공유 봇 상태 딕셔너리
@@ -125,14 +128,27 @@ def create_position_embed(bot_state: dict) -> discord.Embed:
         inline=True
     )
     embed.add_field(name="⏱️ 경과시간", value=format_duration(entry_time), inline=True)
+    # TP/SL 퍼센트 계산 (설정값에서 동적으로 가져옴)
+    if entry_price > 0 and tp_price > 0:
+        tp_pct = abs(tp_price - entry_price) / entry_price * 100
+        tp_pct_str = f"+{tp_pct:.1f}%"
+    else:
+        tp_pct_str = "N/A"
+
+    if entry_price > 0 and sl_price > 0:
+        sl_pct = abs(sl_price - entry_price) / entry_price * 100
+        sl_pct_str = f"-{sl_pct:.1f}%"
+    else:
+        sl_pct_str = "N/A"
+
     embed.add_field(
         name="🎯 익절가",
-        value=f"{format_price(tp_price)} (+0.4%)",
+        value=f"{format_price(tp_price)} ({tp_pct_str})",
         inline=True
     )
     embed.add_field(
         name="🛑 손절가",
-        value=f"{format_price(sl_price)} (-0.4%)",
+        value=f"{format_price(sl_price)} ({sl_pct_str})",
         inline=True
     )
     embed.add_field(
@@ -151,8 +167,8 @@ def create_position_embed(bot_state: dict) -> discord.Embed:
     return embed
 
 
-def create_stats_embed(stats_data: Dict[str, Any], hours: int = 24) -> discord.Embed:
-    """거래 통계 임베드 생성
+def create_stats_embed(stats_data: dict[str, Any], hours: int = 24) -> discord.Embed:
+    """거래 통계 임베드 생성.
 
     Args:
         stats_data: 통계 데이터
@@ -222,8 +238,8 @@ def create_stats_embed(stats_data: Dict[str, Any], hours: int = 24) -> discord.E
     return embed
 
 
-def create_history_embed(trades: List[Dict[str, Any]]) -> discord.Embed:
-    """거래 내역 임베드 생성
+def create_history_embed(trades: list[dict[str, Any]]) -> discord.Embed:
+    """거래 내역 임베드 생성.
 
     Args:
         trades: 거래 목록
@@ -244,16 +260,16 @@ def create_history_embed(trades: List[Dict[str, Any]]) -> discord.Embed:
     )
 
     for i, trade in enumerate(trades, 1):
-        side = trade["side"]
+        side = trade.get("side", "UNKNOWN")
         emoji = get_position_emoji(side)
-        entry = float(trade["entry_price"])
-        exit_p = float(trade["exit_price"]) if trade["exit_price"] else 0
-        exit_reason = trade["exit_reason"]
+        entry = float(trade.get("entry_price", 0) or 0)
+        exit_p = float(trade.get("exit_price", 0) or 0)
+        exit_reason = trade.get("exit_reason", "N/A")
         pnl = float(trade.get("pnl", 0) or 0)
         pnl_pct = float(trade.get("pnl_pct", 0) or 0)
 
         # Time ago
-        exit_time = trade["exit_time"]
+        exit_time = trade.get("exit_time")
         if exit_time:
             if hasattr(exit_time, 'replace'):
                 time_diff = datetime.now() - exit_time.replace(tzinfo=None)
@@ -278,7 +294,7 @@ def create_history_embed(trades: List[Dict[str, Any]]) -> discord.Embed:
         )
 
         embed.add_field(
-            name=f"{i}️⃣ 거래 #{trade['id']}",
+            name=f"{i}️⃣ 거래 #{trade.get('id', 'N/A')}",
             value=value,
             inline=False
         )
@@ -287,10 +303,10 @@ def create_history_embed(trades: List[Dict[str, Any]]) -> discord.Embed:
 
 
 def create_account_embed(
-    balance: Dict[str, Any],
-    positions: List[Dict[str, Any]]
+    balance: dict[str, Any],
+    positions: list[dict[str, Any]]
 ) -> discord.Embed:
-    """계정 전체 포지션 임베드 생성
+    """계정 전체 포지션 임베드 생성.
 
     Args:
         balance: 잔고 정보
@@ -366,8 +382,8 @@ def create_account_embed(
     return embed
 
 
-def create_bot_list_embed(data: Dict[str, Any]) -> discord.Embed:
-    """봇 목록 임베드 생성
+def create_bot_list_embed(data: dict[str, Any]) -> discord.Embed:
+    """봇 목록 임베드 생성.
 
     Args:
         data: 봇 목록 데이터
@@ -408,7 +424,7 @@ def create_bot_list_embed(data: Dict[str, Any]) -> discord.Embed:
             )
     else:
         embed.add_field(
-            name="ℹ️ 정보",
+            name="ℹ️ 정보",  # noqa: RUF001
             value="등록된 봇이 없습니다.",
             inline=False
         )
@@ -416,8 +432,8 @@ def create_bot_list_embed(data: Dict[str, Any]) -> discord.Embed:
     return embed
 
 
-def create_bot_status_embed(bot_name: str, state: Dict[str, Any]) -> discord.Embed:
-    """봇 상태 임베드 생성
+def create_bot_status_embed(bot_name: str, state: dict[str, Any]) -> discord.Embed:
+    """봇 상태 임베드 생성.
 
     Args:
         bot_name: 봇 이름
@@ -445,7 +461,11 @@ def create_bot_status_embed(bot_name: str, state: Dict[str, Any]) -> discord.Emb
     embed.add_field(name="⚡ 상태", value=status_str, inline=True)
     embed.add_field(name="💰 심볼", value=state.get('symbol', 'N/A'), inline=True)
     embed.add_field(name="⚠️ 위험도", value=state.get('risk_level', 'N/A'), inline=True)
-    embed.add_field(name="📈 레버리지", value=f"{state.get('leverage', 0)}x", inline=True)
+    embed.add_field(
+        name="📈 레버리지",
+        value=f"{state.get('leverage', 0)}x",
+        inline=True,
+    )
     embed.add_field(
         name="💵 현재가",
         value=format_price(state.get('current_price', 0)),
@@ -459,7 +479,10 @@ def create_bot_status_embed(bot_name: str, state: Dict[str, Any]) -> discord.Emb
         side_emoji = get_position_emoji(position['side'])
         embed.add_field(
             name=f"{side_emoji} 포지션",
-            value=f"{position['side']} @ {format_price(position.get('entry_price', 0))}",
+            value=(
+                f"{position['side']} @ "
+                f"{format_price(position.get('entry_price', 0))}"
+            ),
             inline=False
         )
 

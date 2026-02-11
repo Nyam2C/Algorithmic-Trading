@@ -1,19 +1,37 @@
-"""
-지표 기반 스코어링 시스템
+"""지표 기반 스코어링 시스템.
 
 Phase 6.3: AI 앙상블 - 지표 스코어링
 - RSI, MA, Volume, ATR 기반 점수 계산
 - 종합 점수로 신호 생성
 """
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
+
+# 스코어링 임계값 상수
+MODERATE_CONFIDENCE = 0.5
+STRONG_MOMENTUM = 2.0
+MODERATE_MOMENTUM = 1.5
+WEAK_MOMENTUM = 0.8
+STRONG_REGIME = 3.0
+MODERATE_REGIME = 1.5
+WEAK_REGIME = 0.5
+MARKET_SCORE_POSITIVE = 50
+MARKET_SCORE_NEGATIVE = -50
+RSI_OVERBOUGHT_THRESHOLD = 3
+RSI_OVERSOLD_THRESHOLD = -3
+RSI_EXTREME_OVERSOLD = 20
+RSI_OVERSOLD = 30
+RSI_LOW = 40
+RSI_HIGH = 60
+RSI_OVERBOUGHT = 70
+RSI_EXTREME_OVERBOUGHT = 80
 
 
 @dataclass
 class IndicatorScore:
-    """개별 지표 점수
+    """개별 지표 점수.
 
     Attributes:
         name: 지표 이름
@@ -30,13 +48,13 @@ class IndicatorScore:
     reason: str = ""
 
     def weighted_score(self) -> float:
-        """가중 점수 반환"""
+        """가중 점수 반환."""
         return self.score * self.weight
 
 
 @dataclass
 class ScoringResult:
-    """스코어링 결과
+    """스코어링 결과.
 
     Attributes:
         total_score: 총점 (-1 ~ 1)
@@ -49,11 +67,11 @@ class ScoringResult:
     total_score: float
     signal: str
     confidence: float
-    indicator_scores: List[IndicatorScore] = field(default_factory=list)
-    reasons: List[str] = field(default_factory=list)
+    indicator_scores: list[IndicatorScore] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환"""
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리로 변환."""
         return {
             "total_score": round(self.total_score, 3),
             "signal": self.signal,
@@ -73,7 +91,7 @@ class ScoringResult:
 
 
 class IndicatorScorer:
-    """지표 기반 스코어링
+    """지표 기반 스코어링.
 
     기술적 지표를 분석하여 점수화합니다.
 
@@ -99,11 +117,11 @@ class IndicatorScorer:
 
     def __init__(
         self,
-        weights: Optional[Dict[str, float]] = None,
+        weights: dict[str, float] | None = None,
         long_threshold: float = LONG_THRESHOLD,
         short_threshold: float = SHORT_THRESHOLD,
     ) -> None:
-        """스코어러 초기화
+        """스코어러 초기화.
 
         Args:
             weights: 지표별 가중치
@@ -115,8 +133,8 @@ class IndicatorScorer:
         self.short_threshold = short_threshold
         self._log = logger.bind(module="indicator_scorer")
 
-    def calculate_score(self, market_data: Dict[str, Any]) -> ScoringResult:
-        """종합 점수 계산
+    def calculate_score(self, market_data: dict[str, Any]) -> ScoringResult:
+        """종합 점수 계산.
 
         Args:
             market_data: 시장 데이터 (지표 포함)
@@ -124,21 +142,21 @@ class IndicatorScorer:
         Returns:
             ScoringResult
         """
-        scores: List[IndicatorScore] = []
-        reasons: List[str] = []
+        scores: list[IndicatorScore] = []
+        reasons: list[str] = []
 
         # RSI 점수
         if "rsi" in market_data:
             rsi_score = self._score_rsi(market_data["rsi"])
             scores.append(rsi_score)
-            if abs(rsi_score.score) > 0.5:
+            if abs(rsi_score.score) > MODERATE_CONFIDENCE:
                 reasons.append(rsi_score.reason)
 
         # MA 추세 점수
         if "ma_7" in market_data and "ma_25" in market_data:
             ma_score = self._score_ma_trend(market_data)
             scores.append(ma_score)
-            if abs(ma_score.score) > 0.5:
+            if abs(ma_score.score) > MODERATE_CONFIDENCE:
                 reasons.append(ma_score.reason)
 
         # 볼륨 점수
@@ -155,7 +173,7 @@ class IndicatorScorer:
         if "macd" in market_data and "macd_signal" in market_data:
             macd_score = self._score_macd(market_data)
             scores.append(macd_score)
-            if abs(macd_score.score) > 0.5:
+            if abs(macd_score.score) > MODERATE_CONFIDENCE:
                 reasons.append(macd_score.reason)
 
         # 가격 위치 점수
@@ -185,7 +203,7 @@ class IndicatorScorer:
         )
 
     def _score_rsi(self, rsi: float) -> IndicatorScore:
-        """RSI 점수 계산
+        """RSI 점수 계산.
 
         - RSI < 30: 강한 LONG 신호 (+0.8 ~ +1.0)
         - RSI 30-40: 약한 LONG 신호 (+0.3 ~ +0.8)
@@ -193,23 +211,23 @@ class IndicatorScorer:
         - RSI 60-70: 약한 SHORT 신호 (-0.3 ~ -0.8)
         - RSI > 70: 강한 SHORT 신호 (-0.8 ~ -1.0)
         """
-        if rsi < 20:
+        if rsi < RSI_EXTREME_OVERSOLD:
             score = 1.0
             reason = f"RSI 극단적 과매도 ({rsi:.1f})"
-        elif rsi < 30:
-            score = 0.8 + (30 - rsi) / 50
+        elif rsi < RSI_OVERSOLD:
+            score = 0.8 + (RSI_OVERSOLD - rsi) / 50
             reason = f"RSI 과매도 ({rsi:.1f})"
-        elif rsi < 40:
-            score = 0.3 + (40 - rsi) / 25
+        elif rsi < RSI_LOW:
+            score = 0.3 + (RSI_LOW - rsi) / 25
             reason = f"RSI 저점 근접 ({rsi:.1f})"
-        elif rsi <= 60:
+        elif rsi <= RSI_HIGH:
             score = 0.0
             reason = f"RSI 중립 ({rsi:.1f})"
-        elif rsi <= 70:
-            score = -0.3 - (rsi - 60) / 25
+        elif rsi <= RSI_OVERBOUGHT:
+            score = -0.3 - (rsi - RSI_HIGH) / 25
             reason = f"RSI 고점 근접 ({rsi:.1f})"
-        elif rsi <= 80:
-            score = -0.8 - (rsi - 70) / 50
+        elif rsi <= RSI_EXTREME_OVERBOUGHT:
+            score = -0.8 - (rsi - RSI_OVERBOUGHT) / 50
             reason = f"RSI 과매수 ({rsi:.1f})"
         else:
             score = -1.0
@@ -223,8 +241,8 @@ class IndicatorScorer:
             reason=reason,
         )
 
-    def _score_ma_trend(self, data: Dict[str, Any]) -> IndicatorScore:
-        """MA 추세 점수 계산
+    def _score_ma_trend(self, data: dict[str, Any]) -> IndicatorScore:
+        """MA 추세 점수 계산.
 
         - MA7 > MA25 > MA99: 강한 상승 추세 (+0.8)
         - MA7 > MA25: 상승 추세 (+0.5)
@@ -261,16 +279,15 @@ class IndicatorScorer:
             else:
                 score = 0.0
                 reason = "MA 혼재"
+        elif ma7 > ma25:
+            score = 0.5
+            reason = "MA 상승 추세 (MA7>MA25)"
+        elif ma7 < ma25:
+            score = -0.5
+            reason = "MA 하락 추세 (MA7<MA25)"
         else:
-            if ma7 > ma25:
-                score = 0.5
-                reason = "MA 상승 추세 (MA7>MA25)"
-            elif ma7 < ma25:
-                score = -0.5
-                reason = "MA 하락 추세 (MA7<MA25)"
-            else:
-                score = 0.0
-                reason = "MA 중립"
+            score = 0.0
+            reason = "MA 중립"
 
         return IndicatorScore(
             name="ma_trend",
@@ -281,17 +298,17 @@ class IndicatorScorer:
         )
 
     def _score_volume(self, volume_ratio: float) -> IndicatorScore:
-        """볼륨 점수 계산
+        """볼륨 점수 계산.
 
         볼륨 증가는 추세 확인 (점수 증폭 효과로 사용)
         """
-        if volume_ratio > 2.0:
+        if volume_ratio > STRONG_MOMENTUM:
             score = 0.5  # 강한 볼륨 - 추세 확인
             reason = f"높은 거래량 ({volume_ratio:.1f}x)"
-        elif volume_ratio > 1.5:
+        elif volume_ratio > MODERATE_MOMENTUM:
             score = 0.3
             reason = f"증가한 거래량 ({volume_ratio:.1f}x)"
-        elif volume_ratio > 0.8:
+        elif volume_ratio > WEAK_MOMENTUM:
             score = 0.0
             reason = f"보통 거래량 ({volume_ratio:.1f}x)"
         else:
@@ -307,17 +324,17 @@ class IndicatorScorer:
         )
 
     def _score_atr(self, atr_pct: float) -> IndicatorScore:
-        """ATR 점수 계산
+        """ATR 점수 계산.
 
         변동성이 너무 높거나 낮으면 진입 회피
         """
-        if atr_pct > 3.0:
+        if atr_pct > STRONG_REGIME:
             score = -0.3  # 높은 변동성 - 위험
             reason = f"높은 변동성 (ATR {atr_pct:.1f}%)"
-        elif atr_pct > 1.5:
+        elif atr_pct > MODERATE_REGIME:
             score = 0.2  # 적정 변동성
             reason = f"적정 변동성 (ATR {atr_pct:.1f}%)"
-        elif atr_pct > 0.5:
+        elif atr_pct > WEAK_REGIME:
             score = 0.0
             reason = f"낮은 변동성 (ATR {atr_pct:.1f}%)"
         else:
@@ -332,8 +349,8 @@ class IndicatorScorer:
             reason=reason,
         )
 
-    def _score_macd(self, data: Dict[str, Any]) -> IndicatorScore:
-        """MACD 점수 계산
+    def _score_macd(self, data: dict[str, Any]) -> IndicatorScore:
+        """MACD 점수 계산.
 
         - MACD > Signal: 상승 모멘텀 (+)
         - MACD < Signal: 하락 모멘텀 (-)
@@ -345,7 +362,7 @@ class IndicatorScorer:
 
         if histogram > 0:
             # 상승 모멘텀
-            if histogram > 50:
+            if histogram > MARKET_SCORE_POSITIVE:
                 score = 0.8
                 reason = "강한 상승 모멘텀 (MACD)"
             else:
@@ -353,7 +370,7 @@ class IndicatorScorer:
                 reason = "상승 모멘텀 (MACD)"
         elif histogram < 0:
             # 하락 모멘텀
-            if histogram < -50:
+            if histogram < MARKET_SCORE_NEGATIVE:
                 score = -0.8
                 reason = "강한 하락 모멘텀 (MACD)"
             else:
@@ -371,21 +388,21 @@ class IndicatorScorer:
             reason=reason,
         )
 
-    def _score_price_position(self, data: Dict[str, Any]) -> IndicatorScore:
-        """가격 위치 점수 계산
+    def _score_price_position(self, data: dict[str, Any]) -> IndicatorScore:
+        """가격 위치 점수 계산.
 
         가격이 MA25 대비 위치
         """
         pct = data.get("price_vs_ma25_pct", 0)
 
         # 너무 높거나 낮으면 회귀 가능성
-        if pct > 3:
+        if pct > RSI_OVERBOUGHT_THRESHOLD:
             score = -0.3  # 과열 - SHORT 신호
             reason = f"가격이 MA25 위 {pct:.1f}% (과열)"
         elif pct > 1:
             score = 0.2  # 상승 추세 확인
             reason = f"가격이 MA25 위 {pct:.1f}%"
-        elif pct < -3:
+        elif pct < RSI_OVERSOLD_THRESHOLD:
             score = 0.3  # 과매도 - LONG 신호
             reason = f"가격이 MA25 아래 {abs(pct):.1f}% (과매도)"
         elif pct < -1:
@@ -404,7 +421,7 @@ class IndicatorScorer:
         )
 
     def _determine_signal(self, total_score: float) -> str:
-        """신호 결정
+        """신호 결정.
 
         Args:
             total_score: 총점
@@ -414,13 +431,12 @@ class IndicatorScorer:
         """
         if total_score >= self.long_threshold:
             return "LONG"
-        elif total_score <= self.short_threshold:
+        if total_score <= self.short_threshold:
             return "SHORT"
-        else:
-            return "WAIT"
+        return "WAIT"
 
-    def get_signal(self, market_data: Dict[str, Any]) -> str:
-        """신호만 반환 (간단한 인터페이스)
+    def get_signal(self, market_data: dict[str, Any]) -> str:
+        """신호만 반환 (간단한 인터페이스).
 
         Args:
             market_data: 시장 데이터
@@ -432,9 +448,9 @@ class IndicatorScorer:
         return result.signal
 
     def get_signal_with_reason(
-        self, market_data: Dict[str, Any]
-    ) -> Tuple[str, str]:
-        """신호와 이유 반환
+        self, market_data: dict[str, Any]
+    ) -> tuple[str, str]:
+        """신호와 이유 반환.
 
         Args:
             market_data: 시장 데이터

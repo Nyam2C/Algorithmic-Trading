@@ -1,5 +1,4 @@
-"""
-Discord 권한 시스템
+"""Discord 권한 시스템.
 
 Discord 봇 명령어에 권한 레벨을 적용합니다.
 
@@ -14,14 +13,14 @@ Discord 봇 명령어에 권한 레벨을 적용합니다.
 - DISCORD_TRADER_ROLE_IDS: 트레이더 역할 ID (쉼표 구분)
 """
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import IntEnum
 from functools import wraps
-from typing import Any, Callable, List, Optional, TypeVar
+from typing import Any, TypeVar
 
 import discord
 from loguru import logger
-
 
 # =============================================================================
 # 권한 레벨 정의
@@ -29,7 +28,7 @@ from loguru import logger
 
 
 class PermissionLevel(IntEnum):
-    """Discord 명령어 권한 레벨
+    """Discord 명령어 권한 레벨.
 
     숫자가 높을수록 더 높은 권한을 나타냅니다.
     """
@@ -46,7 +45,7 @@ class PermissionLevel(IntEnum):
 
 @dataclass
 class PermissionConfig:
-    """권한 설정
+    """권한 설정.
 
     환경변수에서 읽어온 관리자/트레이더 ID 목록을 저장합니다.
 
@@ -56,9 +55,9 @@ class PermissionConfig:
         trader_role_ids: 트레이더 권한을 가진 역할 ID 목록
     """
 
-    admin_user_ids: List[int] = field(default_factory=list)
-    admin_role_ids: List[int] = field(default_factory=list)
-    trader_role_ids: List[int] = field(default_factory=list)
+    admin_user_ids: list[int] = field(default_factory=list)
+    admin_role_ids: list[int] = field(default_factory=list)
+    trader_role_ids: list[int] = field(default_factory=list)
 
     @classmethod
     def from_env(cls) -> "PermissionConfig":
@@ -80,7 +79,7 @@ class PermissionConfig:
 
 
 # 전역 설정 인스턴스 (싱글톤 패턴)
-_global_config: Optional[PermissionConfig] = None
+_global_config: PermissionConfig | None = None
 
 
 def get_permission_config() -> PermissionConfig:
@@ -91,7 +90,7 @@ def get_permission_config() -> PermissionConfig:
     Returns:
         PermissionConfig 인스턴스
     """
-    global _global_config
+    global _global_config  # noqa: PLW0603
     if _global_config is None:
         _global_config = PermissionConfig.from_env()
         logger.info(
@@ -103,8 +102,8 @@ def get_permission_config() -> PermissionConfig:
 
 
 def reset_permission_config() -> None:
-    """전역 권한 설정을 초기화합니다. (테스트용)"""
-    global _global_config
+    """전역 권한 설정을 초기화합니다. (테스트용)."""
+    global _global_config  # noqa: PLW0603
     _global_config = None
 
 
@@ -116,7 +115,7 @@ def reset_permission_config() -> None:
 def check_permission(
     interaction: discord.Interaction,
     required_level: PermissionLevel,
-    config: Optional[PermissionConfig] = None,
+    config: PermissionConfig | None = None,
 ) -> bool:
     """사용자의 권한을 확인합니다.
 
@@ -147,7 +146,7 @@ def check_permission(
 
 def _get_user_permission_level(
     user_id: int,
-    roles: List[Any],
+    roles: list[Any],
     config: PermissionConfig,
 ) -> PermissionLevel:
     """사용자의 권한 레벨을 계산합니다.
@@ -189,9 +188,9 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 def requires_permission(
     level: PermissionLevel,
-    config: Optional[PermissionConfig] = None,
+    config: PermissionConfig | None = None,
 ) -> Callable[[F], F]:
-    """명령어에 권한 체크를 추가하는 데코레이터
+    """명령어에 권한 체크를 추가하는 데코레이터.
 
     권한이 없으면 권한 부족 메시지를 전송하고 함수를 실행하지 않습니다.
 
@@ -210,7 +209,9 @@ def requires_permission(
 
     def decorator(func: F) -> F:
         @wraps(func)
-        async def wrapper(interaction: discord.Interaction, *args: Any, **kwargs: Any) -> Any:
+        async def wrapper(
+            interaction: discord.Interaction, *args: Any, **kwargs: Any
+        ) -> Any:
             if not check_permission(interaction, level, config):
                 level_name = level.name
                 logger.warning(
@@ -218,7 +219,8 @@ def requires_permission(
                     f"- 필요 권한: {level_name}"
                 )
                 await interaction.response.send_message(
-                    f"🚫 권한이 없습니다. 이 명령어는 **{level_name}** 이상의 권한이 필요합니다.",
+                    "🚫 권한이 없습니다. 이 명령어는"
+                    f" **{level_name}** 이상의 권한이 필요합니다.",
                     ephemeral=True,
                 )
                 return None
@@ -234,7 +236,7 @@ def requires_permission(
 # =============================================================================
 
 
-def _parse_id_list(value: str) -> List[int]:
+def _parse_id_list(value: str) -> list[int]:
     """쉼표로 구분된 ID 문자열을 정수 리스트로 변환합니다.
 
     Args:
@@ -247,8 +249,8 @@ def _parse_id_list(value: str) -> List[int]:
         return []
 
     result = []
-    for part in value.split(","):
-        part = part.strip()
+    for raw_part in value.split(","):
+        part = raw_part.strip()
         if part:
             try:
                 result.append(int(part))

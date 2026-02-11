@@ -1,19 +1,19 @@
 """
 Tests for technical indicators calculation
 """
-import pytest
-import pandas as pd
 import numpy as np
+import pandas as pd
+import pytest
 
 from src.data.indicators import (
-    calculate_rsi,
-    calculate_ma,
-    calculate_atr,
-    calculate_volume_ratio,
-    analyze_rsi_trend,
-    calculate_price_vs_ma,
     analyze_candle_pattern,
     analyze_market,
+    analyze_rsi_trend,
+    calculate_atr,
+    calculate_ma,
+    calculate_price_vs_ma,
+    calculate_rsi,
+    calculate_volume_ratio,
 )
 
 
