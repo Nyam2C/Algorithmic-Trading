@@ -17,6 +17,7 @@ from src.discord_bot.permissions import (
     check_permission,
     get_permission_config,
 )
+from src.discord_bot.utils import validate_bot_name as _validate_bot_name
 
 if TYPE_CHECKING:
     from src.discord_bot.client import TradingBotClient
@@ -55,6 +56,11 @@ def register_multibot_commands(client: "TradingBotClient") -> None:
         bot_name: str,
     ):
         """봇 상태 조회 (한글)"""
+        try:
+            bot_name = _validate_bot_name(bot_name)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
         await client._bot_status_command(interaction, bot_name)
 
     @tree.command(name="bot-status", description="📊 Get specific bot status")
@@ -63,6 +69,11 @@ def register_multibot_commands(client: "TradingBotClient") -> None:
         bot_name: str,
     ):
         """Bot status command (English)"""
+        try:
+            bot_name = _validate_bot_name(bot_name)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
         await client._bot_status_command(interaction, bot_name)
 
     # =========================================================================
@@ -75,6 +86,11 @@ def register_multibot_commands(client: "TradingBotClient") -> None:
         bot_name: str,
     ):
         """봇 시작 (한글) - ADMIN 권한 필요"""
+        try:
+            bot_name = _validate_bot_name(bot_name)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
         if not check_permission(interaction, PermissionLevel.ADMIN, config):
             await interaction.response.send_message(
                 "🚫 권한이 없습니다. 이 명령어는 **ADMIN** 이상의 권한이 필요합니다.",
@@ -90,6 +106,11 @@ def register_multibot_commands(client: "TradingBotClient") -> None:
         bot_name: str,
     ):
         """Bot start command (English) - ADMIN permission required"""
+        try:
+            bot_name = _validate_bot_name(bot_name)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
         if not check_permission(interaction, PermissionLevel.ADMIN, config):
             await interaction.response.send_message(
                 "🚫 Permission denied. This command requires **ADMIN** permission.",
@@ -109,6 +130,11 @@ def register_multibot_commands(client: "TradingBotClient") -> None:
         bot_name: str,
     ):
         """봇 정지 (한글) - ADMIN 권한 필요"""
+        try:
+            bot_name = _validate_bot_name(bot_name)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
         if not check_permission(interaction, PermissionLevel.ADMIN, config):
             await interaction.response.send_message(
                 "🚫 권한이 없습니다. 이 명령어는 **ADMIN** 이상의 권한이 필요합니다.",
@@ -124,6 +150,11 @@ def register_multibot_commands(client: "TradingBotClient") -> None:
         bot_name: str,
     ):
         """Bot stop command (English) - ADMIN permission required"""
+        try:
+            bot_name = _validate_bot_name(bot_name)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
         if not check_permission(interaction, PermissionLevel.ADMIN, config):
             await interaction.response.send_message(
                 "🚫 Permission denied. This command requires **ADMIN** permission.",
@@ -143,6 +174,11 @@ def register_multibot_commands(client: "TradingBotClient") -> None:
         bot_name: str,
     ):
         """봇 일시정지 (한글) - TRADER 권한 필요"""
+        try:
+            bot_name = _validate_bot_name(bot_name)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
         if not check_permission(interaction, PermissionLevel.TRADER, config):
             await interaction.response.send_message(
                 "🚫 권한이 없습니다. 이 명령어는 **TRADER** 이상의 권한이 필요합니다.",
@@ -158,6 +194,11 @@ def register_multibot_commands(client: "TradingBotClient") -> None:
         bot_name: str,
     ):
         """Bot pause command (English) - TRADER permission required"""
+        try:
+            bot_name = _validate_bot_name(bot_name)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
         if not check_permission(interaction, PermissionLevel.TRADER, config):
             await interaction.response.send_message(
                 "🚫 Permission denied. This command requires **TRADER** or higher permission.",
@@ -177,6 +218,11 @@ def register_multibot_commands(client: "TradingBotClient") -> None:
         bot_name: str,
     ):
         """봇 재개 (한글) - TRADER 권한 필요"""
+        try:
+            bot_name = _validate_bot_name(bot_name)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
         if not check_permission(interaction, PermissionLevel.TRADER, config):
             await interaction.response.send_message(
                 "🚫 권한이 없습니다. 이 명령어는 **TRADER** 이상의 권한이 필요합니다.",
@@ -192,6 +238,11 @@ def register_multibot_commands(client: "TradingBotClient") -> None:
         bot_name: str,
     ):
         """Bot resume command (English) - TRADER permission required"""
+        try:
+            bot_name = _validate_bot_name(bot_name)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
         if not check_permission(interaction, PermissionLevel.TRADER, config):
             await interaction.response.send_message(
                 "🚫 Permission denied. This command requires **TRADER** or higher permission.",

@@ -264,6 +264,14 @@ class TestDependenciesTradeAnalyzer:
 class TestDependenciesN8NApiKey:
     """n8n API 키 검증 테스트 (line 166)"""
 
+    @staticmethod
+    def _make_mock_request(path: str = "/api/n8n/signal") -> MagicMock:
+        """테스트용 Mock Request 생성"""
+        mock_request = MagicMock()
+        mock_request.url.path = path
+        mock_request.client.host = "127.0.0.1"
+        return mock_request
+
     @pytest.mark.asyncio
     async def test_verify_n8n_api_key_no_env_key(self):
         """N8N_API_KEY 환경변수 미설정 시 500 에러"""
@@ -271,11 +279,12 @@ class TestDependenciesN8NApiKey:
 
         from src.api.dependencies import verify_n8n_api_key
 
+        mock_request = self._make_mock_request()
         with patch.dict(os.environ, {}, clear=True):
             # N8N_API_KEY를 제거
             os.environ.pop("N8N_API_KEY", None)
             with pytest.raises(HTTPException) as exc_info:
-                await verify_n8n_api_key(x_n8n_api_key="some-key")
+                await verify_n8n_api_key(request=mock_request, x_n8n_api_key="some-key")
             assert exc_info.value.status_code == 500
 
     @pytest.mark.asyncio
@@ -285,9 +294,10 @@ class TestDependenciesN8NApiKey:
 
         from src.api.dependencies import verify_n8n_api_key
 
+        mock_request = self._make_mock_request()
         with patch.dict(os.environ, {"N8N_API_KEY": "correct-key"}):
             with pytest.raises(HTTPException) as exc_info:
-                await verify_n8n_api_key(x_n8n_api_key="wrong-key")
+                await verify_n8n_api_key(request=mock_request, x_n8n_api_key="wrong-key")
             assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
@@ -295,13 +305,22 @@ class TestDependenciesN8NApiKey:
         """n8n API 키 검증 성공"""
         from src.api.dependencies import verify_n8n_api_key
 
+        mock_request = self._make_mock_request()
         with patch.dict(os.environ, {"N8N_API_KEY": "valid-key"}):
-            result = await verify_n8n_api_key(x_n8n_api_key="valid-key")
+            result = await verify_n8n_api_key(request=mock_request, x_n8n_api_key="valid-key")
             assert result == "valid-key"
 
 
 class TestDependenciesApiKey:
     """일반 API 키 검증 테스트 (lines 193, 200)"""
+
+    @staticmethod
+    def _make_mock_request(path: str = "/api/bots") -> MagicMock:
+        """테스트용 Mock Request 생성"""
+        mock_request = MagicMock()
+        mock_request.url.path = path
+        mock_request.client.host = "127.0.0.1"
+        return mock_request
 
     @pytest.mark.asyncio
     async def test_verify_api_key_no_env_key(self):
@@ -310,10 +329,11 @@ class TestDependenciesApiKey:
 
         from src.api.dependencies import verify_api_key
 
+        mock_request = self._make_mock_request()
         with patch.dict(os.environ, {}, clear=True):
             os.environ.pop("API_KEY", None)
             with pytest.raises(HTTPException) as exc_info:
-                await verify_api_key(x_api_key="some-key")
+                await verify_api_key(request=mock_request, x_api_key="some-key")
             assert exc_info.value.status_code == 500
 
     @pytest.mark.asyncio
@@ -323,9 +343,10 @@ class TestDependenciesApiKey:
 
         from src.api.dependencies import verify_api_key
 
+        mock_request = self._make_mock_request()
         with patch.dict(os.environ, {"API_KEY": "correct-key"}):
             with pytest.raises(HTTPException) as exc_info:
-                await verify_api_key(x_api_key="wrong-key")
+                await verify_api_key(request=mock_request, x_api_key="wrong-key")
             assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
@@ -333,8 +354,9 @@ class TestDependenciesApiKey:
         """API 키 검증 성공"""
         from src.api.dependencies import verify_api_key
 
+        mock_request = self._make_mock_request()
         with patch.dict(os.environ, {"API_KEY": "valid-key"}):
-            result = await verify_api_key(x_api_key="valid-key")
+            result = await verify_api_key(request=mock_request, x_api_key="valid-key")
             assert result == "valid-key"
 
 

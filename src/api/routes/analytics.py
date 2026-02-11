@@ -3,6 +3,7 @@
 Phase 4: AI 메모리 시스템 - 분석 API 엔드포인트
 거래 분석 결과 및 패턴 인사이트 제공
 """
+import re
 from typing import Any, List
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -10,6 +11,36 @@ from loguru import logger
 from pydantic import BaseModel
 
 from src.api.dependencies import get_trade_analyzer
+
+# bot_id 검증 패턴: 영숫자, 하이픈, 언더스코어만 허용
+_BOT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9\-_]{0,63}$")
+
+
+def _validate_bot_id(bot_id: str | None) -> str | None:
+    """bot_id 형식 검증
+
+    Args:
+        bot_id: 검증할 봇 ID (None이면 검증 스킵)
+
+    Returns:
+        검증된 bot_id 또는 None
+
+    Raises:
+        HTTPException: bot_id 형식이 올바르지 않은 경우
+    """
+    if bot_id is None:
+        return None
+
+    if not _BOT_ID_PATTERN.match(bot_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Invalid bot_id format: '{bot_id}'. "
+                "Must be alphanumeric with hyphens/underscores, "
+                "1-64 characters, starting with alphanumeric."
+            ),
+        )
+    return bot_id
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -130,6 +161,9 @@ async def get_analytics_summary(
     Returns:
         APIResponse: 거래 통계
     """
+    # bot_id 형식 검증
+    bot_id = _validate_bot_id(bot_id)
+
     analyzer = get_trade_analyzer()
     if analyzer is None:
         raise HTTPException(
@@ -172,6 +206,9 @@ async def get_analytics_patterns(
     Returns:
         APIResponse: 패턴 인사이트
     """
+    # bot_id 형식 검증
+    bot_id = _validate_bot_id(bot_id)
+
     analyzer = get_trade_analyzer()
     if analyzer is None:
         raise HTTPException(
@@ -228,6 +265,9 @@ async def get_analytics_recommendations(
     Returns:
         APIResponse: 추천 파라미터
     """
+    # bot_id 형식 검증
+    bot_id = _validate_bot_id(bot_id)
+
     analyzer = get_trade_analyzer()
     if analyzer is None:
         raise HTTPException(
@@ -306,6 +346,9 @@ async def get_rsi_stats(
     Returns:
         APIResponse: RSI 조건별 통계
     """
+    # bot_id 형식 검증
+    bot_id = _validate_bot_id(bot_id)
+
     analyzer = get_trade_analyzer()
     if analyzer is None:
         raise HTTPException(
@@ -342,6 +385,9 @@ async def get_hourly_stats(
     Returns:
         APIResponse: 시간대별 통계
     """
+    # bot_id 형식 검증
+    bot_id = _validate_bot_id(bot_id)
+
     analyzer = get_trade_analyzer()
     if analyzer is None:
         raise HTTPException(
@@ -376,6 +422,9 @@ async def get_streak(
     Returns:
         APIResponse: 연승/연패 정보
     """
+    # bot_id 형식 검증
+    bot_id = _validate_bot_id(bot_id)
+
     analyzer = get_trade_analyzer()
     if analyzer is None:
         raise HTTPException(

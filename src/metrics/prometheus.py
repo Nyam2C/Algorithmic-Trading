@@ -130,31 +130,36 @@ class TradingMetrics:
     @property
     def trades_total(self) -> Counter:
         """거래 카운터"""
-        assert self._trades_total is not None
+        if self._trades_total is None:
+            raise RuntimeError("TradingMetrics not initialized")
         return self._trades_total
 
     @property
     def trade_duration(self) -> Histogram:
         """거래 지속시간 히스토그램"""
-        assert self._trade_duration is not None
+        if self._trade_duration is None:
+            raise RuntimeError("TradingMetrics not initialized")
         return self._trade_duration
 
     @property
     def position_pnl(self) -> Gauge:
         """포지션 PnL 게이지"""
-        assert self._position_pnl is not None
+        if self._position_pnl is None:
+            raise RuntimeError("TradingMetrics not initialized")
         return self._position_pnl
 
     @property
     def api_latency(self) -> Histogram:
         """API 지연시간 히스토그램"""
-        assert self._api_latency is not None
+        if self._api_latency is None:
+            raise RuntimeError("TradingMetrics not initialized")
         return self._api_latency
 
     @property
     def signal_confidence(self) -> Gauge:
         """시그널 신뢰도 게이지"""
-        assert self._signal_confidence is not None
+        if self._signal_confidence is None:
+            raise RuntimeError("TradingMetrics not initialized")
         return self._signal_confidence
 
     def record_trade(

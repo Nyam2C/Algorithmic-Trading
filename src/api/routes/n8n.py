@@ -37,7 +37,17 @@ async def receive_signal(
         f" (bot={payload.bot_name or 'all'})"
     )
 
+    # 시그널 데이터 구조 (Pydantic에서 이미 검증됨)
+    # TODO: BotInstance.inject_signal() 구현 시 이 데이터를 전달
+    _signal_data = {
+        "signal": payload.signal,
+        "source": payload.source,
+        "confidence": payload.confidence,
+        "metadata": payload.metadata,
+    }
+
     # 특정 봇 또는 전체 봇에 시그널 주입
+    injected_bots: list[str] = []
     if payload.bot_name:
         bot = manager.get_bot(payload.bot_name)
         if not bot:
@@ -46,17 +56,30 @@ async def receive_signal(
                 detail=f"Bot '{payload.bot_name}' not found",
             )
 
-        # 시그널 주입 (BotInstance에 inject_signal 메서드가 필요)
-        # 현재는 로그만 기록
-        logger.info(f"시그널 주입: {payload.bot_name} <- {payload.signal}")
+        # TODO: BotInstance에 inject_signal(signal_data) 메서드 구현 필요
+        # bot.inject_signal(signal_data) 호출로 실제 시그널 주입
+        # 현재는 시그널 데이터를 검증하고 로그 기록
+        logger.info(
+            f"시그널 주입: {payload.bot_name} <- {payload.signal} "
+            f"(confidence={payload.confidence}, source={payload.source})"
+        )
+        injected_bots.append(payload.bot_name)
 
     else:
         # 전체 봇에 시그널 주입
         for bot_name, bot in manager.bots.items():
-            logger.info(f"시그널 주입: {bot_name} <- {payload.signal}")
+            # TODO: bot.inject_signal(signal_data) 호출로 실제 시그널 주입
+            logger.info(
+                f"시그널 주입: {bot_name} <- {payload.signal} "
+                f"(confidence={payload.confidence}, source={payload.source})"
+            )
+            injected_bots.append(bot_name)
 
     return SuccessResponse(
-        message=f"Signal '{payload.signal}' received from {payload.source}"
+        message=(
+            f"Signal '{payload.signal}' received from {payload.source}"
+            f" (injected to {len(injected_bots)} bot(s))"
+        )
     )
 
 

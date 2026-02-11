@@ -5,6 +5,8 @@ Phase 7.3: 거래 감사 로그
 - PostgreSQL 영구 저장 (옵션)
 - 인메모리 폴백 지원
 """
+import json
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -90,7 +92,7 @@ class AuditLogManager:
             max_memory_logs: 인메모리 최대 로그 수
         """
         self._db_pool = db_pool
-        self._memory_logs: List[AuditLog] = []
+        self._memory_logs: deque[AuditLog] = deque(maxlen=max_memory_logs)
         self._max_memory_logs = max_memory_logs
 
         logger.debug(
@@ -100,12 +102,8 @@ class AuditLogManager:
 
     async def _save_log(self, log: AuditLog) -> None:
         """로그 저장 (DB 또는 메모리)"""
-        # 인메모리 저장
+        # 인메모리 저장 (deque가 maxlen 초과 시 자동으로 오래된 항목 제거)
         self._memory_logs.append(log)
-
-        # 최대 개수 초과 시 오래된 로그 삭제
-        if len(self._memory_logs) > self._max_memory_logs:
-            self._memory_logs = self._memory_logs[-self._max_memory_logs:]
 
         # DB 저장 (연결이 있는 경우)
         if self._db_pool is not None:
@@ -123,7 +121,6 @@ class AuditLogManager:
             INSERT INTO audit_logs (event_type, bot_name, user_id, action_details, session_id)
             VALUES ($1, $2, $3, $4, $5)
         """
-        import json
         async with self._db_pool.acquire() as conn:
             await conn.execute(
                 query,
@@ -341,6 +338,9 @@ class AuditLogManager:
     ) -> List[AuditLog]:
         """최근 로그 조회
 
+        인메모리 로그를 먼저 조회하고, DB 연결이 있고 인메모리 결과가
+        부족한 경우 DB에서 추가 조회합니다.
+
         Args:
             bot_name: 봇 이름으로 필터링 (선택)
             event_type: 이벤트 타입으로 필터링 (선택)
@@ -350,7 +350,7 @@ class AuditLogManager:
             AuditLog 리스트 (최신순)
         """
         # 인메모리에서 조회
-        logs = self._memory_logs.copy()
+        logs = list(self._memory_logs)
 
         # 필터링
         if bot_name:
@@ -361,7 +361,98 @@ class AuditLogManager:
 
         # 최신순 정렬 후 limit 적용
         logs.sort(key=lambda x: x.timestamp, reverse=True)
-        return logs[:limit]
+        memory_logs = logs[:limit]
+
+        # DB 폴백: 인메모리 결과가 limit보다 적고 DB 연결이 있으면 DB에서 추가 조회
+        if len(memory_logs) < limit and self._db_pool is not None:
+            try:
+                db_logs = await self._query_logs_from_db(
+                    bot_name=bot_name,
+                    event_type=event_type,
+                    limit=limit,
+                )
+                # 인메모리와 DB 로그를 병합 (중복 제거는 타임스탬프 기준)
+                # DB 로그 중 인메모리에 없는 것만 추가
+                memory_timestamps = {log.timestamp for log in memory_logs}
+                for db_log in db_logs:
+                    if db_log.timestamp not in memory_timestamps:
+                        memory_logs.append(db_log)
+
+                # 다시 정렬 후 limit 적용
+                memory_logs.sort(key=lambda x: x.timestamp, reverse=True)
+                memory_logs = memory_logs[:limit]
+            except Exception as e:
+                logger.warning(f"DB 로그 조회 실패, 인메모리 결과만 반환: {e}")
+
+        return memory_logs
+
+    async def _query_logs_from_db(
+        self,
+        bot_name: str | None = None,
+        event_type: AuditEventType | None = None,
+        limit: int = 50,
+    ) -> List[AuditLog]:
+        """DB에서 로그 조회 (내부 메서드)
+
+        Args:
+            bot_name: 봇 이름 필터 (선택)
+            event_type: 이벤트 타입 필터 (선택)
+            limit: 최대 반환 개수
+
+        Returns:
+            AuditLog 리스트
+        """
+        if self._db_pool is None:
+            return []
+
+        conditions = []
+        params: list[Any] = []
+        param_idx = 1
+
+        if bot_name:
+            conditions.append(f"bot_name = ${param_idx}")
+            params.append(bot_name)
+            param_idx += 1
+
+        if event_type:
+            conditions.append(f"event_type = ${param_idx}")
+            params.append(event_type.value)
+            param_idx += 1
+
+        where_clause = ""
+        if conditions:
+            where_clause = "WHERE " + " AND ".join(conditions)
+
+        query = f"""
+            SELECT event_type, bot_name, user_id, action_details, session_id, created_at
+            FROM audit_logs
+            {where_clause}
+            ORDER BY created_at DESC
+            LIMIT ${param_idx}
+        """
+        params.append(limit)
+
+        async with self._db_pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+
+        result = []
+        for row in rows:
+            try:
+                details = json.loads(row["action_details"]) if row["action_details"] else {}
+            except (json.JSONDecodeError, TypeError):
+                details = {}
+
+            log = AuditLog(
+                event_type=AuditEventType(row["event_type"]),
+                bot_name=row["bot_name"],
+                user_id=row["user_id"],
+                details=details,
+                session_id=row["session_id"],
+                timestamp=row["created_at"] if row["created_at"] else datetime.now(timezone.utc),
+            )
+            result.append(log)
+
+        return result
 
     async def get_logs_by_date_range(
         self,

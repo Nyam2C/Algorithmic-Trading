@@ -19,8 +19,8 @@ SENSITIVE_PATTERNS = [
     (re.compile(r"(password)[\"']?\s*[:=]\s*[\"']?([^\s\"']+)", re.I), r"\1=***MASKED***"),
     (re.compile(r"(token)[\"']?\s*[:=]\s*[\"']?([a-zA-Z0-9_\-.]{20,})", re.I), r"\1=***MASKED***"),
     (re.compile(r"(webhook[_-]?url)[\"']?\s*[:=]\s*[\"']?(https?://[^\s\"']+)", re.I), r"\1=***MASKED***"),
-    # Binance API Key 패턴
-    (re.compile(r"[A-Za-z0-9]{64}"), "***MASKED_KEY***"),
+    # Binance API Key 패턴: hex-only 64자 (일반 UUID/해시와 구별)
+    (re.compile(r"[a-fA-F0-9]{64}"), "***MASKED_KEY***"),
 ]
 
 
@@ -63,6 +63,12 @@ def mask_dict_sensitive_data(data: dict[str, Any]) -> dict[str, Any]:
             result[key] = "***MASKED***"
         elif isinstance(value, dict):
             result[key] = mask_dict_sensitive_data(value)
+        elif isinstance(value, list):
+            # 리스트 내 딕셔너리도 재귀적으로 마스킹
+            result[key] = [
+                mask_dict_sensitive_data(item) if isinstance(item, dict) else item
+                for item in value
+            ]
         elif isinstance(value, str):
             result[key] = mask_sensitive_data(value)
         else:
@@ -131,12 +137,17 @@ class JSONFormatter:
         return json.dumps(log_entry, ensure_ascii=False, default=str) + "\n"
 
 
+# loguru 기본 핸들러 ID (초기 설정 시 기록)
+_default_handler_id: int | None = None
+
+
 def setup_json_logging(
     log_level: str = "INFO",
     enable_file_logging: bool = True,
     enable_json_stdout: bool = True,
     mask_sensitive: bool = True,
     log_dir: str = "logs",
+    preserve_handlers: bool = False,
 ) -> None:
     """JSON 구조화 로깅 설정
 
@@ -146,9 +157,16 @@ def setup_json_logging(
         enable_json_stdout: stdout JSON 로깅 활성화 여부
         mask_sensitive: 민감정보 마스킹 여부
         log_dir: 로그 디렉토리 경로
+        preserve_handlers: True면 기존 핸들러를 유지하고 새 핸들러만 추가
     """
-    # 기존 핸들러 제거
-    logger.remove()
+    if not preserve_handlers:
+        # 기존 핸들러 제거 (기본 핸들러만 제거하는 것이 안전하지만,
+        # loguru는 핸들러 ID 기반이므로 기본 핸들러(ID=0)만 제거 시도)
+        try:
+            logger.remove(0)  # 기본 stderr 핸들러만 제거
+        except ValueError:
+            # 이미 제거된 경우 무시
+            pass
 
     json_formatter = JSONFormatter(mask_sensitive=mask_sensitive)
 
@@ -215,7 +233,7 @@ def get_structured_logger(name: str, **context: Any) -> Any:
     return logger.bind(logger_name=name, **context)
 
 
-# Feature flag 지원
+# Feature flag 지원 - 환경변수 ENABLE_JSON_LOGGING과 연동
 _json_logging_enabled = False
 
 
@@ -254,8 +272,11 @@ def setup_logging_from_env() -> None:
     mask_sensitive = os.getenv("MASK_SENSITIVE", "true").lower() == "true"
     log_dir = os.getenv("LOG_DIR", "logs")
 
+    # Feature flag를 환경변수와 연동
     if enable_json:
         enable_json_logging()
+    else:
+        disable_json_logging()
 
     setup_json_logging(
         log_level=log_level,

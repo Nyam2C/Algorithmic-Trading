@@ -9,7 +9,6 @@ import pytest
 
 from src.backtest.engine import BacktestConfig, BacktestEngine, Trade
 from src.backtest.slippage import (
-    MarketImpactModel,
     SlippageModel,
     calculate_realistic_entry_price,
     calculate_realistic_exit_price,
@@ -548,56 +547,6 @@ class TestSlippageModelEdgeCases:
             volatility=2.0,
         )
         assert price > 100000.0
-
-
-class TestMarketImpactModel:
-    """MarketImpactModel 테스트"""
-
-    def test_calculate_impact_normal(self):
-        """정상적인 시장 영향"""
-        model = MarketImpactModel()
-        impact = model.calculate_impact(
-            order_size=1000.0,
-            market_depth=10000.0,
-        )
-        assert impact > 0
-        assert impact <= 0.05
-
-    def test_calculate_impact_zero_depth(self):
-        """시장 깊이 0"""
-        model = MarketImpactModel()
-        impact = model.calculate_impact(
-            order_size=1000.0,
-            market_depth=0.0,
-        )
-        assert impact == 0.0
-
-    def test_calculate_impact_negative_depth(self):
-        """시장 깊이 음수"""
-        model = MarketImpactModel()
-        impact = model.calculate_impact(
-            order_size=1000.0,
-            market_depth=-100.0,
-        )
-        assert impact == 0.0
-
-    def test_calculate_impact_max_cap(self):
-        """최대 영향 5% 제한"""
-        model = MarketImpactModel(impact_coefficient=10.0)
-        impact = model.calculate_impact(
-            order_size=10000.0,
-            market_depth=100.0,
-        )
-        assert impact == 0.05
-
-    def test_calculate_impact_large_depth(self):
-        """큰 시장 깊이 -> 낮은 영향"""
-        model = MarketImpactModel()
-        impact = model.calculate_impact(
-            order_size=100.0,
-            market_depth=1000000.0,
-        )
-        assert impact < 0.001
 
 
 class TestRealisticEntryPrice:

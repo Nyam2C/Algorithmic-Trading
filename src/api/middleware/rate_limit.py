@@ -109,11 +109,18 @@ class RateLimiter:
     N8N_LIMIT = 30  # /api/n8n/* 분당 30 요청
     BURST_MULTIPLIER = 1.5
 
+    # 기본 신뢰할 수 있는 프록시 IP 목록
+    DEFAULT_TRUSTED_PROXIES: frozenset = frozenset({
+        "127.0.0.1",
+        "::1",
+    })
+
     def __init__(
         self,
         default_limit: int = DEFAULT_LIMIT,
         n8n_limit: int = N8N_LIMIT,
         burst_multiplier: float = BURST_MULTIPLIER,
+        trusted_proxies: set | None = None,
     ) -> None:
         """Rate Limiter 초기화
 
@@ -121,11 +128,18 @@ class RateLimiter:
             default_limit: 기본 분당 요청 수
             n8n_limit: n8n 엔드포인트 분당 요청 수
             burst_multiplier: 버스트 허용 배수
+            trusted_proxies: 신뢰할 수 있는 프록시 IP 목록 (X-Forwarded-For 허용)
         """
         self._configs: Dict[str, RateLimitConfig] = {
             "default": RateLimitConfig(default_limit, burst_multiplier),
             "n8n": RateLimitConfig(n8n_limit, burst_multiplier),
         }
+
+        # 신뢰할 수 있는 프록시 IP 목록
+        self._trusted_proxies: frozenset = frozenset(
+            trusted_proxies if trusted_proxies is not None
+            else self.DEFAULT_TRUSTED_PROXIES
+        )
 
         # 클라이언트별 버킷 저장소
         self._buckets: Dict[str, Dict[str, TokenBucket]] = defaultdict(dict)
@@ -143,22 +157,30 @@ class RateLimiter:
     def _get_client_id(self, request: Request) -> str:
         """클라이언트 식별자 추출
 
+        신뢰할 수 있는 프록시에서 온 요청만 X-Forwarded-For를 사용합니다.
+        그 외에는 직접 연결 IP를 사용하여 헤더 위조를 방지합니다.
+
         Args:
             request: FastAPI Request
 
         Returns:
             클라이언트 식별자 (IP 또는 API 키)
         """
-        # X-Forwarded-For 헤더 확인 (프록시 뒤에 있는 경우)
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            # 첫 번째 IP가 실제 클라이언트
-            return forwarded.split(",")[0].strip()
+        # 직접 연결 클라이언트 IP
+        direct_ip = request.client.host if request.client else None
 
-        # X-Real-IP 헤더 확인
-        real_ip = request.headers.get("x-real-ip")
-        if real_ip:
-            return real_ip
+        # 신뢰할 수 있는 프록시에서 온 경우만 X-Forwarded-For 사용
+        if direct_ip and direct_ip in self._trusted_proxies:
+            # X-Forwarded-For 헤더 확인 (프록시 뒤에 있는 경우)
+            forwarded = request.headers.get("x-forwarded-for")
+            if forwarded:
+                # 첫 번째 IP가 실제 클라이언트
+                return forwarded.split(",")[0].strip()
+
+            # X-Real-IP 헤더 확인
+            real_ip = request.headers.get("x-real-ip")
+            if real_ip:
+                return real_ip
 
         # API 키가 있으면 사용
         api_key = request.headers.get("x-api-key")
@@ -166,9 +188,8 @@ class RateLimiter:
             return f"api:{api_key[:8]}"
 
         # 기본: 클라이언트 호스트
-        client = request.client
-        if client:
-            return client.host
+        if direct_ip:
+            return direct_ip
 
         return "unknown"
 
@@ -256,7 +277,11 @@ class RateLimiter:
             ]
 
             for client_id in stale_clients:
-                del self._buckets[client_id]
+                try:
+                    del self._buckets[client_id]
+                except KeyError:
+                    # 다른 코루틴이 이미 삭제했을 수 있음
+                    pass
 
             if stale_clients:
                 self._log.debug(f"Rate limiter 정리: {len(stale_clients)}개 클라이언트 제거")

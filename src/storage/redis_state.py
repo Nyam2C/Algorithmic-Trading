@@ -24,6 +24,14 @@ BOT_POSITION_KEY = f"{KEY_PREFIX}:bot:{{bot_name}}:position"
 REGISTERED_BOTS_KEY = f"{KEY_PREFIX}:manager:bots"
 RUNNING_BOTS_KEY = f"{KEY_PREFIX}:manager:running"
 
+# 직렬화 접두사 상수
+_NULL_PREFIX = "__null__"
+_DATETIME_PREFIX = "__datetime__"
+_BOOL_PREFIX = "__bool__"
+_NUMBER_PREFIX = "__number__"
+_DICT_PREFIX = "__dict__"
+_LIST_PREFIX = "__list__"
+
 
 class RedisStateManager:
     """Redis 상태 관리자
@@ -68,7 +76,11 @@ class RedisStateManager:
 
     @property
     def is_connected(self) -> bool:
-        """Redis 연결 상태"""
+        """Redis 연결 상태
+
+        클라이언트 객체 존재 여부만 확인합니다.
+        실제 연결 상태 확인은 ping() 메서드를 사용하세요.
+        """
         return self._client is not None
 
     # =========================================================================
@@ -150,11 +162,9 @@ class RedisStateManager:
             # datetime 객체를 ISO 문자열로 변환
             serializable_state = self._serialize_state(state)
 
-            # Hash로 저장
+            # 마지막 업데이트 시간을 mapping에 포함하여 단일 hset으로 원자적 저장
+            serializable_state["last_updated"] = datetime.now().isoformat()
             await self._client.hset(key, mapping=serializable_state)  # type: ignore[misc]
-
-            # 마지막 업데이트 시간 추가
-            await self._client.hset(key, "last_updated", datetime.now().isoformat())  # type: ignore[misc]
 
             self._log.debug(f"봇 상태 저장: {bot_name}")
             return True
@@ -235,8 +245,10 @@ class RedisStateManager:
         try:
             key = self._get_position_key(bot_name)
             serializable = self._serialize_state(position)
+
+            # 마지막 업데이트 시간을 mapping에 포함하여 단일 hset으로 원자적 저장
+            serializable["last_updated"] = datetime.now().isoformat()
             await self._client.hset(key, mapping=serializable)  # type: ignore[misc]
-            await self._client.hset(key, "last_updated", datetime.now().isoformat())  # type: ignore[misc]
 
             self._log.debug(f"포지션 저장: {bot_name}")
             return True
@@ -456,21 +468,28 @@ class RedisStateManager:
 
         Returns:
             문자열 딕셔너리
+
+        NOTE: 중첩된 dict/list 내부의 datetime 등 특수 타입은
+        json.dumps(default=str)에 의해 문자열로 변환되며,
+        역직렬화 시 원래 타입으로 복원되지 않습니다.
+        중첩 구조에 특수 타입이 필요한 경우 최상위 키로 분리하세요.
         """
         result = {}
         for key, value in state.items():
             if value is None:
-                result[key] = "__null__"
+                result[key] = _NULL_PREFIX
             elif isinstance(value, datetime):
-                result[key] = f"__datetime__{value.isoformat()}"
+                result[key] = f"{_DATETIME_PREFIX}{value.isoformat()}"
             elif isinstance(value, bool):
-                result[key] = f"__bool__{str(value).lower()}"
+                result[key] = f"{_BOOL_PREFIX}{str(value).lower()}"
             elif isinstance(value, (int, float)):
-                result[key] = f"__number__{value}"
+                result[key] = f"{_NUMBER_PREFIX}{value}"
             elif isinstance(value, dict):
-                result[key] = f"__dict__{json.dumps(value, default=str)}"
+                # NOTE: 내부 datetime 등은 str로 변환됨 (복원 불가)
+                result[key] = f"{_DICT_PREFIX}{json.dumps(value, default=str)}"
             elif isinstance(value, list):
-                result[key] = f"__list__{json.dumps(value, default=str)}"
+                # NOTE: 내부 datetime 등은 str로 변환됨 (복원 불가)
+                result[key] = f"{_LIST_PREFIX}{json.dumps(value, default=str)}"
             else:
                 result[key] = str(value)
         return result
@@ -486,18 +505,20 @@ class RedisStateManager:
         """
         result: dict[str, Any] = {}
         for key, value in state.items():
-            if value == "__null__":
+            if value == _NULL_PREFIX:
                 result[key] = None
-            elif value.startswith("__datetime__"):
-                dt_str = value[12:]
+            elif value.startswith(_DATETIME_PREFIX):
+                dt_str = value[len(_DATETIME_PREFIX):]
                 result[key] = datetime.fromisoformat(dt_str)
-            elif value.startswith("__bool__"):
-                result[key] = value[8:] == "true"
-            elif value.startswith("__number__"):
-                num_str = value[10:]
+            elif value.startswith(_BOOL_PREFIX):
+                result[key] = value[len(_BOOL_PREFIX):] == "true"
+            elif value.startswith(_NUMBER_PREFIX):
+                num_str = value[len(_NUMBER_PREFIX):]
                 result[key] = float(num_str) if "." in num_str else int(num_str)
-            elif value.startswith("__dict__") or value.startswith("__list__"):
-                result[key] = json.loads(value[8:])
+            elif value.startswith(_DICT_PREFIX):
+                result[key] = json.loads(value[len(_DICT_PREFIX):])
+            elif value.startswith(_LIST_PREFIX):
+                result[key] = json.loads(value[len(_LIST_PREFIX):])
             else:
                 result[key] = value
         return result

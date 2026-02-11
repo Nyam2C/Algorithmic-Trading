@@ -75,6 +75,55 @@ class GeminiSignalGenerator:
             logger.error(f"Failed to load prompt {filename}: {e}")
             raise
 
+    def _format_market_data(self, market_data: Dict) -> Dict[str, str | int]:
+        """시장 데이터를 템플릿 변수 형식으로 포맷팅
+
+        Args:
+            market_data: Dictionary with market indicators
+
+        Returns:
+            Formatted data dictionary for template substitution
+        """
+        return {
+            "symbol": "BTCUSDT",
+            # Price action
+            "trend_2h_pct": f"{market_data['trend_2h_pct']:+.2f}",
+            "trend_30min_pct": f"{market_data['trend_30min_pct']:+.2f}",
+            "bullish_candles": market_data["bullish_candles"],
+            "bearish_candles": market_data["bearish_candles"],
+            "highest": f"{market_data['resistance']:,.0f}",
+            "lowest": f"{market_data['support']:,.0f}",
+            # Current state
+            "current_price": f"{market_data['current_price']:,.2f}",
+            "high_24h": f"{market_data['high_24h']:,.2f}",
+            "low_24h": f"{market_data['low_24h']:,.2f}",
+            "change_24h_pct": f"{market_data['change_24h_pct']:+.2f}",
+            # Technical indicators
+            "rsi": f"{market_data['rsi']:.2f}",
+            "rsi_trend": market_data["rsi_trend"],
+            "ma_7": f"{market_data['ma_7']:,.2f}",
+            "ma_25": f"{market_data['ma_25']:,.2f}",
+            "ma_99": f"{market_data['ma_99']:,.2f}",
+            "price_vs_ma7_pct": f"{market_data['price_vs_ma7_pct']:+.2f}",
+            "price_vs_ma7_pos": market_data["price_vs_ma7_pos"],
+            "price_vs_ma25_pct": f"{market_data['price_vs_ma25_pct']:+.2f}",
+            "price_vs_ma25_pos": market_data["price_vs_ma25_pos"],
+            # Volume
+            "current_volume": f"{market_data['current_volume']:.0f}",
+            "avg_volume": f"{market_data['avg_volume']:.0f}",
+            "volume_ratio": f"{market_data['volume_ratio']:.2f}",
+            "volume_trend": market_data["volume_trend"],
+            # Volatility
+            "atr": f"{market_data['atr']:.2f}",
+            "atr_pct": f"{market_data['atr_pct']:.2f}",
+            "volatility_state": market_data["volatility_state"],
+            # Support/Resistance
+            "resistance": f"{market_data['resistance']:,.2f}",
+            "support": f"{market_data['support']:,.2f}",
+            "dist_resistance_pct": f"{market_data['dist_resistance_pct']:+.2f}",
+            "dist_support_pct": f"{market_data['dist_support_pct']:+.2f}",
+        }
+
     def _build_market_prompt(self, market_data: Dict) -> str:
         """Build market analysis prompt from data
 
@@ -85,46 +134,7 @@ class GeminiSignalGenerator:
             Formatted prompt string
         """
         try:
-            # Format all values for the template
-            formatted_data = {
-                "symbol": "BTCUSDT",
-                # Price action
-                "trend_2h_pct": f"{market_data['trend_2h_pct']:+.2f}",
-                "trend_30min_pct": f"{market_data['trend_30min_pct']:+.2f}",
-                "bullish_candles": market_data["bullish_candles"],
-                "bearish_candles": market_data["bearish_candles"],
-                "highest": f"{market_data['resistance']:,.0f}",
-                "lowest": f"{market_data['support']:,.0f}",
-                # Current state
-                "current_price": f"{market_data['current_price']:,.2f}",
-                "high_24h": f"{market_data['high_24h']:,.2f}",
-                "low_24h": f"{market_data['low_24h']:,.2f}",
-                "change_24h_pct": f"{market_data['change_24h_pct']:+.2f}",
-                # Technical indicators
-                "rsi": f"{market_data['rsi']:.2f}",
-                "rsi_trend": market_data["rsi_trend"],
-                "ma_7": f"{market_data['ma_7']:,.2f}",
-                "ma_25": f"{market_data['ma_25']:,.2f}",
-                "ma_99": f"{market_data['ma_99']:,.2f}",
-                "price_vs_ma7_pct": f"{market_data['price_vs_ma7_pct']:+.2f}",
-                "price_vs_ma7_pos": market_data["price_vs_ma7_pos"],
-                "price_vs_ma25_pct": f"{market_data['price_vs_ma25_pct']:+.2f}",
-                "price_vs_ma25_pos": market_data["price_vs_ma25_pos"],
-                # Volume
-                "current_volume": f"{market_data['current_volume']:.0f}",
-                "avg_volume": f"{market_data['avg_volume']:.0f}",
-                "volume_ratio": f"{market_data['volume_ratio']:.2f}",
-                "volume_trend": market_data["volume_trend"],
-                # Volatility
-                "atr": f"{market_data['atr']:.2f}",
-                "atr_pct": f"{market_data['atr_pct']:.2f}",
-                "volatility_state": market_data["volatility_state"],
-                # Support/Resistance
-                "resistance": f"{market_data['resistance']:,.2f}",
-                "support": f"{market_data['support']:,.2f}",
-                "dist_resistance_pct": f"{market_data['dist_resistance_pct']:+.2f}",
-                "dist_support_pct": f"{market_data['dist_support_pct']:+.2f}",
-            }
+            formatted_data = self._format_market_data(market_data)
 
             # Replace template variables
             prompt = self.analysis_template
@@ -253,46 +263,7 @@ class GeminiSignalGenerator:
             Formatted prompt string for JSON response
         """
         try:
-            # Format all values for the template
-            formatted_data = {
-                "symbol": "BTCUSDT",
-                # Price action
-                "trend_2h_pct": f"{market_data['trend_2h_pct']:+.2f}",
-                "trend_30min_pct": f"{market_data['trend_30min_pct']:+.2f}",
-                "bullish_candles": market_data["bullish_candles"],
-                "bearish_candles": market_data["bearish_candles"],
-                "highest": f"{market_data['resistance']:,.0f}",
-                "lowest": f"{market_data['support']:,.0f}",
-                # Current state
-                "current_price": f"{market_data['current_price']:,.2f}",
-                "high_24h": f"{market_data['high_24h']:,.2f}",
-                "low_24h": f"{market_data['low_24h']:,.2f}",
-                "change_24h_pct": f"{market_data['change_24h_pct']:+.2f}",
-                # Technical indicators
-                "rsi": f"{market_data['rsi']:.2f}",
-                "rsi_trend": market_data["rsi_trend"],
-                "ma_7": f"{market_data['ma_7']:,.2f}",
-                "ma_25": f"{market_data['ma_25']:,.2f}",
-                "ma_99": f"{market_data['ma_99']:,.2f}",
-                "price_vs_ma7_pct": f"{market_data['price_vs_ma7_pct']:+.2f}",
-                "price_vs_ma7_pos": market_data["price_vs_ma7_pos"],
-                "price_vs_ma25_pct": f"{market_data['price_vs_ma25_pct']:+.2f}",
-                "price_vs_ma25_pos": market_data["price_vs_ma25_pos"],
-                # Volume
-                "current_volume": f"{market_data['current_volume']:.0f}",
-                "avg_volume": f"{market_data['avg_volume']:.0f}",
-                "volume_ratio": f"{market_data['volume_ratio']:.2f}",
-                "volume_trend": market_data["volume_trend"],
-                # Volatility
-                "atr": f"{market_data['atr']:.2f}",
-                "atr_pct": f"{market_data['atr_pct']:.2f}",
-                "volatility_state": market_data["volatility_state"],
-                # Support/Resistance
-                "resistance": f"{market_data['resistance']:,.2f}",
-                "support": f"{market_data['support']:,.2f}",
-                "dist_resistance_pct": f"{market_data['dist_resistance_pct']:+.2f}",
-                "dist_support_pct": f"{market_data['dist_support_pct']:+.2f}",
-            }
+            formatted_data = self._format_market_data(market_data)
 
             # Replace template variables
             prompt = self.analysis_with_reason_template

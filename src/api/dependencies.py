@@ -10,7 +10,8 @@ import hmac
 import os
 from typing import Any, Union
 
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Request
+from loguru import logger
 
 from src.analytics.trade_analyzer import TradeHistoryAnalyzer
 from src.api.config import APIConfig
@@ -145,11 +146,13 @@ def get_trade_analyzer() -> TradeHistoryAnalyzer | None:
 
 
 async def verify_n8n_api_key(
+    request: Request,
     x_n8n_api_key: str = Header(..., alias="X-N8N-API-Key"),
 ) -> str:
     """n8n 웹훅 API 키 검증
 
     Args:
+        request: FastAPI Request 객체 (보안 감사 로그용)
         x_n8n_api_key: 요청 헤더의 API 키
 
     Returns:
@@ -167,16 +170,24 @@ async def verify_n8n_api_key(
 
     # Timing Attack 방지: 상수 시간 비교
     if not hmac.compare_digest(x_n8n_api_key, expected_key):
+        # 보안 감사 로그: API 키 검증 실패 기록 (키 값은 기록하지 않음)
+        client_ip = request.client.host if request.client else "unknown"
+        logger.warning(
+            f"n8n API 키 검증 실패: path={request.url.path}, "
+            f"client_ip={client_ip}"
+        )
         raise HTTPException(status_code=401, detail="Invalid API key")
     return x_n8n_api_key
 
 
 async def verify_api_key(
+    request: Request,
     x_api_key: str = Header(..., alias="X-API-Key"),
 ) -> str:
     """일반 API 키 검증
 
     Args:
+        request: FastAPI Request 객체 (보안 감사 로그용)
         x_api_key: 요청 헤더의 API 키
 
     Returns:
@@ -194,6 +205,12 @@ async def verify_api_key(
 
     # Timing Attack 방지: 상수 시간 비교
     if not hmac.compare_digest(x_api_key, expected_key):
+        # 보안 감사 로그: API 키 검증 실패 기록 (키 값은 기록하지 않음)
+        client_ip = request.client.host if request.client else "unknown"
+        logger.warning(
+            f"API 키 검증 실패: path={request.url.path}, "
+            f"client_ip={client_ip}"
+        )
         raise HTTPException(status_code=401, detail="Invalid API key")
     return x_api_key
 

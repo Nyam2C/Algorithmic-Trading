@@ -9,6 +9,7 @@ Phase 6.2: 통계적 신뢰도 개선
 - p-value 통계적 유의성 검정
 """
 import math
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List
 
@@ -646,6 +647,106 @@ class TradeHistoryAnalyzer:
                 "last_trade_time": row["last_trade_time"],
             }
 
+    async def _analyze_patterns(
+        self,
+        bot_id: str | None,
+        days: int,
+        min_sample_size: int,
+        win_rate_filter: Callable[[float], bool],
+        recommendation_suffix: str,
+        require_significance: bool,
+        sort_key: Callable,
+    ) -> List[PatternInsight]:
+        """패턴 분석 공통 로직
+
+        RSI 조건별/시간대별 통계를 필터링하고 인사이트를 생성합니다.
+
+        Args:
+            bot_id: 봇 ID (선택)
+            days: 조회 기간 (일)
+            min_sample_size: 최소 샘플 수
+            win_rate_filter: 승률 필터 함수 (True면 포함)
+            recommendation_suffix: 추천 메시지 접미사 ("권장" 또는 "피해야 함")
+            require_significance: 통계적 유의성 필수 여부
+            sort_key: 정렬 키 함수
+
+        Returns:
+            List[PatternInsight]: 패턴 인사이트 목록
+        """
+        insights: List[PatternInsight] = []
+
+        # RSI 조건별 분석
+        rsi_stats = await self.get_rsi_condition_stats(
+            bot_id=bot_id, days=days
+        )
+        for stat in rsi_stats:
+            if (
+                stat.total_trades >= min_sample_size
+                and win_rate_filter(stat.win_rate)
+            ):
+                zone_desc = self._get_rsi_zone_description(
+                    stat.rsi_zone
+                )
+                rec = (
+                    f"{zone_desc}에서 {stat.side} 진입 "
+                    f"{recommendation_suffix} "
+                    f"(승률 {stat.win_rate:.1f}%)"
+                )
+
+                insight = PatternInsight.with_confidence(
+                    pattern_type="rsi_zone",
+                    description=(
+                        f"{zone_desc}에서 {stat.side} 진입"
+                    ),
+                    side=stat.side,
+                    condition=f"rsi_zone={stat.rsi_zone}",
+                    wins=stat.winning_trades,
+                    total=stat.total_trades,
+                    avg_pnl=stat.avg_pnl,
+                    recommendation=rec,
+                )
+
+                if require_significance and not insight.is_statistically_significant:
+                    continue
+
+                insights.append(insight)
+
+        # 시간대별 분석
+        hourly_stats = await self.get_hourly_stats(
+            bot_id=bot_id, days=days
+        )
+        for hourly_stat in hourly_stats:
+            if (
+                hourly_stat.total_trades >= min_sample_size
+                and win_rate_filter(hourly_stat.win_rate)
+            ):
+                h = hourly_stat.hour_of_day
+                s = hourly_stat.side
+                rec = (
+                    f"{h}시에 {s} 진입 "
+                    f"{recommendation_suffix} "
+                    f"(승률 {hourly_stat.win_rate:.1f}%)"
+                )
+                insight = PatternInsight.with_confidence(
+                    pattern_type="hourly",
+                    description=f"{h}시에 {s} 진입",
+                    side=hourly_stat.side,
+                    condition=f"hour={h}",
+                    wins=hourly_stat.winning_trades,
+                    total=hourly_stat.total_trades,
+                    avg_pnl=hourly_stat.avg_pnl,
+                    recommendation=rec,
+                )
+
+                if require_significance and not insight.is_statistically_significant:
+                    continue
+
+                insights.append(insight)
+
+        insights.sort(key=sort_key)
+
+        return insights
+
     async def get_pattern_insights(
         self,
         bot_id: str | None = None,
@@ -670,59 +771,15 @@ class TradeHistoryAnalyzer:
         Returns:
             List[PatternInsight]: 패턴 인사이트 목록
         """
-        insights: List[PatternInsight] = []
-
-        # RSI 조건별 분석
-        rsi_stats = await self.get_rsi_condition_stats(bot_id=bot_id, days=days)
-        for stat in rsi_stats:
-            if stat.total_trades >= min_sample_size and stat.win_rate >= min_win_rate:
-                zone_desc = self._get_rsi_zone_description(stat.rsi_zone)
-
-                # Phase 6.2: 신뢰도 정보 포함
-                insight = PatternInsight.with_confidence(
-                    pattern_type="rsi_zone",
-                    description=f"{zone_desc}에서 {stat.side} 진입",
-                    side=stat.side,
-                    condition=f"rsi_zone={stat.rsi_zone}",
-                    wins=stat.winning_trades,
-                    total=stat.total_trades,
-                    avg_pnl=stat.avg_pnl,
-                    recommendation=f"{zone_desc}에서 {stat.side} 진입 권장 (승률 {stat.win_rate:.1f}%)",
-                )
-
-                # 통계적 유의성 필터링
-                if require_significance and not insight.is_statistically_significant:
-                    continue
-
-                insights.append(insight)
-
-        # 시간대별 분석
-        hourly_stats = await self.get_hourly_stats(bot_id=bot_id, days=days)
-        for hourly_stat in hourly_stats:
-            if hourly_stat.total_trades >= min_sample_size and hourly_stat.win_rate >= min_win_rate:
-                insight = PatternInsight.with_confidence(
-                    pattern_type="hourly",
-                    description=f"{hourly_stat.hour_of_day}시에 {hourly_stat.side} 진입",
-                    side=hourly_stat.side,
-                    condition=f"hour={hourly_stat.hour_of_day}",
-                    wins=hourly_stat.winning_trades,
-                    total=hourly_stat.total_trades,
-                    avg_pnl=hourly_stat.avg_pnl,
-                    recommendation=f"{hourly_stat.hour_of_day}시에 {hourly_stat.side} 진입 권장 (승률 {hourly_stat.win_rate:.1f}%)",
-                )
-
-                if require_significance and not insight.is_statistically_significant:
-                    continue
-
-                insights.append(insight)
-
-        # Phase 6.2: 신뢰도 + 승률 기준 정렬
-        insights.sort(
-            key=lambda x: (x.is_statistically_significant, x.win_rate),
-            reverse=True,
+        return await self._analyze_patterns(
+            bot_id=bot_id,
+            days=days,
+            min_sample_size=min_sample_size,
+            win_rate_filter=lambda wr: wr >= min_win_rate,
+            recommendation_suffix="권장",
+            require_significance=require_significance,
+            sort_key=lambda x: (-int(x.is_statistically_significant), -x.win_rate),
         )
-
-        return insights
 
     async def get_worst_patterns(
         self,
@@ -748,56 +805,15 @@ class TradeHistoryAnalyzer:
         Returns:
             List[PatternInsight]: 피해야 할 패턴 목록
         """
-        insights: List[PatternInsight] = []
-
-        # RSI 조건별 분석
-        rsi_stats = await self.get_rsi_condition_stats(bot_id=bot_id, days=days)
-        for stat in rsi_stats:
-            if stat.total_trades >= min_sample_size and stat.win_rate <= max_win_rate:
-                zone_desc = self._get_rsi_zone_description(stat.rsi_zone)
-
-                insight = PatternInsight.with_confidence(
-                    pattern_type="rsi_zone",
-                    description=f"{zone_desc}에서 {stat.side} 진입",
-                    side=stat.side,
-                    condition=f"rsi_zone={stat.rsi_zone}",
-                    wins=stat.winning_trades,
-                    total=stat.total_trades,
-                    avg_pnl=stat.avg_pnl,
-                    recommendation=f"{zone_desc}에서 {stat.side} 진입 피해야 함 (승률 {stat.win_rate:.1f}%)",
-                )
-
-                if require_significance and not insight.is_statistically_significant:
-                    continue
-
-                insights.append(insight)
-
-        # 시간대별 분석
-        hourly_stats = await self.get_hourly_stats(bot_id=bot_id, days=days)
-        for hourly_stat in hourly_stats:
-            if hourly_stat.total_trades >= min_sample_size and hourly_stat.win_rate <= max_win_rate:
-                insight = PatternInsight.with_confidence(
-                    pattern_type="hourly",
-                    description=f"{hourly_stat.hour_of_day}시에 {hourly_stat.side} 진입",
-                    side=hourly_stat.side,
-                    condition=f"hour={hourly_stat.hour_of_day}",
-                    wins=hourly_stat.winning_trades,
-                    total=hourly_stat.total_trades,
-                    avg_pnl=hourly_stat.avg_pnl,
-                    recommendation=f"{hourly_stat.hour_of_day}시에 {hourly_stat.side} 진입 피해야 함 (승률 {hourly_stat.win_rate:.1f}%)",
-                )
-
-                if require_significance and not insight.is_statistically_significant:
-                    continue
-
-                insights.append(insight)
-
-        # Phase 6.2: 신뢰도 + 승률 기준 정렬 (나쁜 패턴 먼저)
-        insights.sort(
-            key=lambda x: (-int(x.is_statistically_significant), x.win_rate),
+        return await self._analyze_patterns(
+            bot_id=bot_id,
+            days=days,
+            min_sample_size=min_sample_size,
+            win_rate_filter=lambda wr: wr <= max_win_rate,
+            recommendation_suffix="피해야 함",
+            require_significance=require_significance,
+            sort_key=lambda x: (-int(x.is_statistically_significant), x.win_rate),
         )
-
-        return insights
 
     def _get_rsi_zone_description(self, zone: str) -> str:
         """RSI 구간 한글 설명 반환"""

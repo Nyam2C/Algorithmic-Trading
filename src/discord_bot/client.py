@@ -27,6 +27,7 @@ from src.discord_bot.embeds import (
     create_stats_embed,
     create_status_embed,
 )
+from src.discord_bot.utils import validate_bot_name as _validate_bot_name
 from src.discord_bot.views import DashboardView
 
 if TYPE_CHECKING:
@@ -164,9 +165,14 @@ class TradingBotClient(discord.Client):
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.request(method, url, json=json_data) as resp:
+                    if resp.status >= 500:
+                        error_text = await resp.text()
+                        logger.error(f"API 서버 오류: {method} {url} - {resp.status}")
+                        raise Exception(f"API 서버 오류 ({resp.status}): {error_text}")
                     if resp.status >= 400:
                         error_text = await resp.text()
-                        raise Exception(f"API 오류 ({resp.status}): {error_text}")
+                        logger.warning(f"API 클라이언트 오류: {method} {url} - {resp.status}")
+                        raise ValueError(f"API 요청 오류 ({resp.status}): {error_text}")
                     return await resp.json()
         except aiohttp.ClientError as e:
             logger.error(f"API 호출 실패: {method} {url} - {e}")
@@ -442,6 +448,7 @@ class TradingBotClient(discord.Client):
         await interaction.response.defer()
 
         try:
+            bot_name = _validate_bot_name(bot_name)
             result = await self._call_bot_api("GET", f"/api/bots/{bot_name}")
             data = result.get("data", result)
             state = data.get("state", data)
@@ -459,6 +466,7 @@ class TradingBotClient(discord.Client):
         await interaction.response.defer()
 
         try:
+            bot_name = _validate_bot_name(bot_name)
             await self._call_bot_api("POST", f"/api/bots/{bot_name}/start")
 
             embed = discord.Embed(
@@ -480,6 +488,7 @@ class TradingBotClient(discord.Client):
         await interaction.response.defer()
 
         try:
+            bot_name = _validate_bot_name(bot_name)
             await self._call_bot_api("POST", f"/api/bots/{bot_name}/stop")
 
             embed = discord.Embed(
@@ -501,6 +510,7 @@ class TradingBotClient(discord.Client):
         await interaction.response.defer()
 
         try:
+            bot_name = _validate_bot_name(bot_name)
             await self._call_bot_api("POST", f"/api/bots/{bot_name}/pause")
 
             embed = discord.Embed(
@@ -527,6 +537,7 @@ class TradingBotClient(discord.Client):
         await interaction.response.defer()
 
         try:
+            bot_name = _validate_bot_name(bot_name)
             await self._call_bot_api("POST", f"/api/bots/{bot_name}/resume")
 
             embed = discord.Embed(

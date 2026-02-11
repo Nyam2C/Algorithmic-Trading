@@ -10,7 +10,6 @@ from src.backtest.engine import (
     Trade,
 )
 from src.backtest.slippage import (
-    MarketImpactModel,
     SlippageModel,
     calculate_realistic_entry_price,
     calculate_realistic_exit_price,
@@ -20,7 +19,6 @@ __all__ = [
     "BacktestConfig",
     "BacktestEngine",
     "BacktestResult",
-    "MarketImpactModel",
     "SlippageModel",
     "Trade",
     "calculate_realistic_entry_price",

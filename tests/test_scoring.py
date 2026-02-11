@@ -6,8 +6,7 @@ IndicatorScorer의 경계값 및 엣지 케이스 테스트
 """
 import pytest
 
-from src.ai.scoring import IndicatorScorer, ScoringResult
-
+from src.ai.scoring import IndicatorScorer
 
 # =============================================================================
 # Scoring: RSI 경계값 테스트

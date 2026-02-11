@@ -10,7 +10,7 @@ import aiohttp
 import pytest
 
 from src.api.schemas.n8n import N8NCallbackPayload
-from src.api.services.n8n_callback import N8NCallbackService
+from src.api.services.n8n_callback import CallbackResult, N8NCallbackService
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ class TestN8NCallbackService:
 
     @pytest.mark.asyncio
     async def test_send_callback_disabled(self, callback_service_no_url):
-        """콜백 비활성화 시 전송 안 함"""
+        """콜백 비활성화 시 DISABLED 반환"""
         payload = N8NCallbackPayload(
             event_type="signal",
             bot_name="test-bot",
@@ -49,7 +49,7 @@ class TestN8NCallbackService:
 
         result = await callback_service_no_url.send_callback(payload)
 
-        assert result is False
+        assert result == CallbackResult.DISABLED
 
     @pytest.mark.asyncio
     async def test_send_callback_success(self, callback_service):
@@ -81,7 +81,7 @@ class TestN8NCallbackService:
 
             result = await callback_service.send_callback(payload)
 
-            assert result is True
+            assert result == CallbackResult.SUCCESS
             mock_get_session.assert_called_once()
 
     @pytest.mark.asyncio
@@ -273,7 +273,7 @@ class TestN8NCallbackSendErrors:
                 data={"signal": "LONG"},
             )
             result = await service.send_callback(payload)
-            assert result is False
+            assert result == CallbackResult.FAILED
 
     @pytest.mark.asyncio
     async def test_send_callback_client_error(self):
@@ -291,7 +291,7 @@ class TestN8NCallbackSendErrors:
                 data={"signal": "LONG"},
             )
             result = await service.send_callback(payload)
-            assert result is False
+            assert result == CallbackResult.FAILED
 
     @pytest.mark.asyncio
     async def test_send_callback_general_exception(self):
@@ -307,7 +307,7 @@ class TestN8NCallbackSendErrors:
                 data={"signal": "LONG"},
             )
             result = await service.send_callback(payload)
-            assert result is False
+            assert result == CallbackResult.FAILED
 
 
 class TestN8NCallbackSendTradeWithOptionals:

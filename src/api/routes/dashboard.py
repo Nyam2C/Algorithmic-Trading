@@ -7,10 +7,19 @@ Phase 6.3: 실시간 대시보드
 - WebSocket 실시간 업데이트
 """
 import asyncio
+import hmac
+import os
 from datetime import datetime
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from loguru import logger
 
 from src.api.dependencies import get_bot_manager, get_optional_signal_tracker
@@ -272,15 +281,42 @@ async def get_all_bots_status(
 # WebSocket 엔드포인트
 # ============================================================================
 
+def _verify_ws_api_key(api_key: str | None) -> bool:
+    """WebSocket API 키 검증
+
+    Args:
+        api_key: 클라이언트가 전달한 API 키
+
+    Returns:
+        검증 성공 여부
+    """
+    expected_key = os.getenv("API_KEY")
+    if not expected_key:
+        # API_KEY 미설정 시 인증 건너뜀 (개발 환경)
+        logger.warning("API_KEY 미설정: WebSocket 인증 건너뜀")
+        return True
+    if not api_key:
+        return False
+    return hmac.compare_digest(api_key, expected_key)
+
+
 @router.websocket("/ws")
 async def websocket_dashboard(
     websocket: WebSocket,
+    api_key: str | None = Query(default=None),
     bot_manager=Depends(get_bot_manager),
 ):
     """실시간 대시보드 WebSocket
 
-    5초 간격으로 업데이트 전송
+    5초 간격으로 업데이트 전송.
+    인증: ws://host/ws?api_key=xxx
     """
+    # WebSocket API 키 인증
+    if not _verify_ws_api_key(api_key):
+        await websocket.close(code=4001, reason="Invalid or missing API key")
+        logger.warning("WebSocket 인증 실패: API 키 누락 또는 불일치")
+        return
+
     await manager.connect(websocket)
 
     try:

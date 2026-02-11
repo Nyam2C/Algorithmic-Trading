@@ -22,7 +22,7 @@ from src.bot_config import BotConfig
 from src.bot_manager import MultiBotManager
 from src.config import get_config
 from src.config_loader import load_bots_from_yaml_optional
-from src.discord_bot.bot import start_discord_bot
+from src.discord_bot.client import start_discord_bot
 from src.storage.redis_state import (
     DummyRedisStateManager,
     RedisStateManager,

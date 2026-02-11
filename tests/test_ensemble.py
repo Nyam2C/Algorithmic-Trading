@@ -3,7 +3,7 @@ AI 앙상블 시스템 테스트
 
 Phase 6.3: 가중 투표, 합의, 스코어링 테스트
 """
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

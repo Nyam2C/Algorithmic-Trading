@@ -15,7 +15,12 @@ from src.api.schemas.bot import (
     BotUpdateRequest,
 )
 from src.api.schemas.common import APIResponse, SuccessResponse
-from src.api.services.bot_service import BotService
+from src.api.services.bot_service import (
+    BotAlreadyExistsError,
+    BotNotFoundError,
+    BotRunningError,
+    BotService,
+)
 from src.bot_manager import MultiBotManager
 
 router = APIRouter(
@@ -70,7 +75,7 @@ async def get_bot(
             "success": True,
             "data": result,
         }
-    except ValueError as e:
+    except BotNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
@@ -101,7 +106,7 @@ async def create_bot(
             "data": result,
             "message": f"Bot '{request.bot_name}' created successfully",
         }
-    except ValueError as e:
+    except (BotAlreadyExistsError, ValueError) as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
@@ -135,9 +140,14 @@ async def update_bot(
             "data": result,
             "message": f"Bot '{bot_name}' updated successfully",
         }
-    except ValueError as e:
+    except BotNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except BotRunningError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         )
 
@@ -163,21 +173,20 @@ async def delete_bot(
     try:
         service.delete_bot(bot_name)
         return SuccessResponse(message=f"Bot '{bot_name}' deleted successfully")
+    except BotNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except BotRunningError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
     except ValueError as e:
-        error_msg = str(e)
-        if "not found" in error_msg.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=error_msg,
-            )
-        if "running" in error_msg.lower():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=error_msg,
-            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_msg,
+            detail=str(e),
         )
 
 
@@ -201,7 +210,7 @@ async def start_bot(
     try:
         await service.start_bot(bot_name)
         return SuccessResponse(message=f"Bot '{bot_name}' started")
-    except ValueError as e:
+    except (BotNotFoundError, ValueError) as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
@@ -223,7 +232,7 @@ async def stop_bot(
     try:
         await service.stop_bot(bot_name)
         return SuccessResponse(message=f"Bot '{bot_name}' stopped")
-    except ValueError as e:
+    except (BotNotFoundError, ValueError) as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
@@ -246,7 +255,7 @@ async def pause_bot(
     try:
         service.pause_bot(bot_name)
         return SuccessResponse(message=f"Bot '{bot_name}' paused")
-    except ValueError as e:
+    except (BotNotFoundError, ValueError) as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
@@ -268,7 +277,7 @@ async def resume_bot(
     try:
         service.resume_bot(bot_name)
         return SuccessResponse(message=f"Bot '{bot_name}' resumed")
-    except ValueError as e:
+    except (BotNotFoundError, ValueError) as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
@@ -292,7 +301,7 @@ async def emergency_close(
         return SuccessResponse(
             message=f"Emergency close requested for bot '{bot_name}'"
         )
-    except ValueError as e:
+    except (BotNotFoundError, ValueError) as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),

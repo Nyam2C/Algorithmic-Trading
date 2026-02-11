@@ -278,7 +278,12 @@ class TestRateLimitMiddleware:
 
     def test_middleware_different_clients(self, app):
         """클라이언트별 별도 제한 테스트"""
-        limiter = RateLimiter(default_limit=2, burst_multiplier=1.0)
+        # testclient을 신뢰할 수 있는 프록시로 설정해야 X-Forwarded-For가 적용됨
+        limiter = RateLimiter(
+            default_limit=2,
+            burst_multiplier=1.0,
+            trusted_proxies={"testclient"},
+        )
         app.add_middleware(RateLimitMiddleware, limiter=limiter)
         client = TestClient(app)
 
@@ -288,7 +293,7 @@ class TestRateLimitMiddleware:
         response = client.get("/api/test")
         assert response.status_code == 429
 
-        # 클라이언트 2 (다른 IP)
+        # 클라이언트 2 (다른 IP via X-Forwarded-For, 신뢰할 수 있는 프록시 경유)
         response = client.get(
             "/api/test",
             headers={"X-Forwarded-For": "10.0.0.1"}

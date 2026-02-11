@@ -124,14 +124,27 @@ def create_position_embed(bot_state: dict) -> discord.Embed:
         inline=True
     )
     embed.add_field(name="⏱️ 경과시간", value=format_duration(entry_time), inline=True)
+    # TP/SL 퍼센트 계산 (설정값에서 동적으로 가져옴)
+    if entry_price > 0 and tp_price > 0:
+        tp_pct = abs(tp_price - entry_price) / entry_price * 100
+        tp_pct_str = f"+{tp_pct:.1f}%"
+    else:
+        tp_pct_str = "N/A"
+
+    if entry_price > 0 and sl_price > 0:
+        sl_pct = abs(sl_price - entry_price) / entry_price * 100
+        sl_pct_str = f"-{sl_pct:.1f}%"
+    else:
+        sl_pct_str = "N/A"
+
     embed.add_field(
         name="🎯 익절가",
-        value=f"{format_price(tp_price)} (+0.4%)",
+        value=f"{format_price(tp_price)} ({tp_pct_str})",
         inline=True
     )
     embed.add_field(
         name="🛑 손절가",
-        value=f"{format_price(sl_price)} (-0.4%)",
+        value=f"{format_price(sl_price)} ({sl_pct_str})",
         inline=True
     )
     embed.add_field(
@@ -243,16 +256,16 @@ def create_history_embed(trades: List[Dict[str, Any]]) -> discord.Embed:
     )
 
     for i, trade in enumerate(trades, 1):
-        side = trade["side"]
+        side = trade.get("side", "UNKNOWN")
         emoji = get_position_emoji(side)
-        entry = float(trade["entry_price"])
-        exit_p = float(trade["exit_price"]) if trade["exit_price"] else 0
-        exit_reason = trade["exit_reason"]
+        entry = float(trade.get("entry_price", 0) or 0)
+        exit_p = float(trade.get("exit_price", 0) or 0)
+        exit_reason = trade.get("exit_reason", "N/A")
         pnl = float(trade.get("pnl", 0) or 0)
         pnl_pct = float(trade.get("pnl_pct", 0) or 0)
 
         # Time ago
-        exit_time = trade["exit_time"]
+        exit_time = trade.get("exit_time")
         if exit_time:
             if hasattr(exit_time, 'replace'):
                 time_diff = datetime.now() - exit_time.replace(tzinfo=None)
@@ -277,7 +290,7 @@ def create_history_embed(trades: List[Dict[str, Any]]) -> discord.Embed:
         )
 
         embed.add_field(
-            name=f"{i}️⃣ 거래 #{trade['id']}",
+            name=f"{i}️⃣ 거래 #{trade.get('id', 'N/A')}",
             value=value,
             inline=False
         )

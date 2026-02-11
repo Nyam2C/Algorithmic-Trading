@@ -372,8 +372,8 @@ class TestAppExceptionHandlers:
         assert response.status_code == 400
         data = response.json()
         assert data["success"] is False
-        assert data["error"] == "bad_request"
-        assert "테스트 값 에러" in data["message"]
+        assert data["error"]["code"] == "BAD_REQUEST"
+        assert "테스트 값 에러" in data["error"]["message"]
 
     def test_runtime_error_handler(self, error_app):
         """RuntimeError 핸들러 테스트 (lines 91-92)"""
@@ -383,7 +383,7 @@ class TestAppExceptionHandlers:
         assert response.status_code == 500
         data = response.json()
         assert data["success"] is False
-        assert data["error"] == "internal_error"
+        assert data["error"]["code"] == "INTERNAL_ERROR"
 
     def test_general_exception_handler(self, error_app):
         """일반 Exception 핸들러 테스트 (lines 103-104)"""
@@ -393,8 +393,9 @@ class TestAppExceptionHandlers:
         assert response.status_code == 500
         data = response.json()
         assert data["success"] is False
-        assert data["error"] == "internal_error"
-        assert data["message"] == "An unexpected error occurred"
+        assert data["error"]["code"] == "INTERNAL_ERROR"
+        assert data["error"]["message"] == "An unexpected error occurred"
+        assert data["error"]["detail"] == "TypeError"
 
 
 class TestAppStartupShutdown:

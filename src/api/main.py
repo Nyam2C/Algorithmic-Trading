@@ -71,17 +71,40 @@ def create_app(
         app.add_middleware(RateLimitMiddleware, limiter=limiter)
         logger.info(f"Rate limiting 활성화: default={default_limit}/min, n8n={n8n_limit}/min")
 
-    # 전역 예외 핸들러
+    # 전역 예외 핸들러 (통일된 에러 응답 구조)
+    def _build_error_response(
+        code: str, message: str, detail: str | None = None
+    ) -> dict:
+        """통일된 에러 응답 구조 생성
+
+        Args:
+            code: 에러 코드 (예: BAD_REQUEST, INTERNAL_ERROR)
+            message: 사용자에게 보여줄 에러 메시지
+            detail: 상세 에러 정보 (선택)
+
+        Returns:
+            통일된 에러 응답 딕셔너리
+        """
+        error_body: dict = {
+            "code": code,
+            "message": message,
+        }
+        if detail is not None:
+            error_body["detail"] = detail
+        return {
+            "success": False,
+            "error": error_body,
+        }
+
     @app.exception_handler(ValueError)
     async def value_error_handler(request: Request, exc: ValueError):
         logger.warning(f"ValueError: {exc}")
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
-            content={
-                "success": False,
-                "error": "bad_request",
-                "message": str(exc),
-            },
+            content=_build_error_response(
+                code="BAD_REQUEST",
+                message=str(exc),
+            ),
         )
 
     @app.exception_handler(RuntimeError)
@@ -89,11 +112,10 @@ def create_app(
         logger.error(f"RuntimeError: {exc}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "success": False,
-                "error": "internal_error",
-                "message": str(exc),
-            },
+            content=_build_error_response(
+                code="INTERNAL_ERROR",
+                message=str(exc),
+            ),
         )
 
     @app.exception_handler(Exception)
@@ -101,11 +123,11 @@ def create_app(
         logger.exception(f"Unhandled exception: {exc}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "success": False,
-                "error": "internal_error",
-                "message": "An unexpected error occurred",
-            },
+            content=_build_error_response(
+                code="INTERNAL_ERROR",
+                message="An unexpected error occurred",
+                detail=type(exc).__name__,
+            ),
         )
 
     # 라우터 등록

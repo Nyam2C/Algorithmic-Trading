@@ -869,14 +869,14 @@ class TestGetAllPositionsEdgeCases:
 
     @pytest.mark.asyncio
     async def test_get_all_positions_exception(self, client_fixture):
-        """전체 포지션 조회 예외 시 빈 리스트 반환"""
+        """전체 포지션 조회 예외 시 예외 전파 (P1: 빈 리스트와 구분)"""
         client_instance, mock_internal = client_fixture
         mock_internal.futures_position_information = AsyncMock(
             side_effect=Exception("API error")
         )
 
-        positions = await client_instance.get_all_positions()
-        assert positions == []
+        with pytest.raises(Exception, match="API error"):
+            await client_instance.get_all_positions()
 
     @pytest.mark.asyncio
     async def test_get_all_positions_ticker_fallback(self, client_fixture):

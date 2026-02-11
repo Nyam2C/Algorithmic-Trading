@@ -2,9 +2,14 @@
 """
 import asyncio
 import functools
-from typing import Tuple, Type
+import random
+from collections.abc import Callable
+from typing import Any, ParamSpec, Tuple, Type, TypeVar
 
 from loguru import logger
+
+P = ParamSpec("P")
+T = TypeVar("T")
 
 
 def async_retry(
@@ -12,7 +17,8 @@ def async_retry(
     delay: float = 1.0,
     backoff: float = 2.0,
     exceptions: Tuple[Type[Exception], ...] = (Exception,),
-):
+    jitter: bool = False,
+) -> Callable[[Callable[P, Any]], Callable[P, Any]]:
     """Async retry decorator with exponential backoff
 
     Args:
@@ -20,6 +26,7 @@ def async_retry(
         delay: Initial delay in seconds
         backoff: Backoff multiplier (delay *= backoff after each retry)
         exceptions: Tuple of exceptions to catch and retry
+        jitter: Add random jitter to delay to prevent thundering herd
 
     Usage:
         @async_retry(max_attempts=3, delay=1.0, backoff=2.0)
@@ -27,9 +34,9 @@ def async_retry(
             ...
     """
 
-    def decorator(func):
+    def decorator(func: Callable[P, Any]) -> Callable[P, Any]:
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             current_delay = delay
             last_exception = None
 
@@ -53,14 +60,19 @@ def async_retry(
                         f"Retrying in {current_delay:.1f}s..."
                     )
 
-                    await asyncio.sleep(current_delay)
+                    actual_delay = current_delay
+                    if jitter:
+                        # +-25% 랜덤 지터로 thundering herd 방지
+                        actual_delay = current_delay * (1 + random.uniform(-0.25, 0.25))
+
+                    await asyncio.sleep(actual_delay)
                     current_delay *= backoff
 
             # This should never be reached, but just in case
             if last_exception:
                 raise last_exception
 
-        return wrapper
+        return wrapper  # type: ignore[return-value]
 
     return decorator
 
@@ -70,7 +82,8 @@ def sync_retry(
     delay: float = 1.0,
     backoff: float = 2.0,
     exceptions: Tuple[Type[Exception], ...] = (Exception,),
-):
+    jitter: bool = False,
+) -> Callable[[Callable[P, Any]], Callable[P, Any]]:
     """Sync retry decorator with exponential backoff
 
     Args:
@@ -78,6 +91,7 @@ def sync_retry(
         delay: Initial delay in seconds
         backoff: Backoff multiplier
         exceptions: Tuple of exceptions to catch and retry
+        jitter: Add random jitter to delay to prevent thundering herd
 
     Usage:
         @sync_retry(max_attempts=3, delay=1.0, backoff=2.0)
@@ -85,10 +99,23 @@ def sync_retry(
             ...
     """
 
-    def decorator(func):
+    def decorator(func: Callable[P, Any]) -> Callable[P, Any]:
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             import time
+
+            # 이벤트 루프 내에서 호출 시 경고 (time.sleep이 루프를 블로킹함)
+            try:
+                asyncio.get_running_loop()
+                logger.warning(
+                    f"sync_retry로 감싸진 '{func.__name__}'이(가) "
+                    f"실행 중인 이벤트 루프 내에서 호출되었습니다. "
+                    f"time.sleep()이 이벤트 루프를 블로킹합니다. "
+                    f"async_retry 사용을 권장합니다."
+                )
+            except RuntimeError:
+                # 이벤트 루프가 없는 정상 동기 컨텍스트
+                pass
 
             current_delay = delay
             last_exception = None
@@ -110,13 +137,18 @@ def sync_retry(
                         f"Retrying in {current_delay:.1f}s..."
                     )
 
-                    time.sleep(current_delay)
+                    actual_delay = current_delay
+                    if jitter:
+                        # +-25% 랜덤 지터로 thundering herd 방지
+                        actual_delay = current_delay * (1 + random.uniform(-0.25, 0.25))
+
+                    time.sleep(actual_delay)
                     current_delay *= backoff
 
             # This should never be reached, but just in case
             if last_exception:
                 raise last_exception
 
-        return wrapper
+        return wrapper  # type: ignore[return-value]
 
     return decorator

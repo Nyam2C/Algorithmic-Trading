@@ -7,8 +7,19 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 import discord
 import pytest
 
-from src.discord_bot.bot import (
+from src.discord_bot.client import (
     TradingBotClient,
+    start_discord_bot,
+)
+from src.discord_bot.constants import Colors
+from src.discord_bot.embeds import (
+    create_account_embed,
+    create_bot_list_embed,
+    create_bot_status_embed,
+    create_history_embed,
+    create_position_embed,
+    create_stats_embed,
+    create_status_embed,
 )
 from src.discord_bot.utils import (
     calculate_pnl,
@@ -25,21 +36,12 @@ from src.discord_bot.utils import (
     get_status_text,
     truncate_id,
 )
-from src.discord_bot.constants import Colors
-from src.discord_bot.embeds import (
-    create_account_embed,
-    create_bot_list_embed,
-    create_bot_status_embed,
-    create_history_embed,
-    create_position_embed,
-    create_stats_embed,
-    create_status_embed,
-)
 from src.discord_bot.views import ConfirmationView, DashboardView
-from src.discord_bot.client import TradingBotClient as RefactoredClient
-from src.discord_bot.client import start_discord_bot
-from src.discord_bot.commands.monitoring import register_monitoring_commands
+
+# RefactoredClient is now the same as TradingBotClient (bot.py removed)
+RefactoredClient = TradingBotClient
 from src.discord_bot.commands.control import register_control_commands
+from src.discord_bot.commands.monitoring import register_monitoring_commands
 from src.discord_bot.commands.multibot import register_multibot_commands
 
 # Note: ConfirmationView and DashboardView 테스트는 Discord.py의 이벤트 루프 요구사항으로 인해
@@ -53,7 +55,7 @@ class TestTradingBotClientInit:
         """기본 초기화"""
         bot_state = {"is_running": True}
 
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(bot_state=bot_state)
 
             assert client.bot_state == bot_state
@@ -65,7 +67,7 @@ class TestTradingBotClientInit:
         bot_state = {}
         mock_db = Mock()
 
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(
                 bot_state=bot_state,
                 trade_db=mock_db
@@ -89,7 +91,7 @@ class TestGetStatusEmbed:
             "symbol": "BTCUSDT",
             "position": None
         }
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             return TradingBotClient(bot_state=bot_state)
 
     @pytest.mark.asyncio
@@ -109,7 +111,7 @@ class TestGetStatusEmbed:
             "current_price": 105000.0,
             "last_signal": "WAIT"
         }
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(bot_state=bot_state)
 
         embed = await client._get_status_embed()
@@ -128,7 +130,7 @@ class TestGetStatusEmbed:
                 "entry_price": 105000.0
             }
         }
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(bot_state=bot_state)
 
         embed = await client._get_status_embed()
@@ -148,7 +150,7 @@ class TestGetPositionEmbed:
     async def test_get_position_embed_no_position(self):
         """포지션 없음"""
         bot_state = {"position": None, "last_signal": "WAIT"}
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(bot_state=bot_state)
 
         embed = await client._get_position_embed()
@@ -171,7 +173,7 @@ class TestGetPositionEmbed:
                 "timecut_at": datetime.now() + timedelta(minutes=30)
             }
         }
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(bot_state=bot_state)
 
         embed = await client._get_position_embed()
@@ -194,7 +196,7 @@ class TestGetPositionEmbed:
                 "sl_price": 105420.0
             }
         }
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(bot_state=bot_state)
 
         embed = await client._get_position_embed()
@@ -209,7 +211,7 @@ class TestGetStatsEmbed:
     async def test_get_stats_embed_no_db(self):
         """DB 없음"""
         bot_state = {}
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(bot_state=bot_state, trade_db=None)
 
         embed = await client._get_stats_embed()
@@ -223,7 +225,7 @@ class TestGetStatsEmbed:
         mock_db.get_statistics.return_value = {"total_trades": 0}
 
         bot_state = {}
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(bot_state=bot_state, trade_db=mock_db)
 
         embed = await client._get_stats_embed()
@@ -247,7 +249,7 @@ class TestGetStatsEmbed:
         }
 
         bot_state = {}
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(bot_state=bot_state, trade_db=mock_db)
 
         embed = await client._get_stats_embed(hours=24)
@@ -263,7 +265,7 @@ class TestGetHistoryEmbed:
     async def test_get_history_embed_no_db(self):
         """DB 없음"""
         bot_state = {}
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(bot_state=bot_state, trade_db=None)
 
         embed = await client._get_history_embed()
@@ -277,7 +279,7 @@ class TestGetHistoryEmbed:
         mock_db.get_recent_trades.return_value = []
 
         bot_state = {}
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(bot_state=bot_state, trade_db=mock_db)
 
         embed = await client._get_history_embed()
@@ -302,7 +304,7 @@ class TestGetHistoryEmbed:
         ]
 
         bot_state = {}
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(bot_state=bot_state, trade_db=mock_db)
 
         embed = await client._get_history_embed()
@@ -317,7 +319,7 @@ class TestGetAccountEmbed:
     async def test_get_account_embed_no_client(self):
         """Binance 클라이언트 없음"""
         bot_state = {}
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(bot_state=bot_state, binance_client=None)
 
         embed = await client._get_account_embed()
@@ -347,7 +349,7 @@ class TestGetAccountEmbed:
         ]
 
         bot_state = {}
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(bot_state=bot_state, binance_client=mock_binance)
 
         embed = await client._get_account_embed()
@@ -366,7 +368,7 @@ class TestCommandImplementations:
             "current_price": 105000.0,
             "position": None
         }
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             return TradingBotClient(bot_state=bot_state)
 
     @pytest.mark.asyncio
@@ -421,7 +423,7 @@ class TestCommandImplementations:
                 "quantity": 0.01
             }
         }
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             client = TradingBotClient(bot_state=bot_state)
 
         interaction = AsyncMock()
@@ -480,9 +482,9 @@ class TestStartDiscordBot:
     @pytest.mark.asyncio
     async def test_start_discord_bot(self):
         """Discord 봇 시작"""
-        from src.discord_bot.bot import start_discord_bot
+        from src.discord_bot.client import start_discord_bot
 
-        with patch.object(TradingBotClient, "setup_commands"):
+        with patch("src.discord_bot.commands.monitoring.register_monitoring_commands"), patch("src.discord_bot.commands.control.register_control_commands"), patch("src.discord_bot.commands.multibot.register_multibot_commands"):
             with patch.object(TradingBotClient, "start", new_callable=AsyncMock) as mock_start:
                 bot_state = {}
                 await start_discord_bot(
@@ -2429,7 +2431,7 @@ class TestRefactoredClientCallBotApi:
         ))
 
         with patch("src.discord_bot.client.aiohttp.ClientSession", return_value=mock_session):
-            with pytest.raises(Exception, match="API 오류"):
+            with pytest.raises(ValueError, match="API 요청 오류"):
                 await client._call_bot_api("GET", "/api/test")
 
     @pytest.mark.asyncio

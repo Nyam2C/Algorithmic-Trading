@@ -7,6 +7,7 @@
 - 일시정지/재시작 버튼: TRADER 이상
 - 긴급청산 버튼: ADMIN 이상
 """
+import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict
 
@@ -75,6 +76,18 @@ class ConfirmationView(discord.ui.View):
     ):
         """확인 버튼 (권한 체크 포함)"""
         try:
+            # 원래 명령어를 실행한 사용자만 확인 버튼을 클릭할 수 있음
+            if self.original_user_id is not None and interaction.user.id != self.original_user_id:
+                await interaction.response.send_message(
+                    "🚫 이 확인 버튼은 원래 명령어를 실행한 사용자만 클릭할 수 있습니다.",
+                    ephemeral=True,
+                )
+                logger.warning(
+                    f"다른 사용자가 확인 버튼 클릭 시도: {interaction.user} "
+                    f"(원래 사용자 ID: {self.original_user_id})"
+                )
+                return
+
             # 권한 체크
             required_level = self.ACTION_PERMISSION_LEVELS.get(
                 self.action, PermissionLevel.ADMIN
@@ -114,6 +127,14 @@ class ConfirmationView(discord.ui.View):
         button: discord.ui.Button
     ):
         """취소 버튼"""
+        # 원래 명령어를 실행한 사용자만 취소할 수 있음
+        if self.original_user_id is not None and interaction.user.id != self.original_user_id:
+            await interaction.response.send_message(
+                "🚫 이 취소 버튼은 원래 명령어를 실행한 사용자만 클릭할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
+
         self.cancelled = True
         await interaction.response.send_message(
             Messages.CANCELLED,
@@ -192,6 +213,9 @@ class DashboardView(discord.ui.View):
     제어 버튼 (Row 1): 일시정지, 재시작, 긴급청산 - TRADER/ADMIN 권한
     """
 
+    # 버튼 클릭 쿨다운 (초)
+    BUTTON_COOLDOWN = 3.0
+
     def __init__(
         self,
         bot_client: "TradingBotClient",
@@ -206,6 +230,24 @@ class DashboardView(discord.ui.View):
         super().__init__(timeout=timeout)
         self.bot_client = bot_client
         self._permission_config = get_permission_config()
+        # 사용자별 마지막 클릭 시간 (user_id -> timestamp)
+        self._last_interaction: Dict[int, float] = {}
+
+    def _check_cooldown(self, user_id: int) -> bool:
+        """사용자 쿨다운 확인
+
+        Args:
+            user_id: Discord 사용자 ID
+
+        Returns:
+            True이면 요청 허용, False이면 쿨다운 중
+        """
+        now = time.monotonic()
+        last_time = self._last_interaction.get(user_id, 0.0)
+        if now - last_time < self.BUTTON_COOLDOWN:
+            return False
+        self._last_interaction[user_id] = now
+        return True
 
     # =========================================================================
     # Row 0: 정보 조회 버튼
@@ -218,6 +260,11 @@ class DashboardView(discord.ui.View):
         button: discord.ui.Button
     ):
         """상태 조회 버튼"""
+        if not self._check_cooldown(interaction.user.id):
+            await interaction.response.send_message(
+                "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
+            )
+            return
         await interaction.response.defer(ephemeral=True)
         try:
             embed = await self.bot_client._get_status_embed()
@@ -234,6 +281,11 @@ class DashboardView(discord.ui.View):
         button: discord.ui.Button
     ):
         """포지션 조회 버튼"""
+        if not self._check_cooldown(interaction.user.id):
+            await interaction.response.send_message(
+                "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
+            )
+            return
         await interaction.response.defer(ephemeral=True)
         try:
             embed = await self.bot_client._get_position_embed()
@@ -250,6 +302,11 @@ class DashboardView(discord.ui.View):
         button: discord.ui.Button
     ):
         """통계 조회 버튼"""
+        if not self._check_cooldown(interaction.user.id):
+            await interaction.response.send_message(
+                "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
+            )
+            return
         await interaction.response.defer(ephemeral=True)
         try:
             embed = await self.bot_client._get_stats_embed(hours=24)
@@ -266,6 +323,11 @@ class DashboardView(discord.ui.View):
         button: discord.ui.Button
     ):
         """거래 내역 버튼"""
+        if not self._check_cooldown(interaction.user.id):
+            await interaction.response.send_message(
+                "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
+            )
+            return
         await interaction.response.defer(ephemeral=True)
         try:
             embed = await self.bot_client._get_history_embed(limit=5)
@@ -286,6 +348,11 @@ class DashboardView(discord.ui.View):
         button: discord.ui.Button
     ):
         """일시정지 버튼 (확인 필요) - TRADER 권한 필요"""
+        if not self._check_cooldown(interaction.user.id):
+            await interaction.response.send_message(
+                "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
+            )
+            return
         try:
             # 권한 체크
             if not check_permission(
@@ -342,6 +409,11 @@ class DashboardView(discord.ui.View):
         button: discord.ui.Button
     ):
         """재시작 버튼 (확인 필요) - TRADER 권한 필요"""
+        if not self._check_cooldown(interaction.user.id):
+            await interaction.response.send_message(
+                "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
+            )
+            return
         try:
             # 권한 체크
             if not check_permission(
@@ -398,6 +470,11 @@ class DashboardView(discord.ui.View):
         button: discord.ui.Button
     ):
         """긴급청산 버튼 (확인 필요) - ADMIN 권한 필요"""
+        if not self._check_cooldown(interaction.user.id):
+            await interaction.response.send_message(
+                "⏳ 잠시 후 다시 시도해주세요.", ephemeral=True
+            )
+            return
         try:
             # 권한 체크
             if not check_permission(

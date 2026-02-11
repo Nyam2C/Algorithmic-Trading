@@ -146,6 +146,131 @@ class TradingExecutor:
 
         return self._calculate_position_size(current_price, capital)
 
+    async def _prepare_and_open_position(
+        self,
+        signal: str,
+        current_price: float,
+        entry_atr: float | None = None,
+        order_type: str = "MARKET",
+        use_maker: bool = False,
+    ) -> Dict | None:
+        """포지션 오픈 공통 로직
+
+        포지션 체크, 레버리지 설정, 사이징, 주문 생성, 포지션 저장을 처리합니다.
+
+        Args:
+            signal: "LONG" or "SHORT"
+            current_price: Current market price
+            entry_atr: ATR value at entry (Phase 6.1: for dynamic TP/SL)
+            order_type: "MARKET" or "MAKER"
+            use_maker: Use Maker order (limit order) if True
+
+        Returns:
+            Order details or None if failed
+        """
+        # Check if we already have a position
+        existing_position = await self.client.get_position(self.config.symbol)
+        if existing_position:
+            logger.warning(
+                f"Already have a {existing_position['side']} position, skipping"
+            )
+            return None
+
+        # Setup leverage
+        leverage_ok = await self.setup_leverage()
+        if not leverage_ok:
+            logger.error("레버리지 설정 실패 - 거래 중단")
+            return None
+
+        # Calculate position size (Phase 5.1: 실제 잔고 사용 가능)
+        quantity = await self._calculate_position_size_with_balance(current_price)
+
+        # Determine order side
+        side = SIDE_BUY if signal == "LONG" else SIDE_SELL
+
+        # Create order based on type
+        if use_maker:
+            order = await self._create_maker_order(signal, side, quantity, current_price)
+        else:
+            logger.info(f"Opening {signal} position: {side} {quantity} {self.config.symbol}")
+            order = await self.client.create_market_order(
+                symbol=self.config.symbol,
+                side=side,
+                quantity=quantity,
+            )
+
+        # Store position info with entry time
+        self.current_position = {
+            "signal": signal,
+            "side": side,
+            "quantity": quantity,
+            "entry_price": current_price,
+            "order_id": order["orderId"],
+            "entry_time": datetime.now(),
+            "entry_atr": entry_atr,  # Phase 6.1: ATR at entry for dynamic TP/SL
+        }
+
+        logger.info(
+            f"Position opened: {signal} {quantity} @ ${current_price:,.2f}"
+            + (f" (ATR={entry_atr:.2f})" if entry_atr else "")
+        )
+
+        return order
+
+    async def _create_maker_order(
+        self, signal: str, side: str, quantity: float, current_price: float
+    ) -> Dict:
+        """Maker (limit) 주문 생성. 미체결 시 Market 주문으로 fallback.
+
+        Args:
+            signal: "LONG" or "SHORT"
+            side: SIDE_BUY or SIDE_SELL
+            quantity: Order quantity
+            current_price: Current market price
+
+        Returns:
+            Filled order details
+        """
+        price_offset_pct = 0.0001  # 0.01% offset for maker order
+        if signal == "LONG":
+            limit_price = current_price * (1 - price_offset_pct)
+        else:  # SHORT
+            limit_price = current_price * (1 + price_offset_pct)
+
+        # Round price to appropriate precision
+        limit_price = round(limit_price, 2)
+
+        # Create limit order
+        logger.info(
+            f"Opening {signal} position (MAKER): {side} {quantity} {self.config.symbol} @ ${limit_price:,.2f}"
+        )
+        order = await self.client.create_limit_order(
+            symbol=self.config.symbol,
+            side=side,
+            quantity=quantity,
+            price=limit_price,
+        )
+
+        # Wait for order to fill (max 30 seconds)
+        filled = await self._wait_for_fill(order["orderId"], timeout=30)
+
+        if not filled:
+            logger.warning(
+                "Limit order not filled within timeout, cancelling and using market order"
+            )
+            # Cancel unfilled order
+            await self.client.cancel_order(self.config.symbol, order["orderId"])
+
+            # Fallback to market order
+            order = await self.client.create_market_order(
+                symbol=self.config.symbol,
+                side=side,
+                quantity=quantity,
+            )
+            logger.info("Fallback to market order completed")
+
+        return order
+
     async def open_position(
         self, signal: str, current_price: float, entry_atr: float | None = None
     ) -> Dict | None:
@@ -160,52 +285,13 @@ class TradingExecutor:
             Order details or None if failed
         """
         try:
-            # Check if we already have a position
-            existing_position = await self.client.get_position(self.config.symbol)
-            if existing_position:
-                logger.warning(
-                    f"Already have a {existing_position['side']} position, skipping"
-                )
-                return None
-
-            # Setup leverage
-            leverage_ok = await self.setup_leverage()
-            if not leverage_ok:
-                logger.error("레버리지 설정 실패 - 거래 중단")
-                return None
-
-            # Calculate position size (Phase 5.1: 실제 잔고 사용 가능)
-            quantity = await self._calculate_position_size_with_balance(current_price)
-
-            # Determine order side
-            side = SIDE_BUY if signal == "LONG" else SIDE_SELL
-
-            # Create market order
-            logger.info(f"Opening {signal} position: {side} {quantity} {self.config.symbol}")
-            order = await self.client.create_market_order(
-                symbol=self.config.symbol,
-                side=side,
-                quantity=quantity,
+            return await self._prepare_and_open_position(
+                signal=signal,
+                current_price=current_price,
+                entry_atr=entry_atr,
+                order_type="MARKET",
+                use_maker=False,
             )
-
-            # Store position info with entry time
-            self.current_position = {
-                "signal": signal,
-                "side": side,
-                "quantity": quantity,
-                "entry_price": current_price,
-                "order_id": order["orderId"],
-                "entry_time": datetime.now(),  # Add entry time for timecut
-                "entry_atr": entry_atr,  # Phase 6.1: ATR at entry for dynamic TP/SL
-            }
-
-            logger.info(
-                f"Position opened: {signal} {quantity} @ ${current_price:,.2f}"
-                + (f" (ATR={entry_atr:.2f})" if entry_atr else "")
-            )
-
-            return order
-
         except Exception as e:
             logger.error(f"Failed to open position: {e}")
             return None
@@ -226,97 +312,13 @@ class TradingExecutor:
             Order details or None if failed
         """
         try:
-            # Check if we already have a position
-            existing_position = await self.client.get_position(self.config.symbol)
-            if existing_position:
-                logger.warning(
-                    f"Already have a {existing_position['side']} position, skipping"
-                )
-                return None
-
-            # Setup leverage
-            leverage_ok = await self.setup_leverage()
-            if not leverage_ok:
-                logger.error("레버리지 설정 실패 - 거래 중단")
-                return None
-
-            # Calculate position size (Phase 5.1: 실제 잔고 사용 가능)
-            quantity = await self._calculate_position_size_with_balance(current_price)
-
-            # Determine order side and limit price
-            side = SIDE_BUY if signal == "LONG" else SIDE_SELL
-
-            if use_maker:
-                # For Maker order, place limit slightly better than market
-                # BUY: slightly below current price
-                # SELL: slightly above current price
-                price_offset_pct = 0.0001  # 0.01% offset for maker order
-                if signal == "LONG":
-                    limit_price = current_price * (1 - price_offset_pct)
-                else:  # SHORT
-                    limit_price = current_price * (1 + price_offset_pct)
-
-                # Round price to appropriate precision
-                limit_price = round(limit_price, 2)
-
-                # Create limit order
-                logger.info(
-                    f"Opening {signal} position (MAKER): {side} {quantity} {self.config.symbol} @ ${limit_price:,.2f}"
-                )
-                order = await self.client.create_limit_order(
-                    symbol=self.config.symbol,
-                    side=side,
-                    quantity=quantity,
-                    price=limit_price,
-                )
-
-                # Wait for order to fill (max 30 seconds)
-                filled = await self._wait_for_fill(order["orderId"], timeout=30)
-
-                if not filled:
-                    logger.warning(
-                        "Limit order not filled within timeout, cancelling and using market order"
-                    )
-                    # Cancel unfilled order
-                    await self.client.cancel_order(self.config.symbol, order["orderId"])
-
-                    # Fallback to market order
-                    order = await self.client.create_market_order(
-                        symbol=self.config.symbol,
-                        side=side,
-                        quantity=quantity,
-                    )
-                    logger.info("Fallback to market order completed")
-
-            else:
-                # Market order (original behavior)
-                logger.info(
-                    f"Opening {signal} position (MARKET): {side} {quantity} {self.config.symbol}"
-                )
-                order = await self.client.create_market_order(
-                    symbol=self.config.symbol,
-                    side=side,
-                    quantity=quantity,
-                )
-
-            # Store position info with entry time
-            self.current_position = {
-                "signal": signal,
-                "side": side,
-                "quantity": quantity,
-                "entry_price": current_price,
-                "order_id": order["orderId"],
-                "entry_time": datetime.now(),
-                "entry_atr": entry_atr,  # Phase 6.1: ATR at entry for dynamic TP/SL
-            }
-
-            logger.info(
-                f"Position opened: {signal} {quantity} @ ${current_price:,.2f}"
-                + (f" (ATR={entry_atr:.2f})" if entry_atr else "")
+            return await self._prepare_and_open_position(
+                signal=signal,
+                current_price=current_price,
+                entry_atr=entry_atr,
+                order_type="MAKER" if use_maker else "MARKET",
+                use_maker=use_maker,
             )
-
-            return order
-
         except Exception as e:
             logger.error(f"Failed to open position (maker): {e}")
             return None

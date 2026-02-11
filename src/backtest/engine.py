@@ -9,10 +9,12 @@ Phase 6.2: 백테스트 현실화
 - RSI, ATR, MACD, BB 지표 계산
 - High/Low 기반 현실적 청산
 """
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
+import pandas as pd
 from loguru import logger
 
 from src.backtest.slippage import (
@@ -20,6 +22,7 @@ from src.backtest.slippage import (
     calculate_realistic_entry_price,
     calculate_realistic_exit_price,
 )
+from src.data.indicators import calculate_rsi as _indicators_calculate_rsi
 
 
 @dataclass
@@ -58,6 +61,7 @@ class Trade:
         entry_price: 진입 가격
         side: 방향 (LONG/SHORT)
         quantity: 수량
+        leverage: 레버리지 배수
         exit_time: 청산 시간
         exit_price: 청산 가격
         exit_reason: 청산 사유
@@ -67,20 +71,22 @@ class Trade:
     entry_price: float
     side: str
     quantity: float
+    leverage: int = 1
     exit_time: Any | None = None
     exit_price: float | None = None
     exit_reason: str | None = None
     pnl: float | None = None
 
     def calculate_pnl(self) -> None:
-        """PnL 계산"""
+        """PnL 계산 (레버리지 포함)"""
         if self.exit_price is None:
             return
 
         if self.side == "LONG":
-            self.pnl = (self.exit_price - self.entry_price) * self.quantity
+            price_diff = self.exit_price - self.entry_price
         else:  # SHORT
-            self.pnl = (self.entry_price - self.exit_price) * self.quantity
+            price_diff = self.entry_price - self.exit_price
+        self.pnl = price_diff * self.quantity * self.leverage
 
     def is_winner(self) -> bool:
         """승리 여부"""
@@ -128,6 +134,35 @@ class BacktestResult:
         self.losing_trades = self.total_trades - self.winning_trades
         self.win_rate = (self.winning_trades / self.total_trades) * 100
         self.total_pnl = sum(t.pnl or 0 for t in self.trades)
+
+        # Sharpe ratio 계산
+        self.sharpe_ratio = self._calculate_sharpe_ratio()
+
+    def _calculate_sharpe_ratio(self) -> float:
+        """Sharpe ratio 계산
+
+        Sharpe = mean(returns) / std(returns) * sqrt(periods_per_year)
+        5분봉 기준: 연간 약 105,120 봉 (365 * 24 * 60 / 5)
+        """
+        if len(self.trades) < 2:
+            return 0.0
+
+        returns = [t.pnl or 0 for t in self.trades]
+        mean_return = sum(returns) / len(returns)
+
+        # 표준편차 계산
+        variance = sum((r - mean_return) ** 2 for r in returns) / (len(returns) - 1)
+        std_return = math.sqrt(variance)
+
+        if std_return == 0:
+            return 0.0
+
+        # 5분봉 기준 연간 기간 수 (보수적 추정: 일간 252 거래일 기반)
+        # 거래 빈도에 따라 조정 가능하므로, 거래 수 기반으로 연간화
+        periods_per_year = 252  # 일간 기준
+        sharpe = (mean_return / std_return) * math.sqrt(periods_per_year)
+
+        return sharpe
 
     def to_dict(self) -> Dict[str, Any]:
         """딕셔너리로 변환"""
@@ -275,9 +310,6 @@ class BacktestEngine:
         # 최근 데이터 슬라이스
         window = self.data[max(0, index - 99):index + 1]
         closes = [c["close"] for c in window]
-        # highs/lows는 향후 ATR, BB 계산에 사용될 수 있음
-        _ = [c["high"] for c in window]  # highs (reserved)
-        _ = [c["low"] for c in window]  # lows (reserved)
 
         market_data: Dict[str, Any] = {}
 
@@ -316,32 +348,19 @@ class BacktestEngine:
         return market_data
 
     def _calculate_rsi(self, closes: List[float], period: int = 14) -> float:
-        """RSI 계산"""
+        """RSI 계산 (indicators.py와 동일한 로직 사용)"""
         if len(closes) < period + 1:
             return 50.0
 
-        gains: List[float] = []
-        losses: List[float] = []
-
-        for i in range(1, len(closes)):
-            change = closes[i] - closes[i - 1]
-            if change >= 0:
-                gains.append(change)
-                losses.append(0)
-            else:
-                gains.append(0)
-                losses.append(abs(change))
-
-        avg_gain = sum(gains[-period:]) / period
-        avg_loss = sum(losses[-period:]) / period
-
-        if avg_loss == 0:
-            return 100.0
-
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-
-        return rsi
+        try:
+            df = pd.DataFrame({"close": closes})
+            rsi_series = _indicators_calculate_rsi(df, period=period)
+            last_rsi = rsi_series.iloc[-1]
+            if pd.isna(last_rsi):
+                return 50.0
+            return float(last_rsi)
+        except Exception:
+            return 50.0
 
     def _calculate_atr(self, candles: List[Dict], period: int = 14) -> float:
         """ATR 계산"""
@@ -471,6 +490,7 @@ class BacktestEngine:
             entry_price=entry_price,
             side=side,
             quantity=quantity,
+            leverage=self.config.leverage,
         )
 
         logger.debug(f"진입: {side} @ {entry_price:.2f}, qty={quantity:.4f}")
@@ -533,26 +553,39 @@ class BacktestEngine:
         if self.config.use_realistic_exits:
             high_price = candle["high"]
             low_price = candle["low"]
+            open_price = candle["open"]
 
             if side == "LONG":
                 tp_price = entry_price * (1 + self.config.tp_pct)
                 sl_price = entry_price * (1 - self.config.sl_pct)
 
-                # TP: 고가가 TP 가격 도달
-                if high_price >= tp_price:
+                tp_hit = high_price >= tp_price
+                sl_hit = low_price <= sl_price
+
+                if tp_hit and sl_hit:
+                    # 둘 다 도달한 경우: 시가와의 거리로 선행 판단
+                    dist_to_tp = abs(tp_price - open_price)
+                    dist_to_sl = abs(sl_price - open_price)
+                    return "SL" if dist_to_sl <= dist_to_tp else "TP"
+                if tp_hit:
                     return "TP"
-                # SL: 저가가 SL 가격 도달
-                if low_price <= sl_price:
+                if sl_hit:
                     return "SL"
             else:  # SHORT
                 tp_price = entry_price * (1 - self.config.tp_pct)
                 sl_price = entry_price * (1 + self.config.sl_pct)
 
-                # TP: 저가가 TP 가격 도달
-                if low_price <= tp_price:
+                tp_hit = low_price <= tp_price
+                sl_hit = high_price >= sl_price
+
+                if tp_hit and sl_hit:
+                    # 둘 다 도달한 경우: 시가와의 거리로 선행 판단
+                    dist_to_tp = abs(tp_price - open_price)
+                    dist_to_sl = abs(sl_price - open_price)
+                    return "SL" if dist_to_sl <= dist_to_tp else "TP"
+                if tp_hit:
                     return "TP"
-                # SL: 고가가 SL 가격 도달
-                if high_price >= sl_price:
+                if sl_hit:
                     return "SL"
         else:
             # 기존 방식: 종가 기준

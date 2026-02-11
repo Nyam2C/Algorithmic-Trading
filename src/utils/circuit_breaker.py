@@ -8,6 +8,7 @@ Phase 6.2: API 호출 복원력 향상
 import asyncio
 import functools
 import time
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
@@ -46,7 +47,7 @@ class CircuitBreakerConfig:
     recovery_timeout: int = 60
     half_open_max_calls: int = 3
     success_threshold: int = 2
-    exceptions: tuple = (Exception,)
+    exceptions: tuple[type[Exception], ...] = (Exception,)
 
 
 @dataclass
@@ -188,10 +189,16 @@ class CircuitBreaker:
                 return False
 
             if self._state == CircuitState.HALF_OPEN:
-                # 테스트 호출 허용 여부
-                if self._half_open_calls < self.config.half_open_max_calls:
+                # HALF_OPEN 상태에서 허용된 테스트 호출 수 제한 확인
+                # _half_open_calls: 현재까지 허용된 테스트 호출 수
+                # half_open_max_calls: 최대 허용 테스트 호출 수
+                calls_remaining = (
+                    self.config.half_open_max_calls - self._half_open_calls
+                )
+                if calls_remaining > 0:
                     self._half_open_calls += 1
                     return True
+                # 최대 테스트 호출 수 도달 - 추가 호출 차단
                 return False
 
             return False
@@ -296,13 +303,30 @@ class CircuitBreaker:
         return wrapper
 
     def reset(self) -> None:
-        """상태 리셋 (테스트용)"""
+        """상태 리셋 (동기 버전, 테스트용)
+
+        주의: 비동기 컨텍스트에서는 async_reset()을 사용하세요.
+        이 메서드는 하위 호환성을 위해 유지됩니다.
+        """
         self._state = CircuitState.CLOSED
         self._failure_count = 0
         self._success_count = 0
         self._last_failure_time = None
         self._half_open_calls = 0
         self._log.info("Circuit 리셋")
+
+    async def async_reset(self) -> None:
+        """상태 리셋 (비동기 버전, 락 보호)
+
+        비동기 컨텍스트에서 안전하게 상태를 리셋합니다.
+        """
+        async with self._lock:
+            self._state = CircuitState.CLOSED
+            self._failure_count = 0
+            self._success_count = 0
+            self._last_failure_time = None
+            self._half_open_calls = 0
+            self._log.info("Circuit 비동기 리셋")
 
     def get_status(self) -> Dict[str, Any]:
         """현재 상태 정보"""
@@ -332,13 +356,20 @@ def get_circuit_breaker(
 
     Args:
         name: Circuit Breaker 이름
-        config: 설정 (첫 생성 시에만 적용)
+        config: 설정 (첫 생성 시에만 적용, 이미 존재하면 경고)
 
     Returns:
         CircuitBreaker 인스턴스
     """
     if name not in _circuit_breakers:
         _circuit_breakers[name] = CircuitBreaker(name, config)
+    elif config is not None:
+        # 이미 존재하는 이름에 다른 config를 전달하면 경고
+        warnings.warn(
+            f"Circuit breaker '{name}' already exists. "
+            f"New config is ignored. Use clear_registry() to reset.",
+            stacklevel=2,
+        )
 
     return _circuit_breakers[name]
 
@@ -347,6 +378,15 @@ def reset_all_circuit_breakers() -> None:
     """모든 Circuit Breaker 리셋 (테스트용)"""
     for breaker in _circuit_breakers.values():
         breaker.reset()
+
+
+def clear_registry() -> None:
+    """전역 레지스트리 초기화 (테스트 격리용)
+
+    테스트 간 Circuit Breaker 인스턴스가 공유되는 것을 방지합니다.
+    테스트 teardown에서 호출하세요.
+    """
+    _circuit_breakers.clear()
 
 
 # ============================================================================
@@ -360,7 +400,7 @@ def circuit_breaker(
     name: str,
     failure_threshold: int = 5,
     recovery_timeout: int = 60,
-    exceptions: tuple = (Exception,),
+    exceptions: tuple[type[Exception], ...] = (Exception,),
 ) -> Callable[[F], F]:
     """Circuit Breaker 데코레이터 팩토리
 

@@ -2,6 +2,7 @@
 
 Phase 4: AsyncClient 마이그레이션 - 비동기 클라이언트 사용
 """
+import asyncio
 from typing import Dict
 
 import pandas as pd
@@ -164,6 +165,12 @@ class BinanceTestnetClient:
             logger.error(f"Failed to get klines for {symbol}: {e}")
             raise
 
+    @async_retry(
+        max_attempts=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     async def get_ticker_24h(self, symbol: str) -> Dict:
         """Get 24-hour ticker statistics
 
@@ -371,11 +378,20 @@ class BinanceTestnetClient:
             logger.error(f"Failed to get position for {symbol}: {e}")
             raise
 
+    @async_retry(
+        max_attempts=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     async def get_all_positions(self) -> list:
         """계정 내 모든 열린 포지션 조회
 
         Returns:
             열린 포지션 리스트 (포지션이 없으면 빈 리스트)
+
+        Raises:
+            Exception: 네트워크 오류 시 예외 전파 (빈 리스트와 구분하기 위함)
         """
         try:
             positions = await self.client.futures_position_information()
@@ -396,7 +412,9 @@ class BinanceTestnetClient:
                     leverage = int(pos.get("leverage", 1))
                     side = "LONG" if position_amt > 0 else "SHORT"
 
-                    # PnL % 계산
+                    # 거래소 수준의 PnL % 계산 (포지션 추적용)
+                    # NOTE: trading 모듈의 PnL 계산과는 별도로,
+                    # 거래소 API 응답 기반의 실시간 포지션 모니터링에 사용됩니다.
                     if entry_price > 0:
                         if side == "LONG":
                             pnl_pct = ((current_price - entry_price) / entry_price) * 100 * leverage
@@ -424,16 +442,14 @@ class BinanceTestnetClient:
 
         except Exception as e:
             logger.error(f"전체 포지션 조회 실패: {e}")
-            return []
+            raise
 
-    @async_retry(
-        max_attempts=3,
-        delay=1.0,
-        backoff=2.0,
-        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
-    )
     async def close_position(self, symbol: str) -> Dict | None:
-        """Close current position for a symbol (with retry)
+        """Close current position for a symbol
+
+        NOTE: @async_retry를 의도적으로 제거함.
+        내부에서 호출하는 create_market_order()에 이미 @async_retry가 적용되어 있어
+        이중 재시도(최대 9회) 시 중복 청산 위험이 있음.
 
         Args:
             symbol: Trading pair
@@ -468,7 +484,7 @@ class BinanceTestnetClient:
             symbol: 거래쌍 (예: "BTCUSDT")
 
         Returns:
-            펀딩비 정보 딕셔너리
+            펀딩비 정보 딕셔너리. is_error=True이면 API 오류로 기본값 사용 중.
         """
         try:
             # 현재 펀딩비
@@ -480,11 +496,12 @@ class BinanceTestnetClient:
                 return {
                     "funding_rate": rate,
                     "funding_time": funding_time,
+                    "is_error": False,
                 }
-            return {"funding_rate": 0.0, "funding_time": None}
+            return {"funding_rate": 0.0, "funding_time": None, "is_error": False}
         except Exception as e:
-            logger.error(f"펀딩비 조회 실패 {symbol}: {e}")
-            return {"funding_rate": 0.0, "funding_time": None}
+            logger.warning(f"펀딩비 조회 실패 {symbol}: {e} - 기본값 사용")
+            return {"funding_rate": 0.0, "funding_time": None, "is_error": True}
 
     async def get_long_short_ratio(self, symbol: str) -> Dict:
         """롱숏 비율 조회 (상위 트레이더 포지션 기준)
@@ -493,7 +510,7 @@ class BinanceTestnetClient:
             symbol: 거래쌍 (예: "BTCUSDT")
 
         Returns:
-            롱숏 비율 정보
+            롱숏 비율 정보. is_error=True이면 API 오류로 기본값 사용 중.
         """
         try:
             # 상위 트레이더 롱숏 비율
@@ -511,11 +528,12 @@ class BinanceTestnetClient:
                     "long_ratio": long_ratio,
                     "short_ratio": short_ratio,
                     "long_short_ratio": ls_ratio,
+                    "is_error": False,
                 }
-            return {"long_ratio": 0.5, "short_ratio": 0.5, "long_short_ratio": 1.0}
+            return {"long_ratio": 0.5, "short_ratio": 0.5, "long_short_ratio": 1.0, "is_error": False}
         except Exception as e:
-            logger.error(f"롱숏 비율 조회 실패 {symbol}: {e}")
-            return {"long_ratio": 0.5, "short_ratio": 0.5, "long_short_ratio": 1.0}
+            logger.warning(f"롱숏 비율 조회 실패 {symbol}: {e} - 기본값 사용")
+            return {"long_ratio": 0.5, "short_ratio": 0.5, "long_short_ratio": 1.0, "is_error": True}
 
     async def get_open_interest(self, symbol: str) -> Dict:
         """미결제약정 조회
@@ -524,16 +542,16 @@ class BinanceTestnetClient:
             symbol: 거래쌍 (예: "BTCUSDT")
 
         Returns:
-            미결제약정 정보
+            미결제약정 정보. is_error=True이면 API 오류로 기본값 사용 중.
         """
         try:
             oi_data = await self.client.futures_open_interest(symbol=symbol)
             oi = float(oi_data["openInterest"])
             logger.debug(f"{symbol} 미결제약정: {oi:,.2f}")
-            return {"open_interest": oi, "symbol": symbol}
+            return {"open_interest": oi, "symbol": symbol, "is_error": False}
         except Exception as e:
-            logger.error(f"미결제약정 조회 실패 {symbol}: {e}")
-            return {"open_interest": 0.0, "symbol": symbol}
+            logger.warning(f"미결제약정 조회 실패 {symbol}: {e} - 기본값 사용")
+            return {"open_interest": 0.0, "symbol": symbol, "is_error": True}
 
     async def get_market_sentiment(self, symbol: str) -> Dict:
         """시장 심리 데이터 통합 조회 (펀딩비 + 롱숏비율 + 미결제약정)
@@ -544,9 +562,12 @@ class BinanceTestnetClient:
         Returns:
             통합 시장 심리 데이터
         """
-        funding = await self.get_funding_rate(symbol)
-        ls_ratio = await self.get_long_short_ratio(symbol)
-        oi = await self.get_open_interest(symbol)
+        # 세 API를 병렬로 호출하여 응답 시간 단축
+        funding, ls_ratio, oi = await asyncio.gather(
+            self.get_funding_rate(symbol),
+            self.get_long_short_ratio(symbol),
+            self.get_open_interest(symbol),
+        )
 
         sentiment = {
             "funding_rate": funding["funding_rate"],

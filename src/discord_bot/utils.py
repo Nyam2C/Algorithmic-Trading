@@ -2,8 +2,34 @@
 
 계산, 포맷팅 등의 헬퍼 함수를 제공합니다.
 """
+import re
 from datetime import datetime
 from typing import Tuple
+
+
+def validate_bot_name(bot_name: str) -> str:
+    """봇 이름 검증 (경로 조작 방지)
+
+    영숫자, 하이픈, 언더스코어만 허용합니다.
+    경로 조작 문자 (../, / 등)를 차단합니다.
+
+    Args:
+        bot_name: 검증할 봇 이름
+
+    Returns:
+        검증된 봇 이름
+
+    Raises:
+        ValueError: 유효하지 않은 봇 이름인 경우
+    """
+    if not bot_name or len(bot_name) > 64:
+        raise ValueError(f"유효하지 않은 봇 이름: {bot_name}")
+    if len(bot_name) == 1:
+        if not re.match(r'^[a-zA-Z0-9]$', bot_name):
+            raise ValueError(f"유효하지 않은 봇 이름: {bot_name}")
+    elif not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}[a-zA-Z0-9]$', bot_name):
+        raise ValueError(f"유효하지 않은 봇 이름: {bot_name}")
+    return bot_name
 
 
 def format_uptime(start_time: datetime | None) -> str:

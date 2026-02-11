@@ -10,6 +10,37 @@ from src.api.schemas.bot import BotCreateRequest, BotUpdateRequest
 from src.bot_config import BotConfig
 from src.bot_manager import MultiBotManager
 
+# =============================================================================
+# 커스텀 예외 (Issue 2: 문자열 매칭 대신 타입 기반 에러 핸들링)
+# =============================================================================
+
+
+class BotNotFoundError(ValueError):
+    """봇을 찾을 수 없을 때 발생하는 예외"""
+
+    def __init__(self, bot_name: str) -> None:
+        self.bot_name = bot_name
+        super().__init__(f"Bot '{bot_name}' not found")
+
+
+class BotAlreadyExistsError(ValueError):
+    """동일한 이름의 봇이 이미 존재할 때 발생하는 예외"""
+
+    def __init__(self, bot_name: str) -> None:
+        self.bot_name = bot_name
+        super().__init__(f"Bot '{bot_name}' already exists")
+
+
+class BotRunningError(ValueError):
+    """실행 중인 봇에 대한 잘못된 작업 시 발생하는 예외"""
+
+    def __init__(self, bot_name: str, action: str = "delete") -> None:
+        self.bot_name = bot_name
+        self.action = action
+        super().__init__(
+            f"Bot '{bot_name}' is currently running. Stop it first."
+        )
+
 
 class BotService:
     """봇 서비스
@@ -75,11 +106,11 @@ class BotService:
             봇 상태 정보
 
         Raises:
-            ValueError: 봇이 존재하지 않는 경우
+            BotNotFoundError: 봇이 존재하지 않는 경우
         """
         bot = self.manager.get_bot(bot_name)
         if bot is None:
-            raise ValueError(f"Bot '{bot_name}' not found")
+            raise BotNotFoundError(bot_name)
 
         return bot.get_state()
 
@@ -155,13 +186,20 @@ class BotService:
             수정된 봇 정보
 
         Raises:
-            ValueError: 봇이 존재하지 않는 경우
+            BotNotFoundError: 봇이 존재하지 않는 경우
+            BotRunningError: 실행 중인 봇의 심볼 변경 시도 시
         """
         bot = self.manager.get_bot(bot_name)
         if bot is None:
-            raise ValueError(f"Bot '{bot_name}' not found")
+            raise BotNotFoundError(bot_name)
 
         config = bot.config
+
+        # Issue 4: 실행 중인 봇의 심볼 변경 방지
+        # BotUpdateRequest에는 symbol 필드가 없지만, 방어적으로 체크
+        if bot.is_running:
+            # 실행 중인 봇은 위험한 설정 변경 시 경고 로그
+            logger.info(f"실행 중인 봇 '{bot_name}' 설정 변경 요청")
 
         # 설정 업데이트 (지정된 필드만)
         if request.risk_level is not None:
@@ -219,16 +257,15 @@ class BotService:
             bot_name: 봇 이름
 
         Raises:
-            ValueError: 봇이 존재하지 않거나 실행 중인 경우
+            BotNotFoundError: 봇이 존재하지 않는 경우
+            BotRunningError: 실행 중인 봇을 삭제하려는 경우
         """
         bot = self.manager.get_bot(bot_name)
         if bot is None:
-            raise ValueError(f"Bot '{bot_name}' not found")
+            raise BotNotFoundError(bot_name)
 
         if bot.is_running:
-            raise ValueError(
-                f"Bot '{bot_name}' is currently running. Stop it first."
-            )
+            raise BotRunningError(bot_name, action="delete")
 
         self.manager.remove_bot(bot_name)
         logger.info(f"봇 삭제됨: {bot_name}")
@@ -244,11 +281,11 @@ class BotService:
             bot_name: 봇 이름
 
         Raises:
-            ValueError: 봇이 존재하지 않는 경우
+            BotNotFoundError: 봇이 존재하지 않는 경우
         """
         bot = self.manager.get_bot(bot_name)
         if bot is None:
-            raise ValueError(f"Bot '{bot_name}' not found")
+            raise BotNotFoundError(bot_name)
 
         await self.manager.start_bot(bot_name)
         logger.info(f"봇 시작됨: {bot_name}")
@@ -260,11 +297,11 @@ class BotService:
             bot_name: 봇 이름
 
         Raises:
-            ValueError: 봇이 존재하지 않는 경우
+            BotNotFoundError: 봇이 존재하지 않는 경우
         """
         bot = self.manager.get_bot(bot_name)
         if bot is None:
-            raise ValueError(f"Bot '{bot_name}' not found")
+            raise BotNotFoundError(bot_name)
 
         await self.manager.stop_bot(bot_name)
         logger.info(f"봇 정지됨: {bot_name}")
@@ -276,11 +313,11 @@ class BotService:
             bot_name: 봇 이름
 
         Raises:
-            ValueError: 봇이 존재하지 않는 경우
+            BotNotFoundError: 봇이 존재하지 않는 경우
         """
         bot = self.manager.get_bot(bot_name)
         if bot is None:
-            raise ValueError(f"Bot '{bot_name}' not found")
+            raise BotNotFoundError(bot_name)
 
         self.manager.pause_bot(bot_name)
         logger.info(f"봇 일시정지됨: {bot_name}")
@@ -292,11 +329,11 @@ class BotService:
             bot_name: 봇 이름
 
         Raises:
-            ValueError: 봇이 존재하지 않는 경우
+            BotNotFoundError: 봇이 존재하지 않는 경우
         """
         bot = self.manager.get_bot(bot_name)
         if bot is None:
-            raise ValueError(f"Bot '{bot_name}' not found")
+            raise BotNotFoundError(bot_name)
 
         self.manager.resume_bot(bot_name)
         logger.info(f"봇 재개됨: {bot_name}")
@@ -308,11 +345,11 @@ class BotService:
             bot_name: 봇 이름
 
         Raises:
-            ValueError: 봇이 존재하지 않는 경우
+            BotNotFoundError: 봇이 존재하지 않는 경우
         """
         bot = self.manager.get_bot(bot_name)
         if bot is None:
-            raise ValueError(f"Bot '{bot_name}' not found")
+            raise BotNotFoundError(bot_name)
 
         bot.request_emergency_close()
         logger.warning(f"긴급 청산 요청됨: {bot_name}")

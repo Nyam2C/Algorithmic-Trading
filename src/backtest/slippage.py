@@ -101,43 +101,6 @@ class SlippageModel:
         return price * (1 - slippage_pct)
 
 
-@dataclass
-class MarketImpactModel:
-    """시장 영향 모델
-
-    대량 주문이 시장에 미치는 영향을 모델링합니다.
-
-    Attributes:
-        impact_coefficient: 영향 계수
-        decay_factor: 영향 감소 계수
-    """
-
-    impact_coefficient: float = 0.1
-    decay_factor: float = 0.5
-
-    def calculate_impact(
-        self,
-        order_size: float,
-        market_depth: float,
-    ) -> float:
-        """시장 영향 계산
-
-        Args:
-            order_size: 주문 크기
-            market_depth: 시장 깊이 (호가창 깊이)
-
-        Returns:
-            가격 영향 비율
-        """
-        if market_depth <= 0:
-            return 0.0
-
-        # 선형 영향 모델
-        impact = self.impact_coefficient * (order_size / market_depth)
-
-        return min(impact, 0.05)  # 최대 5% 영향
-
-
 def calculate_realistic_entry_price(
     candle: Dict,
     side: str,
