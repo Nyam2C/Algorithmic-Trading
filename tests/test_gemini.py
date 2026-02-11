@@ -31,11 +31,11 @@ class TestGeminiSignalGeneratorInit:
 
                 generator = GeminiSignalGenerator(
                     api_key="test_key",
-                    model="gemini-2.0-flash-exp",
+                    model="gemini-2.5-flash",
                     temperature=0.1
                 )
 
-                assert generator.model == "gemini-2.0-flash-exp"
+                assert generator.model == "gemini-2.5-flash"
                 assert generator.temperature == 0.1
                 mock_client.assert_called_once_with(api_key="test_key")
 
@@ -48,7 +48,7 @@ class TestGeminiSignalGeneratorInit:
 
                 generator = GeminiSignalGenerator(api_key="test_key")
 
-                assert generator.model == "gemini-2.0-flash-exp"
+                assert generator.model == "gemini-2.5-flash"
                 # Phase 6.1: 기본 온도 0.1 → 0.3
                 assert generator.temperature == 0.3
 
