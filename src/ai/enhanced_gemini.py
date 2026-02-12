@@ -4,7 +4,9 @@ Phase 4: AI 메모리 시스템 - 과거 거래 분석을 프롬프트에 주입
 기존 GeminiSignalGenerator를 확장하여 메모리 컨텍스트 지원
 """
 import time
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from google.genai.errors import ClientError, ServerError
 from loguru import logger
@@ -74,6 +76,12 @@ class EnhancedGeminiSignalGenerator(GeminiSignalGenerator):
         self._log.info(
             f"Enhanced Gemini 초기화 (memory_enabled={self.memory_enabled})"
         )
+
+        # 마지막 AI 호출 기록 (디버깅/Discord 조회용)
+        self._last_prompt: str | None = None
+        self._last_response: str | None = None
+        self._last_call_time: datetime | None = None
+        self._last_signal: str | None = None
 
     @property
     def memory_enabled(self) -> bool:
@@ -171,15 +179,16 @@ Output ONLY: LONG, SHORT, or WAIT."""
 
             self._log.debug("Calling Gemini API with memory context...")
 
-            # 3. Gemini API 호출
-            response = await self.client.aio.models.generate_content(
-                model=self.model,
-                contents=full_prompt,
-                config={
-                    "temperature": self.temperature,
-                    "max_output_tokens": 10,
-                },
-            )
+            # 3. Gemini API 호출 (세마포어로 동시 호출 제한)
+            async with self._get_semaphore():
+                response = await self.client.aio.models.generate_content(
+                    model=self.model,
+                    contents=full_prompt,
+                    config={
+                        "temperature": self.temperature,
+                        "max_output_tokens": 10,
+                    },
+                )
 
             # 4. 응답 파싱
             if response.text is None:
@@ -207,6 +216,12 @@ Output ONLY: LONG, SHORT, or WAIT."""
             self._log.warning("Defaulting to WAIT due to error")
             return "WAIT"
         finally:
+            # 마지막 호출 기록 저장
+            self._last_prompt = prompt_summary
+            self._last_response = raw_response_text
+            self._last_call_time = datetime.now()
+            self._last_signal = signal
+
             latency_ms = (time.monotonic() - t0) * 1000
             self._ai_logger.log_gemini_call(
                 bot_name=bot_id or "",
@@ -218,6 +233,24 @@ Output ONLY: LONG, SHORT, or WAIT."""
                 latency_ms=latency_ms,
                 model=self.model,
             )
+
+    def get_last_ai_call(self) -> dict[str, Any] | None:
+        """마지막 AI 호출 정보 반환.
+
+        Discord 디버깅 명령어에서 사용합니다.
+
+        Returns:
+            마지막 호출 정보 딕셔너리 또는 None
+        """
+        if self._last_prompt is None:
+            return None
+        return {
+            "prompt": self._last_prompt,
+            "response": self._last_response,
+            "timestamp": self._last_call_time,
+            "model": self.model,
+            "signal": self._last_signal,
+        }
 
     def _build_prompt_with_memory(
         self,

@@ -384,6 +384,7 @@ class MultiBotManager:
             database_url=self._database_url,
             loop_interval_seconds=self._loop_interval_seconds,
             redis_state_manager=self._redis_state_manager,
+            use_memory_signals=bool(self._gemini_api_key),
             on_signal_callback=self._on_signal_callback,
             on_trade_callback=self._on_trade_callback,
             on_error_callback=self._on_error_callback,
@@ -564,15 +565,18 @@ class MultiBotManager:
         logger.info(f"전체 봇 재개: {self.bot_count}개")
 
     async def start_all(self) -> None:
-        """전체 봇 시작."""
-        tasks = []
+        """전체 봇 시작 (API 레이트 리밋 방지를 위해 30초 간격 분산)."""
+        started = 0
         for bot_name, bot in self._bots.items():
             if bot_name not in self._tasks or self._tasks[bot_name].done():
+                if started > 0:
+                    logger.info("다음 봇 시작까지 30초 대기 (레이트 리밋 방지)...")
+                    await asyncio.sleep(30)
                 task = asyncio.create_task(bot.start())
                 self._tasks[bot_name] = task
-                tasks.append(task)
+                started += 1
 
-        logger.info(f"전체 봇 시작: {len(tasks)}개")
+        logger.info(f"전체 봇 시작: {started}개")
 
     async def stop_all(self) -> None:
         """전체 봇 정지."""

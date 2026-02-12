@@ -173,7 +173,7 @@ class TestJSONFormatter:
         sample_record["file"].name = "test.py"
 
         result = formatter(sample_record)
-        parsed = json.loads(result.strip())
+        parsed = json.loads(result.strip().replace("{{", "{").replace("}}", "}"))
 
         assert parsed["level"] == "INFO"
         assert parsed["message"] == "Test message"
@@ -186,7 +186,7 @@ class TestJSONFormatter:
         sample_record["file"].name = "test.py"
 
         result = formatter(sample_record)
-        parsed = json.loads(result.strip())
+        parsed = json.loads(result.strip().replace("{{", "{").replace("}}", "}"))
 
         assert parsed["bot_name"] == "btc-bot"
         assert parsed["price"] == 50000.0
@@ -198,7 +198,7 @@ class TestJSONFormatter:
         sample_record["message"] = "Connecting with api_key=secret123456789"
 
         result = formatter(sample_record)
-        parsed = json.loads(result.strip())
+        parsed = json.loads(result.strip().replace("{{", "{").replace("}}", "}"))
 
         assert "secret12345" not in parsed["message"]
         assert "***MASKED***" in parsed["message"]
@@ -211,7 +211,7 @@ class TestJSONFormatter:
         sample_record["message"] = "Connecting with api_key=secret123456789"
 
         result = formatter(sample_record)
-        parsed = json.loads(result.strip())
+        parsed = json.loads(result.strip().replace("{{", "{").replace("}}", "}"))
 
         # 마스킹 비활성화 시 원본 유지
         assert "secret123456789" in parsed["message"]
@@ -222,7 +222,7 @@ class TestJSONFormatter:
         sample_record["file"].name = "test.py"
 
         result = formatter(sample_record)
-        parsed = json.loads(result.strip())
+        parsed = json.loads(result.strip().replace("{{", "{").replace("}}", "}"))
 
         # ISO8601 형식: 2024-01-01T12:00:00.000Z
         assert "T" in parsed["timestamp"]
@@ -322,7 +322,7 @@ class TestLoggingIntegration:
         result = formatter(record)
 
         # JSON 파싱 가능해야 함
-        parsed = json.loads(result.strip())
+        parsed = json.loads(result.strip().replace("{{", "{").replace("}}", "}"))
 
         # 필수 필드 존재
         assert "timestamp" in parsed
@@ -355,7 +355,7 @@ class TestLoggingIntegration:
         result = formatter(record)
 
         # JSON 파싱 가능해야 함
-        parsed = json.loads(result.strip())
+        parsed = json.loads(result.strip().replace("{{", "{").replace("}}", "}"))
         assert "한글" in parsed["message"]
         assert "quotes" in parsed["message"]
 
@@ -392,7 +392,7 @@ class TestJSONFormatterException:
         record["file"].name = "test.py"
 
         result = formatter(record)
-        parsed = json.loads(result.strip())
+        parsed = json.loads(result.strip().replace("{{", "{").replace("}}", "}"))
 
         assert "exception" in parsed
         assert parsed["exception"]["type"] == "ValueError"
@@ -423,7 +423,7 @@ class TestJSONFormatterException:
         record["file"].name = "test.py"
 
         result = formatter(record)
-        parsed = json.loads(result.strip())
+        parsed = json.loads(result.strip().replace("{{", "{").replace("}}", "}"))
 
         assert parsed["exception"]["type"] is None
         assert parsed["exception"]["value"] is None
@@ -553,7 +553,7 @@ class TestJSONFormatterNoFileInfo:
         record["level"].name = "INFO"
 
         result = formatter(record)
-        parsed = json.loads(result.strip())
+        parsed = json.loads(result.strip().replace("{{", "{").replace("}}", "}"))
 
         assert "file" not in parsed
         assert parsed["logger"] == "root"

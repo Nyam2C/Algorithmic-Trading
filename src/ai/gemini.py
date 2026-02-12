@@ -5,7 +5,9 @@ Phase 6.1: 신호 생성 이유 로깅 추가
 - get_signal_with_reason() 메서드 추가
 - JSON 형식 응답 지원
 """
+import asyncio
 import json
+import math
 from pathlib import Path
 
 from google import genai
@@ -24,6 +26,16 @@ class GeminiSignalGenerator:
 
     # 기본 온도 설정 (Phase 6.1: 0.1 → 0.3)
     DEFAULT_TEMPERATURE = 0.3
+
+    # 클래스 레벨 세마포어: 모든 인스턴스가 공유하여 동시 API 호출 제한
+    _api_semaphore: asyncio.Semaphore | None = None
+
+    @classmethod
+    def _get_semaphore(cls) -> asyncio.Semaphore:
+        """API 호출 세마포어 반환 (lazy init)."""
+        if cls._api_semaphore is None:
+            cls._api_semaphore = asyncio.Semaphore(1)
+        return cls._api_semaphore
 
     def __init__(
         self,
@@ -81,8 +93,25 @@ class GeminiSignalGenerator:
             logger.error(f"Failed to load prompt {filename}: {e}")
             raise
 
+    @staticmethod
+    def _safe_fmt(value: float | int, fmt: str) -> str:
+        """NaN-safe 숫자 포맷팅.
+
+        Args:
+            value: 포맷팅할 값
+            fmt: format spec (예: '+.2f', ',.2f')
+
+        Returns:
+            포맷된 문자열 또는 'N/A'
+        """
+        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+            return "N/A"
+        return f"{value:{fmt}}"
+
     def _format_market_data(self, market_data: dict) -> dict[str, str | int]:
         """시장 데이터를 템플릿 변수 형식으로 포맷팅.
+
+        NaN/Inf 값은 'N/A'로 치환하여 Gemini 프롬프트 오류를 방지합니다.
 
         Args:
             market_data: Dictionary with market indicators
@@ -90,44 +119,45 @@ class GeminiSignalGenerator:
         Returns:
             Formatted data dictionary for template substitution
         """
+        fmt = self._safe_fmt
         return {
             "symbol": "BTCUSDT",
             # Price action
-            "trend_2h_pct": f"{market_data['trend_2h_pct']:+.2f}",
-            "trend_30min_pct": f"{market_data['trend_30min_pct']:+.2f}",
+            "trend_2h_pct": fmt(market_data["trend_2h_pct"], "+.2f"),
+            "trend_30min_pct": fmt(market_data["trend_30min_pct"], "+.2f"),
             "bullish_candles": market_data["bullish_candles"],
             "bearish_candles": market_data["bearish_candles"],
-            "highest": f"{market_data['resistance']:,.0f}",
-            "lowest": f"{market_data['support']:,.0f}",
+            "highest": fmt(market_data["resistance"], ",.0f"),
+            "lowest": fmt(market_data["support"], ",.0f"),
             # Current state
-            "current_price": f"{market_data['current_price']:,.2f}",
-            "high_24h": f"{market_data['high_24h']:,.2f}",
-            "low_24h": f"{market_data['low_24h']:,.2f}",
-            "change_24h_pct": f"{market_data['change_24h_pct']:+.2f}",
+            "current_price": fmt(market_data["current_price"], ",.2f"),
+            "high_24h": fmt(market_data["high_24h"], ",.2f"),
+            "low_24h": fmt(market_data["low_24h"], ",.2f"),
+            "change_24h_pct": fmt(market_data["change_24h_pct"], "+.2f"),
             # Technical indicators
-            "rsi": f"{market_data['rsi']:.2f}",
+            "rsi": fmt(market_data["rsi"], ".2f"),
             "rsi_trend": market_data["rsi_trend"],
-            "ma_7": f"{market_data['ma_7']:,.2f}",
-            "ma_25": f"{market_data['ma_25']:,.2f}",
-            "ma_99": f"{market_data['ma_99']:,.2f}",
-            "price_vs_ma7_pct": f"{market_data['price_vs_ma7_pct']:+.2f}",
+            "ma_7": fmt(market_data["ma_7"], ",.2f"),
+            "ma_25": fmt(market_data["ma_25"], ",.2f"),
+            "ma_99": fmt(market_data["ma_99"], ",.2f"),
+            "price_vs_ma7_pct": fmt(market_data["price_vs_ma7_pct"], "+.2f"),
             "price_vs_ma7_pos": market_data["price_vs_ma7_pos"],
-            "price_vs_ma25_pct": f"{market_data['price_vs_ma25_pct']:+.2f}",
+            "price_vs_ma25_pct": fmt(market_data["price_vs_ma25_pct"], "+.2f"),
             "price_vs_ma25_pos": market_data["price_vs_ma25_pos"],
             # Volume
-            "current_volume": f"{market_data['current_volume']:.0f}",
-            "avg_volume": f"{market_data['avg_volume']:.0f}",
-            "volume_ratio": f"{market_data['volume_ratio']:.2f}",
+            "current_volume": fmt(market_data["current_volume"], ".0f"),
+            "avg_volume": fmt(market_data["avg_volume"], ".0f"),
+            "volume_ratio": fmt(market_data["volume_ratio"], ".2f"),
             "volume_trend": market_data["volume_trend"],
             # Volatility
-            "atr": f"{market_data['atr']:.2f}",
-            "atr_pct": f"{market_data['atr_pct']:.2f}",
+            "atr": fmt(market_data["atr"], ".2f"),
+            "atr_pct": fmt(market_data["atr_pct"], ".2f"),
             "volatility_state": market_data["volatility_state"],
             # Support/Resistance
-            "resistance": f"{market_data['resistance']:,.2f}",
-            "support": f"{market_data['support']:,.2f}",
-            "dist_resistance_pct": f"{market_data['dist_resistance_pct']:+.2f}",
-            "dist_support_pct": f"{market_data['dist_support_pct']:+.2f}",
+            "resistance": fmt(market_data["resistance"], ",.2f"),
+            "support": fmt(market_data["support"], ",.2f"),
+            "dist_resistance_pct": fmt(market_data["dist_resistance_pct"], "+.2f"),
+            "dist_support_pct": fmt(market_data["dist_support_pct"], "+.2f"),
         }
 
     def _build_market_prompt(self, market_data: dict) -> str:
@@ -175,15 +205,16 @@ class GeminiSignalGenerator:
 
             logger.debug("Calling Gemini API...")
 
-            # Call Gemini API
-            response = await self.client.aio.models.generate_content(
-                model=self.model,
-                contents=full_prompt,
-                config={
-                    "temperature": self.temperature,
-                    "max_output_tokens": 10,
-                },
-            )
+            # Call Gemini API (세마포어로 동시 호출 제한)
+            async with self._get_semaphore():
+                response = await self.client.aio.models.generate_content(
+                    model=self.model,
+                    contents=full_prompt,
+                    config={
+                        "temperature": self.temperature,
+                        "max_output_tokens": 10,
+                    },
+                )
 
             # Parse response
             if response.text is None:
@@ -358,15 +389,16 @@ class GeminiSignalGenerator:
 
             logger.debug("Calling Gemini API for signal with reason...")
 
-            # Call Gemini API with higher max_output_tokens for JSON
-            response = await self.client.aio.models.generate_content(
-                model=self.model,
-                contents=full_prompt,
-                config={
-                    "temperature": self.temperature,
-                    "max_output_tokens": 200,  # JSON 응답을 위해 증가
-                },
-            )
+            # Call Gemini API with higher tokens for JSON (세마포어 제한)
+            async with self._get_semaphore():
+                response = await self.client.aio.models.generate_content(
+                    model=self.model,
+                    contents=full_prompt,
+                    config={
+                        "temperature": self.temperature,
+                        "max_output_tokens": 200,  # JSON 응답을 위해 증가
+                    },
+                )
 
             # Parse response
             if response.text is None:

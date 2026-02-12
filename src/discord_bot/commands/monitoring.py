@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from src.discord_bot.client import TradingBotClient
 
 
-def register_monitoring_commands(client: "TradingBotClient") -> None:
+def register_monitoring_commands(client: "TradingBotClient") -> None:  # noqa: PLR0915
     """모니터링 슬래시 명령어 등록.
 
     Args:
@@ -105,6 +105,26 @@ def register_monitoring_commands(client: "TradingBotClient") -> None:
     async def account_english(interaction: discord.Interaction):
         """Account command (English)."""
         await client._account_command(interaction)
+
+    # =========================================================================
+    # /프롬프트 (Prompt - AI Debug)
+    # =========================================================================
+
+    @tree.command(name="프롬프트", description="🤖 마지막 AI 프롬프트 및 응답 조회")
+    async def prompt_korean(
+        interaction: discord.Interaction, bot_name: str = ""
+    ):
+        """AI 프롬프트 조회 (한글)."""
+        await client._prompt_command(interaction, bot_name)
+
+    @tree.command(
+        name="prompt", description="🤖 View last AI prompt and response"
+    )
+    async def prompt_english(
+        interaction: discord.Interaction, bot_name: str = ""
+    ):
+        """Prompt command (English)."""
+        await client._prompt_command(interaction, bot_name)
 
     # =========================================================================
     # /핑 (Ping)

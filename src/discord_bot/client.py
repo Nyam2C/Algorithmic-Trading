@@ -33,6 +33,8 @@ from src.discord_bot.views import DashboardView
 # Discord 메시지/임베드 길이 제한 상수
 MAX_MESSAGE_LENGTH = 500
 MAX_EMBED_FIELD_LENGTH = 400
+MAX_PROMPT_DISPLAY_LENGTH = 1500
+MAX_EMBED_FIELD_VALUE_LENGTH = 1024
 STATUS_UPDATE_INTERVAL = 60
 
 if TYPE_CHECKING:
@@ -479,6 +481,118 @@ class TradingBotClient(discord.Client):
         except Exception as e:
             logger.error(f"/계정 명령어 에러: {e}")
             await interaction.followup.send(f"❌ 계정 조회 오류: {e!s}", ephemeral=True)
+
+    async def _prompt_command(
+        self, interaction: discord.Interaction, bot_name: str = ""
+    ):
+        """마지막 AI 프롬프트/응답 조회 명령어 구현."""
+        await interaction.response.defer()
+
+        try:
+            if not self.bot_manager:
+                await interaction.followup.send(
+                    "❌ 멀티봇 매니저가 설정되지 않았습니다.", ephemeral=True
+                )
+                return
+
+            bots = self.bot_manager.bots
+            if not bots:
+                await interaction.followup.send(
+                    "❌ 등록된 봇이 없습니다.", ephemeral=True
+                )
+                return
+
+            # bot_name이 빈 문자열이면 첫 번째 봇 사용
+            if not bot_name:
+                target_bot = next(iter(bots.values()))
+                bot_name = target_bot.bot_name
+            else:
+                target_bot_or_none = bots.get(bot_name)
+                if not target_bot_or_none:
+                    available = ", ".join(bots.keys())
+                    await interaction.followup.send(
+                        f"❌ 봇 '{bot_name}'을(를) 찾을 수 없습니다.\n"
+                        f"사용 가능: {available}",
+                        ephemeral=True,
+                    )
+                    return
+                target_bot = target_bot_or_none
+
+            last_call = target_bot.get_last_ai_call()
+            if not last_call:
+                embed = discord.Embed(
+                    title=f"🤖 AI 프롬프트 ({bot_name})",
+                    description="아직 AI 호출 기록이 없습니다.",
+                    color=Colors.WARNING,
+                )
+                await interaction.followup.send(embed=embed)
+                return
+
+            # 프롬프트 truncate (Embed field 제한 대응)
+            prompt_text = last_call.get("prompt", "") or ""
+            if len(prompt_text) > MAX_PROMPT_DISPLAY_LENGTH:
+                prompt_text = (
+                    prompt_text[:MAX_PROMPT_DISPLAY_LENGTH]
+                    + "\n...(truncated)"
+                )
+
+            response_text = last_call.get("response", "") or "(없음)"
+            model = last_call.get("model", "unknown")
+            signal = last_call.get("signal", "N/A")
+            timestamp = last_call.get("timestamp")
+            time_str = (
+                timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                if timestamp
+                else "N/A"
+            )
+
+            embed = discord.Embed(
+                title=f"🤖 AI 프롬프트 ({bot_name})",
+                color=Colors.INFO,
+            )
+            embed.add_field(
+                name="📝 프롬프트",
+                value=f"```\n{prompt_text[:MAX_EMBED_FIELD_VALUE_LENGTH]}\n```",
+                inline=False,
+            )
+            if len(prompt_text) > MAX_EMBED_FIELD_VALUE_LENGTH:
+                embed.add_field(
+                    name="📝 프롬프트 (계속)",
+                    value=f"```\n{prompt_text[MAX_EMBED_FIELD_VALUE_LENGTH:]}\n```",
+                    inline=False,
+                )
+            embed.add_field(
+                name="💬 응답",
+                value=f"**{response_text}**",
+                inline=True,
+            )
+            embed.add_field(
+                name="📊 시그널",
+                value=signal,
+                inline=True,
+            )
+            embed.add_field(
+                name="🔧 모델",
+                value=model,
+                inline=True,
+            )
+            embed.add_field(
+                name="🕐 시간",
+                value=time_str,
+                inline=True,
+            )
+
+            await interaction.followup.send(embed=embed)
+            logger.info(
+                f"Discord 명령어 /프롬프트 실행 (bot={bot_name}): "
+                f"{interaction.user}"
+            )
+
+        except Exception as e:
+            logger.error(f"/프롬프트 명령어 에러: {e}")
+            await interaction.followup.send(
+                f"❌ AI 프롬프트 조회 오류: {e!s}", ephemeral=True
+            )
 
     # =========================================================================
     # Multi-Bot Command Implementations

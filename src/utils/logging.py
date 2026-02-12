@@ -171,7 +171,10 @@ class JSONFormatter:
             log_entry["message"] = mask_sensitive_data(str(log_entry["message"]))
             log_entry = mask_dict_sensitive_data(log_entry)  # type: ignore[assignment]
 
-        return json.dumps(log_entry, ensure_ascii=False, default=str) + "\n"
+        # loguru가 format 반환값에 str.format_map()을 호출하므로
+        # JSON 내의 {} 를 {{}}로 이스케이프해야 KeyError 방지
+        raw = json.dumps(log_entry, ensure_ascii=False, default=str)
+        return raw.replace("{", "{{").replace("}", "}}") + "\n"
 
 
 # loguru 기본 핸들러 ID (초기 설정 시 기록)

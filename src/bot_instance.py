@@ -329,6 +329,16 @@ class BotInstance:
         self._enhanced_gemini = gemini
         self._log.info("EnhancedGemini 설정 완료")
 
+    def get_last_ai_call(self) -> dict[str, Any] | None:
+        """마지막 AI 호출 정보 반환 (디버깅용).
+
+        Returns:
+            마지막 호출 정보 딕셔너리 또는 None
+        """
+        if self._enhanced_gemini:
+            return self._enhanced_gemini.get_last_ai_call()
+        return None
+
     # =========================================================================
     # Redis 상태 관리
     # =========================================================================
@@ -517,6 +527,15 @@ class BotInstance:
         except Exception as e:
             self._log.warning(f"리스크 매니저 초기화 실패 (기본값 사용): {e}")
             await self._risk_manager.reset_daily_stats(1000.0)
+
+        # 시그널 모드 로그
+        if self._ensemble_generator:
+            mode = "앙상블 (Gemini + Rule-based)"
+        elif self._use_memory_signals and self._enhanced_gemini:
+            mode = "AI 메모리 (Enhanced Gemini)"
+        else:
+            mode = "규칙 기반 (Rule-based only)"
+        self._log.warning(f"시그널 모드: {mode}")
 
         self._log.info("봇 초기화 완료")
 

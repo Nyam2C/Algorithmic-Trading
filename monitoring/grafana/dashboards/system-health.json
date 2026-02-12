@@ -83,7 +83,7 @@
             "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({app=\"trading\", level=\"error\"} [1h]))",
+          "expr": "sum(count_over_time({job=\"trading-bot\", level=\"ERROR\"} [1h]))",
           "queryType": "range",
           "refId": "A"
         }
@@ -93,8 +93,8 @@
     },
     {
       "datasource": {
-        "type": "loki",
-        "uid": "P8E80F9AEF21F6940"
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -156,12 +156,11 @@
       "targets": [
         {
           "datasource": {
-            "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
           },
-          "editorMode": "code",
-          "expr": "sum(count_over_time({app=\"trading\"} |= \"HEARTBEAT\" [10m]))",
-          "queryType": "range",
+          "expr": "sum(increase(trading_loop_total[10m]))",
+          "legendFormat": "loops",
           "refId": "A"
         }
       ],
@@ -170,8 +169,8 @@
     },
     {
       "datasource": {
-        "type": "loki",
-        "uid": "P8E80F9AEF21F6940"
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -179,26 +178,24 @@
             "mode": "thresholds"
           },
           "mappings": [],
-          "max": 100,
-          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "green",
                 "value": null
               },
               {
                 "color": "yellow",
-                "value": 90
+                "value": 1
               },
               {
-                "color": "green",
-                "value": 95
+                "color": "red",
+                "value": 5
               }
             ]
           },
-          "unit": "percent"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -227,16 +224,15 @@
       "targets": [
         {
           "datasource": {
-            "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
           },
-          "editorMode": "code",
-          "expr": "(sum(count_over_time({app=\"trading\"} |= \"API_SUCCESS\" [1h])) / sum(count_over_time({app=\"trading\"} |= \"API_CALL\" [1h]))) * 100",
-          "queryType": "range",
+          "expr": "avg(rate(trading_api_latency_seconds_sum[1h]) / rate(trading_api_latency_seconds_count[1h]))",
+          "legendFormat": "avg latency",
           "refId": "A"
         }
       ],
-      "title": "API 성공률 (1h)",
+      "title": "API 평균 지연시간",
       "type": "stat"
     },
     {
@@ -292,7 +288,7 @@
             "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({app=\"trading\"} |= \"DISCORD\" |= \"SUCCESS\" [1h]))",
+          "expr": "sum(count_over_time({job=\"trading-bot\"} |= \"Discord\" [1h]))",
           "queryType": "range",
           "refId": "A"
         }
@@ -329,7 +325,7 @@
             "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "{app=\"trading\", level=\"error\"}",
+          "expr": "{job=\"trading-bot\", level=\"ERROR\"}",
           "queryType": "range",
           "refId": "A"
         }
@@ -418,7 +414,7 @@
             "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "sum by (level) (count_over_time({app=\"trading\"} [5m]))",
+          "expr": "sum by (level) (count_over_time({job=\"trading-bot\"} [5m]))",
           "queryType": "range",
           "refId": "A"
         }
@@ -507,7 +503,7 @@
             "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "rate({app=\"trading\", level=\"error\"} [5m])",
+          "expr": "sum(rate({job=\"trading-bot\", level=\"ERROR\"} [5m]))",
           "queryType": "range",
           "refId": "A"
         }
@@ -544,7 +540,7 @@
             "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "{app=\"trading\"} |= \"API_CALL\" or \"API_SUCCESS\" or \"API_ERROR\"",
+          "expr": "{job=\"trading-bot\"} | json | file=\"binance.py\"",
           "queryType": "range",
           "refId": "A"
         }
@@ -634,7 +630,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "histogram_quantile(0.95, rate(trading_api_latency_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, sum by (le, endpoint) (rate(trading_api_latency_seconds_bucket[5m])))",
           "legendFormat": "{{endpoint}} p95",
           "refId": "A"
         }
@@ -723,7 +719,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(trading_loop_total[5m])",
+          "expr": "sum by (bot_name) (rate(trading_loop_total[5m]))",
           "legendFormat": "{{bot_name}}",
           "refId": "A"
         }
@@ -760,7 +756,7 @@
             "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "{job=\"trading-error\"} | json | level=\"ERROR\"",
+          "expr": "{job=\"trading-error\"} | json",
           "queryType": "range",
           "refId": "A"
         }

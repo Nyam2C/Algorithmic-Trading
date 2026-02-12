@@ -508,3 +508,123 @@ class TestEnhancedGeminiErrorHandling:
         )
 
         assert signal == "WAIT"
+
+
+# =============================================================================
+# get_last_ai_call 테스트
+# =============================================================================
+
+
+class TestGetLastAiCall:
+    """get_last_ai_call() 메서드 테스트"""
+
+    @patch(GENAI_PATCH)
+    def test_get_last_ai_call_returns_none_initially(self, mock_genai):
+        """초기 상태에서 None 반환"""
+        generator = EnhancedGeminiSignalGenerator(
+            api_key="test-api-key",
+        )
+
+        result = generator.get_last_ai_call()
+        assert result is None
+
+    @pytest.mark.asyncio
+    @patch(GENAI_PATCH)
+    async def test_get_last_ai_call_after_signal(
+        self,
+        mock_genai,
+        mock_context_builder,
+        sample_memory_context,
+        sample_market_data,
+    ):
+        """시그널 생성 후 마지막 호출 정보 반환"""
+        mock_context_builder.build_context = AsyncMock(
+            return_value=sample_memory_context
+        )
+
+        mock_response = MagicMock()
+        mock_response.text = "LONG"
+        mock_genai.Client.return_value.aio.models.generate_content = AsyncMock(
+            return_value=mock_response
+        )
+
+        generator = EnhancedGeminiSignalGenerator(
+            api_key="test-api-key",
+            context_builder=mock_context_builder,
+        )
+
+        await generator.get_signal_with_memory(
+            market_data=sample_market_data,
+            bot_id="test-bot",
+        )
+
+        result = generator.get_last_ai_call()
+        assert result is not None
+        assert result["signal"] == "LONG"
+        assert result["response"] == "LONG"
+        assert result["model"] == "gemini-2.5-flash"
+        assert result["timestamp"] is not None
+        assert "prompt" in result
+        assert len(result["prompt"]) > 0
+
+    @pytest.mark.asyncio
+    @patch(GENAI_PATCH)
+    async def test_get_last_ai_call_after_error(
+        self,
+        mock_genai,
+        sample_market_data,
+    ):
+        """API 에러 후에도 호출 기록 저장"""
+        mock_genai.Client.return_value.aio.models.generate_content = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+
+        generator = EnhancedGeminiSignalGenerator(
+            api_key="test-api-key",
+        )
+
+        signal = await generator.get_signal_with_memory(
+            market_data=sample_market_data,
+            bot_id="test-bot",
+        )
+
+        assert signal == "WAIT"
+        result = generator.get_last_ai_call()
+        assert result is not None
+        assert result["signal"] == "WAIT"
+        assert result["response"] == ""
+
+    @pytest.mark.asyncio
+    @patch(GENAI_PATCH)
+    async def test_get_last_ai_call_updates_on_each_call(
+        self,
+        mock_genai,
+        sample_market_data,
+    ):
+        """연속 호출 시 마지막 호출 정보가 갱신됨"""
+        mock_response_1 = MagicMock()
+        mock_response_1.text = "LONG"
+        mock_response_2 = MagicMock()
+        mock_response_2.text = "SHORT"
+
+        mock_genai.Client.return_value.aio.models.generate_content = AsyncMock(
+            side_effect=[mock_response_1, mock_response_2]
+        )
+
+        generator = EnhancedGeminiSignalGenerator(
+            api_key="test-api-key",
+        )
+
+        await generator.get_signal_with_memory(
+            market_data=sample_market_data, bot_id="test-bot"
+        )
+        result_1 = generator.get_last_ai_call()
+        assert result_1 is not None
+        assert result_1["signal"] == "LONG"
+
+        await generator.get_signal_with_memory(
+            market_data=sample_market_data, bot_id="test-bot"
+        )
+        result_2 = generator.get_last_ai_call()
+        assert result_2 is not None
+        assert result_2["signal"] == "SHORT"
