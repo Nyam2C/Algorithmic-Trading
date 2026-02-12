@@ -2227,6 +2227,201 @@ class TestRefactoredClientCommands:
         await client._account_command(interaction)
 
 
+
+
+class TestControlCommandsBotManagerIntegration:
+    """P1-1: 싱글봇 제어 명령어가 BotManager를 통해 BotInstance를 실제 제어하는지 테스트"""
+
+    def _make_bot_manager(self):
+        """BotManager mock with one bot."""
+        mock_bot = MagicMock()
+        mock_bot.bot_name = "btc-default"
+        mock_bot.pause = MagicMock()
+        mock_bot.resume = MagicMock()
+        mock_bot.request_emergency_close = MagicMock()
+
+        mock_manager = MagicMock()
+        mock_manager.bot_count = 1
+        mock_manager.bots = {"btc-default": mock_bot}
+        mock_manager.pause_bot = MagicMock()
+        mock_manager.resume_bot = MagicMock()
+        mock_manager.get_bot = MagicMock(return_value=mock_bot)
+        return mock_manager, mock_bot
+
+    @pytest.mark.asyncio
+    async def test_stop_command_calls_bot_manager_pause(self):
+        """일시정지 시 BotManager.pause_bot 호출 확인"""
+        mock_manager, mock_bot = self._make_bot_manager()
+        client = _create_client({"is_paused": False}, bot_manager=mock_manager)
+        interaction = _make_interaction()
+        await client._stop_command(interaction)
+
+        mock_manager.pause_bot.assert_called_once_with("btc-default")
+        assert client.bot_state["is_paused"] is True
+
+    @pytest.mark.asyncio
+    async def test_start_command_calls_bot_manager_resume(self):
+        """재시작 시 BotManager.resume_bot 호출 확인"""
+        mock_manager, mock_bot = self._make_bot_manager()
+        client = _create_client({"is_paused": True}, bot_manager=mock_manager)
+        interaction = _make_interaction()
+        await client._start_command(interaction)
+
+        mock_manager.resume_bot.assert_called_once_with("btc-default")
+        assert client.bot_state["is_paused"] is False
+
+    @pytest.mark.asyncio
+    async def test_emergency_command_calls_bot_request_emergency_close(self):
+        """긴급청산 시 bot.request_emergency_close() 호출 확인"""
+        mock_manager, mock_bot = self._make_bot_manager()
+        client = _create_client({
+            "is_paused": False,
+            "position": {"side": "LONG", "entry_price": 105000.0, "quantity": 0.01},
+        }, bot_manager=mock_manager)
+        interaction = _make_interaction()
+        await client._emergency_command(interaction)
+
+        mock_manager.get_bot.assert_called_once_with("btc-default")
+        mock_bot.request_emergency_close.assert_called_once()
+        assert client.bot_state["emergency_close"] is True
+        assert client.bot_state["is_paused"] is True
+
+    @pytest.mark.asyncio
+    async def test_stop_command_without_bot_manager(self):
+        """BotManager 없이도 bot_state는 정상 업데이트"""
+        client = _create_client({"is_paused": False}, bot_manager=None)
+        interaction = _make_interaction()
+        await client._stop_command(interaction)
+        assert client.bot_state["is_paused"] is True
+
+    @pytest.mark.asyncio
+    async def test_start_command_without_bot_manager(self):
+        """BotManager 없이도 bot_state는 정상 업데이트"""
+        client = _create_client({"is_paused": True}, bot_manager=None)
+        interaction = _make_interaction()
+        await client._start_command(interaction)
+        assert client.bot_state["is_paused"] is False
+
+    @pytest.mark.asyncio
+    async def test_emergency_command_without_bot_manager(self):
+        """BotManager 없이도 bot_state는 정상 업데이트"""
+        client = _create_client({
+            "is_paused": False,
+            "position": {"side": "LONG", "entry_price": 105000.0, "quantity": 0.01},
+        }, bot_manager=None)
+        interaction = _make_interaction()
+        await client._emergency_command(interaction)
+        assert client.bot_state["emergency_close"] is True
+
+    @pytest.mark.asyncio
+    async def test_emergency_command_no_position_skips_bot_manager(self):
+        """포지션이 없으면 BotManager 호출 안 함"""
+        mock_manager, mock_bot = self._make_bot_manager()
+        client = _create_client({"position": None}, bot_manager=mock_manager)
+        interaction = _make_interaction()
+        await client._emergency_command(interaction)
+
+        mock_manager.get_bot.assert_not_called()
+        mock_bot.request_emergency_close.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_stop_command_empty_bots(self):
+        """봇이 0개일 때 BotManager 호출 스킵"""
+        mock_manager = MagicMock()
+        mock_manager.bot_count = 0
+        mock_manager.bots = {}
+        client = _create_client({"is_paused": False}, bot_manager=mock_manager)
+        interaction = _make_interaction()
+        await client._stop_command(interaction)
+
+        mock_manager.pause_bot.assert_not_called()
+        assert client.bot_state["is_paused"] is True
+
+
+class TestHttpStatusConstants:
+    """P1-2: HTTP 상태코드 상수가 올바르게 사용되는지 테스트"""
+
+    def test_http_constants_defined(self):
+        from src.discord_bot.client import HTTP_CLIENT_ERROR, HTTP_SERVER_ERROR
+        assert HTTP_SERVER_ERROR == 500
+        assert HTTP_CLIENT_ERROR == 400
+
+    def test_http_constants_different_from_discord_constants(self):
+        from src.discord_bot.client import (
+            HTTP_CLIENT_ERROR,
+            HTTP_SERVER_ERROR,
+            MAX_EMBED_FIELD_LENGTH,
+            MAX_MESSAGE_LENGTH,
+        )
+        # 값은 우연히 같을 수 있지만, 의미적으로 분리된 상수임을 확인
+        assert HTTP_SERVER_ERROR == 500
+        assert HTTP_CLIENT_ERROR == 400
+        assert MAX_MESSAGE_LENGTH == 500  # Discord 메시지 길이
+        assert MAX_EMBED_FIELD_LENGTH == 400  # Discord embed 필드 길이
+
+    @pytest.mark.asyncio
+    async def test_api_call_server_error_500(self):
+        """HTTP 500이 서버 오류로 처리됨"""
+        client = _create_client({})
+
+        mock_response = AsyncMock()
+        mock_response.status = 500
+        mock_response.text = AsyncMock(return_value="Internal Server Error")
+
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session.request = MagicMock(return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=mock_response),
+            __aexit__=AsyncMock(return_value=False),
+        ))
+
+        with patch("src.discord_bot.client.aiohttp.ClientSession", return_value=mock_session):
+            with pytest.raises(Exception, match="API 서버 오류"):
+                await client._call_bot_api("GET", "/api/test")
+
+    @pytest.mark.asyncio
+    async def test_api_call_client_error_404(self):
+        """HTTP 404가 클라이언트 오류로 처리됨"""
+        client = _create_client({})
+
+        mock_response = AsyncMock()
+        mock_response.status = 404
+        mock_response.text = AsyncMock(return_value="Not Found")
+
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session.request = MagicMock(return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=mock_response),
+            __aexit__=AsyncMock(return_value=False),
+        ))
+
+        with patch("src.discord_bot.client.aiohttp.ClientSession", return_value=mock_session):
+            with pytest.raises(ValueError, match="API 요청 오류"):
+                await client._call_bot_api("GET", "/api/test")
+
+    @pytest.mark.asyncio
+    async def test_api_call_success_200(self):
+        """HTTP 200이 정상 처리됨"""
+        client = _create_client({})
+
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.json = AsyncMock(return_value={"ok": True})
+
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session.request = MagicMock(return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=mock_response),
+            __aexit__=AsyncMock(return_value=False),
+        ))
+
+        with patch("src.discord_bot.client.aiohttp.ClientSession", return_value=mock_session):
+            result = await client._call_bot_api("GET", "/api/test")
+            assert result == {"ok": True}
+
 class TestRefactoredClientMultibotCommands:
     """멀티봇 관련 명령어 테스트"""
 

@@ -37,6 +37,10 @@ MAX_PROMPT_DISPLAY_LENGTH = 1500
 MAX_EMBED_FIELD_VALUE_LENGTH = 1024
 STATUS_UPDATE_INTERVAL = 60
 
+# HTTP 상태 코드 상수
+HTTP_SERVER_ERROR = 500
+HTTP_CLIENT_ERROR = 400
+
 if TYPE_CHECKING:
     from src.bot_manager import MultiBotManager
 
@@ -174,7 +178,7 @@ class TradingBotClient(discord.Client):
                 aiohttp.ClientSession(timeout=timeout) as session,
                 session.request(method, url, json=json_data) as resp,
             ):
-                    if resp.status >= MAX_MESSAGE_LENGTH:
+                    if resp.status >= HTTP_SERVER_ERROR:
                         error_text = await resp.text()
                         logger.error(
                         f"API 서버 오류: {method} {url} - {resp.status}"
@@ -182,7 +186,7 @@ class TradingBotClient(discord.Client):
                         raise Exception(
                         f"API 서버 오류 ({resp.status}): {error_text}"
                     )
-                    if resp.status >= MAX_EMBED_FIELD_LENGTH:
+                    if resp.status >= HTTP_CLIENT_ERROR:
                         error_text = await resp.text()
                         logger.warning(
                         f"API 클라이언트 오류: {method} {url} - {resp.status}"
@@ -325,6 +329,11 @@ class TradingBotClient(discord.Client):
         await interaction.response.defer()
 
         try:
+            # BotInstance 실제 제어
+            if self.bot_manager and self.bot_manager.bot_count > 0:
+                first_bot = next(iter(self.bot_manager.bots.values()))
+                self.bot_manager.pause_bot(first_bot.bot_name)
+            # bot_state 호환성 동기화
             self.bot_state["is_paused"] = True
             self.bot_state["paused_by"] = str(interaction.user)
             self.bot_state["paused_at"] = datetime.now()
@@ -367,6 +376,11 @@ class TradingBotClient(discord.Client):
 
         try:
             was_paused = self.bot_state.get("is_paused", False)
+            # BotInstance 실제 제어
+            if self.bot_manager and self.bot_manager.bot_count > 0:
+                first_bot = next(iter(self.bot_manager.bots.values()))
+                self.bot_manager.resume_bot(first_bot.bot_name)
+            # bot_state 호환성 동기화
             self.bot_state["is_paused"] = False
             self.bot_state["resumed_by"] = str(interaction.user)
             self.bot_state["resumed_at"] = datetime.now()
@@ -425,6 +439,13 @@ class TradingBotClient(discord.Client):
                 await interaction.followup.send(embed=embed)
                 return
 
+            # BotInstance 실제 긴급 청산
+            if self.bot_manager and self.bot_manager.bot_count > 0:
+                first_bot = next(iter(self.bot_manager.bots.values()))
+                bot = self.bot_manager.get_bot(first_bot.bot_name)
+                if bot:
+                    bot.request_emergency_close()
+            # bot_state 호환성 동기화
             self.bot_state["emergency_close"] = True
             self.bot_state["emergency_by"] = str(interaction.user)
             self.bot_state["emergency_at"] = datetime.now()
