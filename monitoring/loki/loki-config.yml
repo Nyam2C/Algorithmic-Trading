@@ -64,6 +64,11 @@ limits_config:
 # 청크 설정
 chunk_store_config:
   max_look_back_period: 0s
+  chunk_cache_config:
+    embedded_cache:
+      enabled: true
+      max_size_mb: 100
+      ttl: 24h
 
 # 테이블 관리자
 table_manager:
@@ -79,7 +84,7 @@ query_range:
     cache:
       embedded_cache:
         enabled: true
-        max_size_items: 1024
+        max_size_mb: 100
         ttl: 24h
 
 # 인덱서
