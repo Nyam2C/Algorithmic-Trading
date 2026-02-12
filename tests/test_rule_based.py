@@ -16,39 +16,167 @@ class TestRuleBasedSignalGeneratorInit:
         assert generator.rsi_oversold == 45.0
         assert generator.rsi_overbought == 55.0
         assert generator.volume_threshold == 0.5
+        assert generator.strategy == "trend_pullback"
 
     def test_init_custom_params(self):
         """커스텀 파라미터로 초기화"""
         generator = RuleBasedSignalGenerator(
             rsi_oversold=30.0,
             rsi_overbought=70.0,
-            volume_threshold=1.5
+            volume_threshold=1.5,
+            strategy="classic",
         )
 
         assert generator.rsi_oversold == 30.0
         assert generator.rsi_overbought == 70.0
         assert generator.volume_threshold == 1.5
+        assert generator.strategy == "classic"
 
 
-class TestGetSignalLong:
-    """LONG 신호 테스트"""
+class TestTrendPullbackSignal:
+    """trend_pullback 전략 테스트"""
 
     @pytest.fixture
     def generator(self):
-        return RuleBasedSignalGenerator()
+        return RuleBasedSignalGenerator(strategy="trend_pullback")
+
+    def test_long_signal_uptrend_pullback(self, generator):
+        """상승추세에서 풀백 시 LONG"""
+        market_data = {
+            "rsi": 40.0,             # < 45 (oversold pullback)
+            "ma_7": 105000.0,        # > ma_25 (uptrend)
+            "ma_25": 104000.0,
+            "volume_ratio": 1.5,     # > 0.5
+        }
+        assert generator.get_signal(market_data) == "LONG"
+
+    def test_long_signal_boundary_rsi(self, generator):
+        """RSI가 정확히 oversold 경계에서는 WAIT"""
+        market_data = {
+            "rsi": 45.0,             # == 45, not < 45
+            "ma_7": 105000.0,
+            "ma_25": 104000.0,
+            "volume_ratio": 1.5,
+        }
+        assert generator.get_signal(market_data) == "WAIT"
+
+    def test_long_signal_no_uptrend(self, generator):
+        """MA7 < MA25이면 LONG 불가"""
+        market_data = {
+            "rsi": 30.0,
+            "ma_7": 103000.0,        # < ma_25 (downtrend)
+            "ma_25": 104000.0,
+            "volume_ratio": 1.5,
+        }
+        # MA7 < MA25이므로 uptrend 아님 -> WAIT (SHORT 조건은 rsi > overbought 필요)
+        assert generator.get_signal(market_data) == "WAIT"
+
+    def test_long_signal_low_volume(self, generator):
+        """거래량 부족 시 WAIT"""
+        market_data = {
+            "rsi": 30.0,
+            "ma_7": 105000.0,
+            "ma_25": 104000.0,
+            "volume_ratio": 0.3,     # < 0.5
+        }
+        assert generator.get_signal(market_data) == "WAIT"
+
+    def test_short_signal_downtrend_overbought(self, generator):
+        """하락추세에서 과매수 시 SHORT"""
+        market_data = {
+            "rsi": 60.0,             # > 55 (overbought)
+            "ma_7": 103000.0,        # < ma_25 (downtrend)
+            "ma_25": 104000.0,
+            "volume_ratio": 1.5,
+        }
+        assert generator.get_signal(market_data) == "SHORT"
+
+    def test_short_signal_boundary_rsi(self, generator):
+        """RSI가 정확히 overbought 경계에서는 WAIT"""
+        market_data = {
+            "rsi": 55.0,             # == 55, not > 55
+            "ma_7": 103000.0,
+            "ma_25": 104000.0,
+            "volume_ratio": 1.5,
+        }
+        assert generator.get_signal(market_data) == "WAIT"
+
+    def test_short_signal_no_downtrend(self, generator):
+        """MA7 > MA25이면 SHORT 불가"""
+        market_data = {
+            "rsi": 70.0,
+            "ma_7": 105000.0,        # > ma_25 (uptrend)
+            "ma_25": 104000.0,
+            "volume_ratio": 1.5,
+        }
+        assert generator.get_signal(market_data) == "WAIT"
+
+    def test_short_signal_low_volume(self, generator):
+        """SHORT 조건에서 거래량 부족 시 WAIT"""
+        market_data = {
+            "rsi": 70.0,
+            "ma_7": 103000.0,
+            "ma_25": 104000.0,
+            "volume_ratio": 0.3,
+        }
+        assert generator.get_signal(market_data) == "WAIT"
+
+    def test_wait_neutral_rsi(self, generator):
+        """중립 RSI에서 WAIT"""
+        market_data = {
+            "rsi": 50.0,
+            "ma_7": 105000.0,
+            "ma_25": 104000.0,
+            "volume_ratio": 1.5,
+        }
+        assert generator.get_signal(market_data) == "WAIT"
+
+    def test_wait_ma25_zero(self, generator):
+        """MA25가 0이면 추세 판단 불가 -> WAIT"""
+        market_data = {
+            "rsi": 30.0,
+            "ma_7": 105000.0,
+            "ma_25": 0,
+            "volume_ratio": 1.5,
+        }
+        assert generator.get_signal(market_data) == "WAIT"
+
+    def test_missing_ma_25_defaults_zero(self, generator):
+        """MA25가 없으면 기본값 0 -> WAIT"""
+        market_data = {
+            "rsi": 30.0,
+            "ma_7": 105000.0,
+            "volume_ratio": 1.5,
+        }
+        assert generator.get_signal(market_data) == "WAIT"
+
+    def test_error_handling_returns_wait(self, generator):
+        """예외 발생 시 WAIT"""
+        market_data = {
+            "rsi": "invalid",
+            "ma_7": "invalid",
+            "ma_25": "invalid",
+            "volume_ratio": "invalid",
+        }
+        assert generator.get_signal(market_data) == "WAIT"
+
+
+class TestClassicSignalCompat:
+    """classic 전략 호환성 테스트 (기존 RSI + price vs MA7 로직)"""
+
+    @pytest.fixture
+    def generator(self):
+        return RuleBasedSignalGenerator(strategy="classic")
 
     def test_long_signal_all_conditions_met(self, generator):
         """모든 LONG 조건 충족"""
         market_data = {
             "current_price": 105000.0,
-            "rsi": 30.0,           # < 35 (oversold)
+            "rsi": 30.0,           # < 45 (oversold)
             "ma_7": 104000.0,      # price > ma_7 (uptrend)
-            "volume_ratio": 1.5,   # > 1.2 (high volume)
+            "volume_ratio": 1.5,   # > 0.5
         }
-
-        signal = generator.get_signal(market_data)
-
-        assert signal == "LONG"
+        assert generator.get_signal(market_data) == "LONG"
 
     def test_long_signal_rsi_exactly_at_threshold(self, generator):
         """RSI가 정확히 임계값일 때"""
@@ -58,24 +186,17 @@ class TestGetSignalLong:
             "ma_7": 104000.0,
             "volume_ratio": 1.5,
         }
-
-        signal = generator.get_signal(market_data)
-
-        # RSI가 45.0이면 oversold 조건 불충족
-        assert signal == "WAIT"
+        assert generator.get_signal(market_data) == "WAIT"
 
     def test_long_signal_price_below_ma(self, generator):
         """가격이 MA 아래일 때 (LONG 불충족)"""
         market_data = {
-            "current_price": 103000.0,  # < ma_7 (downtrend)
+            "current_price": 103000.0,  # < ma_7
             "rsi": 30.0,
             "ma_7": 104000.0,
             "volume_ratio": 1.5,
         }
-
-        signal = generator.get_signal(market_data)
-
-        assert signal == "WAIT"
+        assert generator.get_signal(market_data) == "WAIT"
 
     def test_long_signal_low_volume(self, generator):
         """거래량이 낮을 때 (LONG 불충족)"""
@@ -83,33 +204,19 @@ class TestGetSignalLong:
             "current_price": 105000.0,
             "rsi": 30.0,
             "ma_7": 104000.0,
-            "volume_ratio": 0.3,   # < 0.5 (low volume)
+            "volume_ratio": 0.3,
         }
-
-        signal = generator.get_signal(market_data)
-
-        assert signal == "WAIT"
-
-
-class TestGetSignalShort:
-    """SHORT 신호 테스트"""
-
-    @pytest.fixture
-    def generator(self):
-        return RuleBasedSignalGenerator()
+        assert generator.get_signal(market_data) == "WAIT"
 
     def test_short_signal_all_conditions_met(self, generator):
         """모든 SHORT 조건 충족"""
         market_data = {
             "current_price": 103000.0,
-            "rsi": 70.0,           # > 65 (overbought)
-            "ma_7": 104000.0,      # price < ma_7 (downtrend)
-            "volume_ratio": 1.5,   # > 1.2 (high volume)
+            "rsi": 70.0,           # > 55 (overbought)
+            "ma_7": 104000.0,      # price < ma_7
+            "volume_ratio": 1.5,
         }
-
-        signal = generator.get_signal(market_data)
-
-        assert signal == "SHORT"
+        assert generator.get_signal(market_data) == "SHORT"
 
     def test_short_signal_rsi_exactly_at_threshold(self, generator):
         """RSI가 정확히 임계값일 때"""
@@ -119,24 +226,17 @@ class TestGetSignalShort:
             "ma_7": 104000.0,
             "volume_ratio": 1.5,
         }
-
-        signal = generator.get_signal(market_data)
-
-        # RSI가 55.0이면 overbought 조건 불충족
-        assert signal == "WAIT"
+        assert generator.get_signal(market_data) == "WAIT"
 
     def test_short_signal_price_above_ma(self, generator):
         """가격이 MA 위일 때 (SHORT 불충족)"""
         market_data = {
-            "current_price": 105000.0,  # > ma_7 (uptrend)
+            "current_price": 105000.0,
             "rsi": 70.0,
             "ma_7": 104000.0,
             "volume_ratio": 1.5,
         }
-
-        signal = generator.get_signal(market_data)
-
-        assert signal == "WAIT"
+        assert generator.get_signal(market_data) == "WAIT"
 
     def test_short_signal_low_volume(self, generator):
         """거래량이 낮을 때 (SHORT 불충족)"""
@@ -144,55 +244,37 @@ class TestGetSignalShort:
             "current_price": 103000.0,
             "rsi": 70.0,
             "ma_7": 104000.0,
-            "volume_ratio": 0.3,   # < 0.5 (low volume)
+            "volume_ratio": 0.3,
         }
-
-        signal = generator.get_signal(market_data)
-
-        assert signal == "WAIT"
-
-
-class TestGetSignalWait:
-    """WAIT 신호 테스트"""
-
-    @pytest.fixture
-    def generator(self):
-        return RuleBasedSignalGenerator()
+        assert generator.get_signal(market_data) == "WAIT"
 
     def test_wait_signal_neutral_rsi(self, generator):
         """중립적인 RSI"""
         market_data = {
             "current_price": 105000.0,
-            "rsi": 50.0,           # 35-65 사이 (neutral)
+            "rsi": 50.0,
             "ma_7": 104000.0,
             "volume_ratio": 1.5,
         }
-
-        signal = generator.get_signal(market_data)
-
-        assert signal == "WAIT"
+        assert generator.get_signal(market_data) == "WAIT"
 
     def test_wait_signal_conflicting_conditions(self, generator):
         """상충하는 조건 (oversold + downtrend)"""
         market_data = {
             "current_price": 103000.0,  # < ma_7
-            "rsi": 30.0,                # oversold (LONG 조건)
+            "rsi": 30.0,
             "ma_7": 104000.0,
             "volume_ratio": 1.5,
         }
-
-        signal = generator.get_signal(market_data)
-
-        # RSI는 LONG이지만 가격이 MA 아래라 WAIT
-        assert signal == "WAIT"
+        assert generator.get_signal(market_data) == "WAIT"
 
 
 class TestGetSignalDefaultValues:
-    """기본값 테스트"""
+    """classic 전략 기본값 테스트"""
 
     @pytest.fixture
     def generator(self):
-        return RuleBasedSignalGenerator()
+        return RuleBasedSignalGenerator(strategy="classic")
 
     def test_missing_current_price(self, generator):
         """current_price 누락"""
@@ -201,11 +283,7 @@ class TestGetSignalDefaultValues:
             "ma_7": 104000.0,
             "volume_ratio": 1.5,
         }
-
-        signal = generator.get_signal(market_data)
-
-        # current_price=0 이므로 조건 불충족
-        assert signal == "WAIT"
+        assert generator.get_signal(market_data) == "WAIT"
 
     def test_missing_rsi(self, generator):
         """RSI 누락"""
@@ -214,11 +292,7 @@ class TestGetSignalDefaultValues:
             "ma_7": 104000.0,
             "volume_ratio": 1.5,
         }
-
-        signal = generator.get_signal(market_data)
-
-        # rsi=50 (기본값)이므로 neutral
-        assert signal == "WAIT"
+        assert generator.get_signal(market_data) == "WAIT"
 
     def test_missing_ma_7(self, generator):
         """MA_7 누락"""
@@ -227,12 +301,7 @@ class TestGetSignalDefaultValues:
             "rsi": 30.0,
             "volume_ratio": 1.5,
         }
-
-        signal = generator.get_signal(market_data)
-
-        # ma_7가 current_price로 기본값 설정
-        # price (105000) == ma_7 (105000)이면 조건 불충족
-        assert signal == "WAIT"
+        assert generator.get_signal(market_data) == "WAIT"
 
     def test_missing_volume_ratio(self, generator):
         """volume_ratio 누락"""
@@ -241,19 +310,16 @@ class TestGetSignalDefaultValues:
             "rsi": 30.0,
             "ma_7": 104000.0,
         }
-
-        signal = generator.get_signal(market_data)
-
         # volume_ratio=1.0 (기본값) > 0.5이므로 LONG 조건 충족
-        assert signal == "LONG"
+        assert generator.get_signal(market_data) == "LONG"
 
 
 class TestGetSignalEdgeCases:
-    """경계값 테스트"""
+    """경계값 테스트 (classic 전략)"""
 
     @pytest.fixture
     def generator(self):
-        return RuleBasedSignalGenerator()
+        return RuleBasedSignalGenerator(strategy="classic")
 
     def test_extreme_rsi_low(self, generator):
         """극도로 낮은 RSI"""
@@ -263,10 +329,7 @@ class TestGetSignalEdgeCases:
             "ma_7": 104000.0,
             "volume_ratio": 2.0,
         }
-
-        signal = generator.get_signal(market_data)
-
-        assert signal == "LONG"
+        assert generator.get_signal(market_data) == "LONG"
 
     def test_extreme_rsi_high(self, generator):
         """극도로 높은 RSI"""
@@ -276,10 +339,7 @@ class TestGetSignalEdgeCases:
             "ma_7": 104000.0,
             "volume_ratio": 2.0,
         }
-
-        signal = generator.get_signal(market_data)
-
-        assert signal == "SHORT"
+        assert generator.get_signal(market_data) == "SHORT"
 
     def test_zero_volume_ratio(self, generator):
         """거래량 비율 0"""
@@ -289,10 +349,7 @@ class TestGetSignalEdgeCases:
             "ma_7": 104000.0,
             "volume_ratio": 0.0,
         }
-
-        signal = generator.get_signal(market_data)
-
-        assert signal == "WAIT"
+        assert generator.get_signal(market_data) == "WAIT"
 
 
 class TestGetSignalCustomThresholds:
@@ -302,36 +359,32 @@ class TestGetSignalCustomThresholds:
         """커스텀 RSI 임계값"""
         generator = RuleBasedSignalGenerator(
             rsi_oversold=25.0,
-            rsi_overbought=75.0
+            rsi_overbought=75.0,
+            strategy="classic",
         )
 
-        # RSI 30은 기본 임계값에서는 oversold지만
-        # 커스텀 임계값(25)에서는 아님
         market_data = {
             "current_price": 105000.0,
             "rsi": 30.0,
             "ma_7": 104000.0,
             "volume_ratio": 1.5,
         }
-
-        signal = generator.get_signal(market_data)
-
-        assert signal == "WAIT"
+        assert generator.get_signal(market_data) == "WAIT"
 
     def test_custom_volume_threshold(self):
         """커스텀 거래량 임계값"""
-        generator = RuleBasedSignalGenerator(volume_threshold=2.0)
+        generator = RuleBasedSignalGenerator(
+            volume_threshold=2.0,
+            strategy="classic",
+        )
 
         market_data = {
             "current_price": 105000.0,
             "rsi": 30.0,
             "ma_7": 104000.0,
-            "volume_ratio": 1.5,  # < 2.0
+            "volume_ratio": 1.5,
         }
-
-        signal = generator.get_signal(market_data)
-
-        assert signal == "WAIT"
+        assert generator.get_signal(market_data) == "WAIT"
 
 
 class TestGetSignalErrorHandling:
@@ -339,13 +392,11 @@ class TestGetSignalErrorHandling:
 
     @pytest.fixture
     def generator(self):
-        return RuleBasedSignalGenerator()
+        return RuleBasedSignalGenerator(strategy="classic")
 
     def test_empty_market_data(self, generator):
         """빈 시장 데이터"""
-        signal = generator.get_signal({})
-
-        assert signal == "WAIT"
+        assert generator.get_signal({}) == "WAIT"
 
     def test_none_values(self, generator):
         """None 값"""
@@ -355,11 +406,7 @@ class TestGetSignalErrorHandling:
             "ma_7": None,
             "volume_ratio": None,
         }
-
-        # None은 get()의 기본값으로 대체됨
-        signal = generator.get_signal(market_data)
-
-        assert signal == "WAIT"
+        assert generator.get_signal(market_data) == "WAIT"
 
     def test_invalid_types(self, generator):
         """잘못된 타입"""
@@ -369,8 +416,75 @@ class TestGetSignalErrorHandling:
             "ma_7": "invalid",
             "volume_ratio": "invalid",
         }
+        assert generator.get_signal(market_data) == "WAIT"
 
-        # 예외 발생 시 WAIT 반환
-        signal = generator.get_signal(market_data)
 
-        assert signal == "WAIT"
+class TestSignalDiagnostic:
+    """get_signal_diagnostic 테스트"""
+
+    def test_trend_pullback_diagnostic(self):
+        """trend_pullback 전략 진단 정보"""
+        generator = RuleBasedSignalGenerator(strategy="trend_pullback")
+        market_data = {
+            "rsi": 40.0,
+            "ma_7": 105000.0,
+            "ma_25": 104000.0,
+            "volume_ratio": 1.5,
+        }
+        diag = generator.get_signal_diagnostic(market_data)
+
+        assert diag["strategy"] == "trend_pullback"
+        assert diag["signal"] == "LONG"
+        assert diag["rsi"]["value"] == 40.0
+        assert diag["rsi"]["is_oversold"] is True
+        assert diag["rsi"]["is_overbought"] is False
+        assert diag["volume"]["passes"] is True
+        assert "trend" in diag
+        assert diag["trend"]["is_uptrend"] is True
+        assert diag["trend"]["is_downtrend"] is False
+
+    def test_classic_diagnostic(self):
+        """classic 전략 진단 정보"""
+        generator = RuleBasedSignalGenerator(strategy="classic")
+        market_data = {
+            "current_price": 105000.0,
+            "rsi": 30.0,
+            "ma_7": 104000.0,
+            "volume_ratio": 1.5,
+        }
+        diag = generator.get_signal_diagnostic(market_data)
+
+        assert diag["strategy"] == "classic"
+        assert diag["signal"] == "LONG"
+        assert "price" in diag
+        assert diag["price"]["above_ma7"] is True
+
+    def test_diagnostic_wait_signal(self):
+        """WAIT 시그널 진단"""
+        generator = RuleBasedSignalGenerator(strategy="trend_pullback")
+        market_data = {
+            "rsi": 50.0,
+            "ma_7": 105000.0,
+            "ma_25": 104000.0,
+            "volume_ratio": 1.5,
+        }
+        diag = generator.get_signal_diagnostic(market_data)
+
+        assert diag["signal"] == "WAIT"
+        assert diag["rsi"]["is_oversold"] is False
+        assert diag["rsi"]["is_overbought"] is False
+
+    def test_diagnostic_contains_thresholds(self):
+        """진단 정보에 임계값 포함"""
+        generator = RuleBasedSignalGenerator(
+            rsi_oversold=30.0,
+            rsi_overbought=70.0,
+            volume_threshold=1.2,
+            strategy="trend_pullback",
+        )
+        market_data = {"rsi": 50.0, "ma_7": 100.0, "ma_25": 100.0, "volume_ratio": 1.0}
+        diag = generator.get_signal_diagnostic(market_data)
+
+        assert diag["rsi"]["oversold_threshold"] == 30.0
+        assert diag["rsi"]["overbought_threshold"] == 70.0
+        assert diag["volume"]["threshold"] == 1.2

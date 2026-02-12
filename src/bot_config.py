@@ -118,9 +118,12 @@ class BotConfig(BaseModel):
     approval_timeout: int = Field(default=60, ge=1)
 
     # 신호 파라미터
-    rsi_oversold: float = Field(default=35.0, ge=0, le=100)
-    rsi_overbought: float = Field(default=65.0, ge=0, le=100)
+    rsi_oversold: float = Field(default=45.0, ge=0, le=100)
+    rsi_overbought: float = Field(default=55.0, ge=0, le=100)
     volume_threshold: float = Field(default=0.5, ge=0)  # 테스트넷 호환 (프로덕션: 1.2)
+
+    # 신호 전략
+    signal_strategy: str = Field(default="trend_pullback")
 
     # API 키 참조 (Secrets Manager 또는 환경변수 참조용)
     binance_api_key_ref: str | None = None
@@ -245,6 +248,13 @@ class BotConfig(BaseModel):
             use_atr_tp_sl=self.use_atr_tp_sl,  # Phase 6.1
             atr_tp_multiplier=self.atr_tp_multiplier,  # Phase 6.1
             atr_sl_multiplier=self.atr_sl_multiplier,  # Phase 6.1
+            use_regime_filter=self.use_regime_filter,  # Phase 6.2
+            allow_weak_trend=self.allow_weak_trend,  # Phase 6.2
+            use_mtf_filter=self.use_mtf_filter,  # Phase 5 통합
+            use_ensemble=self.use_ensemble,  # Phase 5 통합
+            manual_approval_enabled=self.manual_approval_enabled,  # Phase 5 통합
+            manual_approval_trades=self.manual_approval_trades,  # Phase 5 통합
+            approval_timeout=self.approval_timeout,  # Phase 5 통합
             gemini_api_key=gemini_api_key,
             discord_webhook_url=discord_webhook_url,
             discord_bot_token=discord_bot_token,
@@ -280,9 +290,10 @@ class BotConfig(BaseModel):
             use_atr_tp_sl=row.get("use_atr_tp_sl", False),  # Phase 6.1
             atr_tp_multiplier=row.get("atr_tp_multiplier", 2.0),  # Phase 6.1
             atr_sl_multiplier=row.get("atr_sl_multiplier", 1.0),  # Phase 6.1
-            rsi_oversold=row.get("rsi_oversold", 35.0),
-            rsi_overbought=row.get("rsi_overbought", 65.0),
+            rsi_oversold=row.get("rsi_oversold", 45.0),
+            rsi_overbought=row.get("rsi_overbought", 55.0),
             volume_threshold=row.get("volume_threshold", 0.5),
+            signal_strategy=row.get("signal_strategy", "trend_pullback"),
             binance_api_key_ref=row.get("binance_api_key_ref"),
             binance_secret_key_ref=row.get("binance_secret_key_ref"),
             is_testnet=row.get("is_testnet", True),
@@ -317,6 +328,7 @@ class BotConfig(BaseModel):
             "rsi_oversold": self.rsi_oversold,
             "rsi_overbought": self.rsi_overbought,
             "volume_threshold": self.volume_threshold,
+            "signal_strategy": self.signal_strategy,
             "binance_api_key_ref": self.binance_api_key_ref,
             "binance_secret_key_ref": self.binance_secret_key_ref,
             "is_testnet": self.is_testnet,

@@ -45,15 +45,18 @@ class RegimeDetector:
         self,
         atr_strong_threshold: float = 1.0,  # 1%
         atr_weak_threshold: float = 0.5,    # 0.5%
+        partial_trend_mode: bool = True,
     ) -> None:
         """레짐 감지기 초기화.
 
         Args:
             atr_strong_threshold: 강한 추세 ATR 비율 임계값 (%)
             atr_weak_threshold: 약한 추세 ATR 비율 임계값 (%)
+            partial_trend_mode: MA7/MA25만으로 부분 추세 감지 여부
         """
         self.atr_strong_threshold = atr_strong_threshold
         self.atr_weak_threshold = atr_weak_threshold
+        self.partial_trend_mode = partial_trend_mode
 
         logger.debug(
             f"RegimeDetector 초기화: strong_threshold={atr_strong_threshold}%, "
@@ -102,9 +105,17 @@ class RegimeDetector:
             is_bullish_aligned = ma_7 > ma_25 > ma_99  # 상승 정렬
             is_bearish_aligned = ma_7 < ma_25 < ma_99  # 하락 정렬
 
+            # 부분 추세 (MA7/MA25만 비교, MA99 무시)
+            is_bullish_partial = ma_7 > ma_25
+            is_bearish_partial = ma_7 < ma_25
+
             # 레짐 결정
             regime = self._determine_regime(
-                is_bullish_aligned, is_bearish_aligned, atr_pct
+                is_bullish_aligned,
+                is_bearish_aligned,
+                atr_pct,
+                is_bullish_partial=is_bullish_partial,
+                is_bearish_partial=is_bearish_partial,
             )
 
             logger.info(
@@ -124,6 +135,9 @@ class RegimeDetector:
         is_bullish_aligned: bool,
         is_bearish_aligned: bool,
         atr_pct: float,
+        *,
+        is_bullish_partial: bool = False,
+        is_bearish_partial: bool = False,
     ) -> MarketRegime:
         """레짐 결정 로직.
 
@@ -131,6 +145,8 @@ class RegimeDetector:
             is_bullish_aligned: MA 상승 정렬 여부
             is_bearish_aligned: MA 하락 정렬 여부
             atr_pct: ATR 비율 (%)
+            is_bullish_partial: MA7 > MA25 (MA99 무시) 여부
+            is_bearish_partial: MA7 < MA25 (MA99 무시) 여부
 
         Returns:
             MarketRegime
@@ -146,6 +162,13 @@ class RegimeDetector:
             if is_strong:
                 return MarketRegime.STRONG_DOWNTREND
             return MarketRegime.WEAK_DOWNTREND
+
+        # 부분 추세 모드: MA7/MA25만으로 약한 추세 감지
+        if self.partial_trend_mode:
+            if is_bullish_partial:
+                return MarketRegime.WEAK_UPTREND
+            if is_bearish_partial:
+                return MarketRegime.WEAK_DOWNTREND
 
         # MA가 혼재된 상태 (정렬 안 됨)
         return MarketRegime.RANGING

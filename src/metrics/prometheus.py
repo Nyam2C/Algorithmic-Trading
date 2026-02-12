@@ -43,6 +43,7 @@ class TradingMetrics:
     _default_loop_total: Counter | None = None
     _default_signal_total: Counter | None = None
     _default_ai_latency: Histogram | None = None
+    _default_consecutive_wait: Gauge | None = None
 
     def __init__(self, registry: CollectorRegistry | None = None) -> None:
         """메트릭 초기화.
@@ -67,6 +68,7 @@ class TradingMetrics:
             self._loop_total = TradingMetrics._default_loop_total
             self._signal_total = TradingMetrics._default_signal_total
             self._ai_latency = TradingMetrics._default_ai_latency
+            self._consecutive_wait = TradingMetrics._default_consecutive_wait
             return
 
         # 새 레지스트리거나 처음 초기화
@@ -153,6 +155,14 @@ class TradingMetrics:
             registry=self._registry,
         )
 
+        # 연속 WAIT 카운트 메트릭
+        consecutive_wait = Gauge(
+            "trading_consecutive_wait_count",
+            "Number of consecutive WAIT signals",
+            ["bot_name"],
+            registry=self._registry,
+        )
+
         # 인스턴스 변수에 저장
         self._trades_total = trades_total
         self._trade_duration = trade_duration
@@ -163,6 +173,7 @@ class TradingMetrics:
         self._loop_total = loop_total
         self._signal_total = signal_total
         self._ai_latency = ai_latency
+        self._consecutive_wait = consecutive_wait
 
         # 기본 레지스트리면 클래스 변수에도 저장
         if self._use_default:
@@ -175,6 +186,7 @@ class TradingMetrics:
             TradingMetrics._default_loop_total = loop_total
             TradingMetrics._default_signal_total = signal_total
             TradingMetrics._default_ai_latency = ai_latency
+            TradingMetrics._default_consecutive_wait = consecutive_wait
 
     @property
     def trades_total(self) -> Counter:
@@ -238,6 +250,26 @@ class TradingMetrics:
         if self._ai_latency is None:
             raise RuntimeError("TradingMetrics not initialized")
         return self._ai_latency
+
+    @property
+    def consecutive_wait(self) -> Gauge:
+        """연속 WAIT 카운트 게이지."""
+        if self._consecutive_wait is None:
+            raise RuntimeError("TradingMetrics not initialized")
+        return self._consecutive_wait
+
+    def record_consecutive_wait(
+        self,
+        bot_name: str,
+        count: int,
+    ) -> None:
+        """연속 WAIT 카운트 기록.
+
+        Args:
+            bot_name: 봇 이름
+            count: 연속 WAIT 횟수
+        """
+        self.consecutive_wait.labels(bot_name=bot_name).set(count)
 
     def record_loop_duration(
         self,
@@ -451,3 +483,11 @@ def record_signal(
 ) -> None:
     """시그널 발생 기록 (편의 함수)."""
     _get_metrics().record_signal(bot_name, signal, source)
+
+
+def record_consecutive_wait(
+    bot_name: str,
+    count: int,
+) -> None:
+    """연속 WAIT 카운트 기록 (편의 함수)."""
+    _get_metrics().record_consecutive_wait(bot_name, count)

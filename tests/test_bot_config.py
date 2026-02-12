@@ -316,6 +316,63 @@ class TestBotConfig:
             assert trading_config.leverage == 15
             assert trading_config.binance_api_key == "test_key"
 
+        def test_phase5_통합_필드_매핑(self) -> None:
+            """Phase 5 통합 필드가 to_trading_config에서 올바르게 매핑됨"""
+            from src.bot_config import BotConfig
+
+            bot_config = BotConfig(
+                bot_name="full-bot",
+                symbol="BTCUSDT",
+                risk_level="medium",
+                leverage=15,
+                use_regime_filter=True,
+                allow_weak_trend=False,
+                use_mtf_filter=True,
+                use_ensemble=True,
+                manual_approval_enabled=True,
+                manual_approval_trades=10,
+                approval_timeout=120,
+            )
+
+            trading_config = bot_config.to_trading_config(
+                binance_api_key="key",
+                binance_secret_key="secret",
+                gemini_api_key="gemini",
+                discord_webhook_url="https://discord.com/webhook",
+            )
+
+            assert trading_config.use_regime_filter is True
+            assert trading_config.allow_weak_trend is False
+            assert trading_config.use_mtf_filter is True
+            assert trading_config.use_ensemble is True
+            assert trading_config.manual_approval_enabled is True
+            assert trading_config.manual_approval_trades == 10
+            assert trading_config.approval_timeout == 120
+
+        def test_phase5_통합_필드_기본값_매핑(self) -> None:
+            """Phase 5 통합 필드 기본값이 to_trading_config에서 올바르게 매핑됨"""
+            from src.bot_config import BotConfig
+
+            bot_config = BotConfig(
+                bot_name="default-bot",
+                symbol="BTCUSDT",
+            )
+
+            trading_config = bot_config.to_trading_config(
+                binance_api_key="key",
+                binance_secret_key="secret",
+                gemini_api_key="gemini",
+                discord_webhook_url="https://discord.com/webhook",
+            )
+
+            assert trading_config.use_regime_filter is False
+            assert trading_config.allow_weak_trend is True
+            assert trading_config.use_mtf_filter is False
+            assert trading_config.use_ensemble is False
+            assert trading_config.manual_approval_enabled is False
+            assert trading_config.manual_approval_trades == 5
+            assert trading_config.approval_timeout == 60
+
     # ===== from_db_row 변환 테스트 =====
     class TestFromDbRow:
         """from_db_row 변환 테스트"""

@@ -29,6 +29,7 @@ from src.data.indicators import analyze_market
 from src.data.multi_timeframe import MultiTimeframeAnalyzer
 from src.data.regime_detector import MarketRegime, RegimeDetector  # Phase 6.2
 from src.exchange.binance import BinanceTestnetClient
+from src.storage.audit_log import AuditLogManager
 from src.storage.redis_state import DummyRedisStateManager, RedisStateManager
 from src.storage.trade_history import TradeHistoryDB
 from src.trading.executor import TradingExecutor
@@ -127,6 +128,7 @@ class BotInstance:
         self._last_signal_time: datetime | None = None
         self._current_position: dict | None = None
         self._market_data: dict | None = None
+        self._consecutive_wait_count: int = 0
 
         # 루프 타이밍
         self._last_loop_duration: float = 0.0
@@ -143,6 +145,7 @@ class BotInstance:
             rsi_oversold=config.rsi_oversold,
             rsi_overbought=config.rsi_overbought,
             volume_threshold=config.volume_threshold,
+            strategy=getattr(config, "signal_strategy", "trend_pullback"),
         )
 
         # Phase 4: AI 메모리 시스템
@@ -188,6 +191,12 @@ class BotInstance:
 
         # Phase 5 통합: 노출도 체크 콜백
         self._on_exposure_check = on_exposure_check
+
+        # Phase 5 통합: AuditLogManager
+        self._audit_log: AuditLogManager | None = None
+
+        # Phase 5 통합: 외부 시그널 주입
+        self._injected_signal: dict[str, Any] | None = None
 
         # 콜백
         self._on_signal_callback = on_signal_callback
@@ -288,6 +297,27 @@ class BotInstance:
         """긴급 포지션 청산 요청."""
         self._emergency_close = True
         self._log.warning("긴급 청산 요청됨")
+
+    def inject_signal(self, signal_data: dict[str, Any]) -> bool:
+        """외부 시그널 주입.
+
+        Args:
+            signal_data: 시그널 데이터 (signal, source, confidence, metadata)
+
+        Returns:
+            주입 성공 여부
+        """
+        signal = signal_data.get("signal", "").upper()
+        if signal not in ("LONG", "SHORT", "WAIT"):
+            self._log.warning(f"유효하지 않은 주입 시그널: {signal}")
+            return False
+
+        self._injected_signal = signal_data
+        self._log.info(
+            f"외부 시그널 주입: {signal} "
+            f"(source={signal_data.get('source', 'unknown')})"
+        )
+        return True
 
     # =========================================================================
     # Phase 4: AI 메모리 시스템
@@ -451,6 +481,24 @@ class BotInstance:
             except Exception as e:
                 self._log.error(f"거래 기록 DB 연결 실패: {e}")
 
+        # Phase 5 통합: 감사 로그 초기화
+        try:
+            db_pool = getattr(self._trade_db, 'pool', None) if self._trade_db else None
+            self._audit_log = AuditLogManager(db_pool=db_pool)
+            self._log.info("AuditLogManager 초기화 완료")
+        except Exception as e:
+            self._log.warning(f"AuditLogManager 초기화 실패: {e}")
+
+        # Phase 5 통합: SignalTracker DB 연결
+        if self._trade_db:
+            try:
+                db_pool = getattr(self._trade_db, 'pool', None)
+                if db_pool:
+                    self._signal_tracker = SignalTracker(db_pool=db_pool)
+                    self._log.info("SignalTracker DB 풀 연결 완료")
+            except Exception as e:
+                self._log.warning(f"SignalTracker DB 연결 실패: {e}")
+
         # Phase 4: AI 메모리 시스템 초기화
         if self._use_memory_signals and self._trade_db:
             try:
@@ -493,6 +541,16 @@ class BotInstance:
                 if self._enhanced_gemini:
                     self._ensemble_generator.set_gemini_generator(self._enhanced_gemini)
                 self._log.info("EnsembleSignalGenerator 초기화 완료")
+
+                # Phase 5 통합: IndicatorScorer 연결
+                try:
+                    from src.ai.scoring import IndicatorScorer  # noqa: PLC0415
+                    scorer = IndicatorScorer()
+                    self._ensemble_generator.set_scoring_generator(scorer)
+                    self._log.info("IndicatorScorer 앙상블에 연결 완료")
+                except Exception as e2:
+                    self._log.warning(f"IndicatorScorer 연결 실패: {e2}")
+
             except Exception as e:
                 self._log.warning(f"앙상블 생성기 초기화 실패: {e}")
 
@@ -701,6 +759,14 @@ class BotInstance:
                 self._executor.current_position["trade_id"] = trade_id
                 self._log.info(f"거래 진입 기록: ID={trade_id}")
 
+            # Phase 5 통합: 감사 로그 기록
+            if self._audit_log:
+                with contextlib.suppress(Exception):
+                    await self._audit_log.log_trade_open(
+                        self.bot_name, signal,
+                        float(order.get("origQty", 0)), current_price,
+                    )
+
             # 콜백 호출
             await self._notify_trade("OPEN", signal, current_price, None)
 
@@ -752,6 +818,13 @@ class BotInstance:
             else:
                 pnl_usd = (entry_price - current_price) * abs(position["position_amt"])
             pnl_usd *= self.config.get_effective_leverage()
+
+            # Phase 5 통합: 감사 로그 기록
+            if self._audit_log:
+                with contextlib.suppress(Exception):
+                    await self._audit_log.log_trade_close(
+                        self.bot_name, side, exit_reason, pnl_usd, pnl_pct,
+                    )
 
             # DB에 기록
             if self._trade_db and self._executor.current_position:
@@ -866,6 +939,10 @@ class BotInstance:
     async def _notify_risk_halt(self, reason: str) -> None:
         """리스크 한도 도달 알림 (Phase 5.2)."""
         self._log.warning(f"[RISK HALT] {self.bot_name}: {reason}")
+        # Phase 5 통합: 감사 로그 기록
+        if self._audit_log:
+            with contextlib.suppress(Exception):
+                await self._audit_log.log_risk_halt(self.bot_name, reason)
         # 에러 콜백을 통해 알림 (Discord 등에서 처리)
         if self._on_error_callback:
             try:
@@ -895,9 +972,20 @@ class BotInstance:
             except Exception:  # noqa: S110
                 pass  # 잔고 조회 실패 시 스킵
 
-        # 2. 시그널 생성 (우선순위: ensemble > memory_gemini > rule_based)
+        # 2. 시그널 생성 (우선순위: injected > ensemble > memory_gemini > rule_based)
         signal_source = "rule_based"
-        if getattr(self.config, "use_ensemble", False) and self._ensemble_generator:
+        if self._injected_signal:
+            # 외부 주입 시그널 우선 처리
+            injected = self._injected_signal
+            self._injected_signal = None
+            signal = injected.get("signal", "WAIT").upper()
+            signal_source = f"injected:{injected.get('source', 'external')}"
+            self._last_signal = signal
+            self._last_signal_time = datetime.now()
+            self._log.info(
+                f"주입 시그널 사용: {signal} (source={injected.get('source')})"
+            )
+        elif getattr(self.config, "use_ensemble", False) and self._ensemble_generator:
             try:
                 result = await self._ensemble_generator.generate_ensemble_signal(
                     market_data.get("indicators", {}),
@@ -954,6 +1042,37 @@ class BotInstance:
                     f"MTF 필터링: {original_signal} → {signal}"
                 )
 
+        # WAIT streak tracking and diagnostics
+        _wait_log_interval = 12  # Every hour (12 x 5min)
+        _wait_alert_threshold = 24  # 2 hours
+        if signal == "WAIT":
+            self._consecutive_wait_count += 1
+            if (
+                self._consecutive_wait_count % _wait_log_interval == 0
+                and hasattr(self._signal_generator, 'get_signal_diagnostic')
+            ):
+                diag = self._signal_generator.get_signal_diagnostic(
+                    indicators,
+                )
+                self._log.warning(
+                    f"연속 WAIT #{self._consecutive_wait_count}: {diag}"
+                )
+            if self._consecutive_wait_count >= _wait_alert_threshold:
+                cnt = self._consecutive_wait_count
+                self._log.warning(
+                    f"⚠ {cnt}회 연속 WAIT - 시그널 조건 점검 필요"
+                )
+            if self._metrics:
+                with contextlib.suppress(Exception):
+                    self._metrics.record_consecutive_wait(
+                        self.bot_name, self._consecutive_wait_count
+                    )
+        else:
+            self._consecutive_wait_count = 0
+            if self._metrics:
+                with contextlib.suppress(Exception):
+                    self._metrics.record_consecutive_wait(self.bot_name, 0)
+
         # Phase 5 통합: 시그널 기록
         try:
             conditions: dict[str, Any] = {
@@ -985,6 +1104,12 @@ class BotInstance:
         # 3. 긴급 청산 확인
         if self._emergency_close:
             self._log.warning("긴급 청산 실행")
+            # Phase 5 통합: 감사 로그 기록
+            if self._audit_log:
+                with contextlib.suppress(Exception):
+                    await self._audit_log.log_emergency_close(
+                        self.bot_name, "수동 긴급 청산 요청"
+                    )
             await self._close_position(current_price, "MANUAL")
             self._emergency_close = False
             self._is_paused = True
