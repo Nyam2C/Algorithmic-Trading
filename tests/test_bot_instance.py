@@ -195,7 +195,8 @@ class TestBotInstance:
 
             assert market_data["current_price"] == 50000.0
             mock_binance_client.get_current_price.assert_called_once_with("BTCUSDT")
-            mock_binance_client.get_klines.assert_called_once()
+            # MA99 계산을 위해 limit=150으로 호출되어야 함
+            mock_binance_client.get_klines.assert_called_once_with("BTCUSDT", limit=150)
 
         @pytest.mark.asyncio
         async def test_시그널_생성_with_custom_parameters(

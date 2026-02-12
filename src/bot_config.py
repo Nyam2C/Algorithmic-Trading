@@ -120,7 +120,7 @@ class BotConfig(BaseModel):
     # 신호 파라미터
     rsi_oversold: float = Field(default=35.0, ge=0, le=100)
     rsi_overbought: float = Field(default=65.0, ge=0, le=100)
-    volume_threshold: float = Field(default=1.2, ge=0)
+    volume_threshold: float = Field(default=0.5, ge=0)  # 테스트넷 호환 (프로덕션: 1.2)
 
     # API 키 참조 (Secrets Manager 또는 환경변수 참조용)
     binance_api_key_ref: str | None = None
@@ -282,7 +282,7 @@ class BotConfig(BaseModel):
             atr_sl_multiplier=row.get("atr_sl_multiplier", 1.0),  # Phase 6.1
             rsi_oversold=row.get("rsi_oversold", 35.0),
             rsi_overbought=row.get("rsi_overbought", 65.0),
-            volume_threshold=row.get("volume_threshold", 1.2),
+            volume_threshold=row.get("volume_threshold", 0.5),
             binance_api_key_ref=row.get("binance_api_key_ref"),
             binance_secret_key_ref=row.get("binance_secret_key_ref"),
             is_testnet=row.get("is_testnet", True),

@@ -567,8 +567,8 @@ class BotInstance:
         # 현재 가격
         current_price = await self._binance_client.get_current_price(self.symbol)
 
-        # 캔들스틱 데이터 조회
-        klines = await self._binance_client.get_klines(self.symbol, limit=24)
+        # 캔들스틱 데이터 조회 (MA99 계산에 최소 99개 필요, 여유분 포함 150개)
+        klines = await self._binance_client.get_klines(self.symbol, limit=150)
 
         # 24시간 티커
         ticker_24h = await self._binance_client.get_ticker_24h(self.symbol)
@@ -584,7 +584,7 @@ class BotInstance:
         if getattr(self.config, "use_mtf_filter", False):
             try:
                 klines_15m = await self._binance_client.get_klines(
-                    self.symbol, interval="15m", limit=24
+                    self.symbol, interval="15m", limit=150
                 )
                 higher_tf_data = analyze_market(klines_15m, ticker_24h, current_price)
                 self._higher_tf_data = higher_tf_data
