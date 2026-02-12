@@ -472,8 +472,8 @@ class TestSetupJsonLoggingFileLogging:
             )
 
             mock_logger.remove.assert_called_once()
-            # stdout + JSON file + error file = 3 add 호출
-            assert mock_logger.add.call_count == 3
+            # stdout + bot.json.log + error.json.log + trade.json.log + ai_signal.json.log = 5
+            assert mock_logger.add.call_count == 5
 
 
 class TestSetupLoggingFromEnv:

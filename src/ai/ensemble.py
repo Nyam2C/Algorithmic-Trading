@@ -11,6 +11,8 @@ from typing import Any
 
 from loguru import logger
 
+from src.ai.ai_logger import AIDecisionLogger
+
 
 class SignalSource(Enum):
     """신호 소스 종류."""
@@ -140,6 +142,7 @@ class EnsembleSignalGenerator:
         self._rule_based = rule_based_generator
         self._scoring = scoring_generator
 
+        self._ai_logger = AIDecisionLogger()
         self._log = logger.bind(module="ensemble")
         self._log.info(
             f"EnsembleSignalGenerator 초기화: weights={self.weights}"
@@ -226,6 +229,23 @@ class EnsembleSignalGenerator:
         self._log.info(
             f"앙상블 신호: {final_signal} "
             f"(합의율={consensus_ratio:.1%}, 가중점수={weighted_score:.3f})"
+        )
+
+        # AI 의사결정 로깅
+        self._ai_logger.log_ensemble_decision(
+            bot_name=bot_id,
+            component_signals=[
+                {
+                    "source": s.source.value,
+                    "signal": s.signal,
+                    "confidence": round(s.confidence, 3),
+                    "weight": s.weight,
+                }
+                for s in individual_signals
+            ],
+            final_signal=final_signal,
+            consensus_ratio=consensus_ratio,
+            weighted_score=weighted_score,
         )
 
         return result

@@ -1,0 +1,17 @@
+# =============================================================================
+# Grafana Datasource: Prometheus
+# =============================================================================
+# Prometheus 데이터소스 자동 프로비저닝
+# =============================================================================
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: false
+    editable: true
+    jsonData:
+      timeInterval: "15s"

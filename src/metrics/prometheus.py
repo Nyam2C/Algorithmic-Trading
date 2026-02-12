@@ -39,6 +39,10 @@ class TradingMetrics:
     _default_position_pnl: Gauge | None = None
     _default_api_latency: Histogram | None = None
     _default_signal_confidence: Gauge | None = None
+    _default_loop_duration: Histogram | None = None
+    _default_loop_total: Counter | None = None
+    _default_signal_total: Counter | None = None
+    _default_ai_latency: Histogram | None = None
 
     def __init__(self, registry: CollectorRegistry | None = None) -> None:
         """메트릭 초기화.
@@ -59,6 +63,10 @@ class TradingMetrics:
             self._position_pnl = TradingMetrics._default_position_pnl
             self._api_latency = TradingMetrics._default_api_latency
             self._signal_confidence = TradingMetrics._default_signal_confidence
+            self._loop_duration = TradingMetrics._default_loop_duration
+            self._loop_total = TradingMetrics._default_loop_total
+            self._signal_total = TradingMetrics._default_signal_total
+            self._ai_latency = TradingMetrics._default_ai_latency
             return
 
         # 새 레지스트리거나 처음 초기화
@@ -112,12 +120,49 @@ class TradingMetrics:
             registry=self._registry,
         )
 
+        # 루프 메트릭
+        loop_duration = Histogram(
+            "trading_loop_duration_seconds",
+            "Trading loop iteration duration in seconds",
+            ["bot_name"],
+            buckets=[0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, float("inf")],
+            registry=self._registry,
+        )
+
+        loop_total = Counter(
+            "trading_loop_total",
+            "Total number of trading loop iterations",
+            ["bot_name"],
+            registry=self._registry,
+        )
+
+        # 시그널 메트릭
+        signal_total = Counter(
+            "trading_signal_total",
+            "Total number of signals generated",
+            ["bot_name", "signal", "source"],
+            registry=self._registry,
+        )
+
+        # AI 응답시간 메트릭
+        ai_latency = Histogram(
+            "trading_ai_latency_seconds",
+            "Gemini AI response latency in seconds",
+            ["bot_name"],
+            buckets=[0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, float("inf")],
+            registry=self._registry,
+        )
+
         # 인스턴스 변수에 저장
         self._trades_total = trades_total
         self._trade_duration = trade_duration
         self._position_pnl = position_pnl
         self._api_latency = api_latency
         self._signal_confidence = signal_confidence
+        self._loop_duration = loop_duration
+        self._loop_total = loop_total
+        self._signal_total = signal_total
+        self._ai_latency = ai_latency
 
         # 기본 레지스트리면 클래스 변수에도 저장
         if self._use_default:
@@ -126,6 +171,10 @@ class TradingMetrics:
             TradingMetrics._default_position_pnl = position_pnl
             TradingMetrics._default_api_latency = api_latency
             TradingMetrics._default_signal_confidence = signal_confidence
+            TradingMetrics._default_loop_duration = loop_duration
+            TradingMetrics._default_loop_total = loop_total
+            TradingMetrics._default_signal_total = signal_total
+            TradingMetrics._default_ai_latency = ai_latency
 
     @property
     def trades_total(self) -> Counter:
@@ -161,6 +210,76 @@ class TradingMetrics:
         if self._signal_confidence is None:
             raise RuntimeError("TradingMetrics not initialized")
         return self._signal_confidence
+
+    @property
+    def loop_duration(self) -> Histogram:
+        """루프 소요시간 히스토그램."""
+        if self._loop_duration is None:
+            raise RuntimeError("TradingMetrics not initialized")
+        return self._loop_duration
+
+    @property
+    def loop_total(self) -> Counter:
+        """루프 실행 횟수 카운터."""
+        if self._loop_total is None:
+            raise RuntimeError("TradingMetrics not initialized")
+        return self._loop_total
+
+    @property
+    def signal_total(self) -> Counter:
+        """시그널 발생 카운터."""
+        if self._signal_total is None:
+            raise RuntimeError("TradingMetrics not initialized")
+        return self._signal_total
+
+    @property
+    def ai_latency(self) -> Histogram:
+        """AI 응답시간 히스토그램."""
+        if self._ai_latency is None:
+            raise RuntimeError("TradingMetrics not initialized")
+        return self._ai_latency
+
+    def record_loop_duration(
+        self,
+        bot_name: str,
+        duration_seconds: float,
+    ) -> None:
+        """루프 소요시간 기록.
+
+        Args:
+            bot_name: 봇 이름
+            duration_seconds: 루프 소요시간 (초)
+        """
+        self.loop_duration.labels(bot_name=bot_name).observe(duration_seconds)
+        self.loop_total.labels(bot_name=bot_name).inc()
+
+    def record_signal(
+        self,
+        bot_name: str,
+        signal: str,
+        source: str,
+    ) -> None:
+        """시그널 발생 기록.
+
+        Args:
+            bot_name: 봇 이름
+            signal: 시그널 (LONG, SHORT, WAIT)
+            source: 시그널 소스 (rule_based, ensemble, memory_gemini)
+        """
+        self.signal_total.labels(bot_name=bot_name, signal=signal, source=source).inc()
+
+    def record_ai_latency(
+        self,
+        bot_name: str,
+        latency_seconds: float,
+    ) -> None:
+        """AI 응답시간 기록.
+
+        Args:
+            bot_name: 봇 이름
+            latency_seconds: AI 응답시간 (초)
+        """
+        self.ai_latency.labels(bot_name=bot_name).observe(latency_seconds)
 
     def record_trade(
         self,
@@ -315,3 +434,20 @@ def record_signal_confidence(
         confidence: 신뢰도 (0-1)
     """
     _get_metrics().record_signal_confidence(bot_name, confidence)
+
+
+def record_loop_duration(
+    bot_name: str,
+    duration_seconds: float,
+) -> None:
+    """루프 소요시간 기록 (편의 함수)."""
+    _get_metrics().record_loop_duration(bot_name, duration_seconds)
+
+
+def record_signal(
+    bot_name: str,
+    signal: str,
+    source: str,
+) -> None:
+    """시그널 발생 기록 (편의 함수)."""
+    _get_metrics().record_signal(bot_name, signal, source)

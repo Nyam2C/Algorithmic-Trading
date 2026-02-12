@@ -33,7 +33,7 @@
 | 전략 | 마켓 레짐 감지, 다중 타임프레임 분석, ATR 기반 TP/SL |
 | 모니터링 | Prometheus 메트릭, Grafana 대시보드, 감사 로그 |
 | 제어 | Discord 봇, REST API, 수동 승인 모드 |
-| 검증 | 백테스트 엔진, 1577개 테스트 |
+| 검증 | 백테스트 엔진, 1606개 테스트 |
 
 ---
 
@@ -49,7 +49,7 @@
 | REST API | FastAPI | 0.109.0+ |
 | 알림/제어 | Discord Bot | discord.py |
 | 모니터링 | Grafana + Loki | Docker Compose |
-| 테스트 | pytest | 1577개 테스트 |
+| 테스트 | pytest | 1606개 테스트 |
 | 코드 품질 | ruff, mypy | 린트 + 타입 체크 ✅ 통과 |
 | CI/CD | GitHub Actions | 자동 테스트 |
 
@@ -201,6 +201,28 @@ Algorithmic-Trading/
 | 제어 명령어 권한 | `src/discord_bot/commands/control.py` | TRADER/ADMIN 권한 적용 |
 | 멀티봇 명령어 권한 | `src/discord_bot/commands/multibot.py` | TRADER/ADMIN 권한 적용 |
 | UI 권한 체크 | `src/discord_bot/views.py` | 버튼 클릭 시 권한 검증 |
+
+### Observability & Monitoring 개선 (2026-02-12 구현)
+| 기능 | 파일 | 설명 |
+|------|------|------|
+| 로그 파이프라인 수리 | `monitoring/promtail/promtail-config.yml` | .json.log 경로 수정 |
+| 거래 전용 로그 | `src/utils/logging.py` | trade.json.log 필터 싱크 |
+| AI 시그널 전용 로그 | `src/utils/logging.py` | ai_signal.json.log 필터 싱크 |
+| 거래 이벤트 로깅 | `src/bot_instance.py` | TRADE_OPEN/TRADE_CLOSE event_type |
+| Prometheus 서버 추가 | `monitoring/docker-compose.yml` | prom/prometheus:v2.49.1 컨테이너 |
+| Prometheus 설정 | `monitoring/prometheus/prometheus.yml` | 15초 스크래핑 |
+| Prometheus 데이터소스 | `monitoring/grafana/provisioning/datasources/prometheus.yml` | Grafana 자동 연결 |
+| 루프 메트릭 | `src/metrics/prometheus.py` | loop_duration, loop_total |
+| 시그널 메트릭 | `src/metrics/prometheus.py` | signal_total (source별) |
+| AI 응답시간 메트릭 | `src/metrics/prometheus.py` | ai_latency_seconds |
+| API 지연시간 계측 | `src/exchange/binance.py` | get_current_price, get_klines 등 |
+| 루프 타이밍 | `src/bot_instance.py` | _last_loop_duration, _last_loop_time |
+| AI 의사결정 로거 | `src/ai/ai_logger.py` | AIDecisionLogger 클래스 |
+| Gemini 계측 | `src/ai/gemini.py` | 프롬프트/응답/지연시간 로깅 |
+| Enhanced Gemini 계측 | `src/ai/enhanced_gemini.py` | 메모리 컨텍스트 로깅 |
+| Ensemble 계측 | `src/ai/ensemble.py` | 컴포넌트 신호 로깅 |
+| 봇 상태 엔드포인트 | `src/api/routes/health.py` | GET /health/bots |
+| Grafana 대시보드 개선 | `monitoring/grafana/dashboards/*.json` | Prometheus 패널 추가 |
 
 ---
 
@@ -497,7 +519,7 @@ async def trader_command(interaction):
 ## 검증 상태
 - **Ruff**: ✅ All checks passed!
 - **MyPy**: ✅ Success: no issues found
-- **테스트**: ✅ 1577 passed (Phase 5 통합 테스트 포함)
+- **테스트**: ✅ 1606 passed (Phase 5 통합 테스트 포함)
 
 ### 검증 방법
 ```bash

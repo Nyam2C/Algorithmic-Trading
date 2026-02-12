@@ -12,6 +12,7 @@ from google import genai
 from google.genai.errors import ClientError, ServerError
 from loguru import logger
 
+from src.ai.ai_logger import AIDecisionLogger
 from src.utils.retry import async_retry
 
 
@@ -47,6 +48,8 @@ class GeminiSignalGenerator:
         self.analysis_with_reason_template = self._load_prompt(
             "analysis_with_reason.txt"
         )
+
+        self._ai_logger = AIDecisionLogger()
 
         logger.info(f"Gemini client initialized (model: {model}, temp: {temperature})")
 

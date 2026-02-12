@@ -253,6 +253,34 @@ def setup_json_logging(
             serialize=False,
         )
 
+        # 거래 전용 파일 로깅 (TRADE_OPEN / TRADE_CLOSE 이벤트만)
+        logger.add(
+            f"{log_dir}/trade.json.log",
+            format=json_formatter,  # type: ignore[arg-type]
+            level="INFO",
+            rotation="50 MB",
+            retention="90 days",
+            compression="zip",
+            serialize=False,
+            filter=lambda record: record["extra"].get("event_type") in (
+                "TRADE_OPEN", "TRADE_CLOSE",
+            ),
+        )
+
+        # AI 시그널 전용 파일 로깅 (AI_SIGNAL / ENSEMBLE_SIGNAL 이벤트만)
+        logger.add(
+            f"{log_dir}/ai_signal.json.log",
+            format=json_formatter,  # type: ignore[arg-type]
+            level="INFO",
+            rotation="50 MB",
+            retention="90 days",
+            compression="zip",
+            serialize=False,
+            filter=lambda record: record["extra"].get("event_type") in (
+                "AI_SIGNAL", "ENSEMBLE_SIGNAL",
+            ),
+        )
+
     logger.info(
         "JSON 구조화 로깅 설정 완료",
         log_level=log_level,

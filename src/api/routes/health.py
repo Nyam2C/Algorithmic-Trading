@@ -81,6 +81,47 @@ async def readiness_check(response: Response) -> dict[str, Any]:
     }
 
 
+@router.get("/health/bots")
+async def bot_health() -> dict[str, Any]:
+    """봇별 상세 상태 확인.
+
+    각 봇의 실시간 상태를 반환합니다.
+    루프 소요시간, 마켓 레짐, 포지션 유무 등을 포함합니다.
+
+    Returns:
+        봇별 상태 목록
+    """
+    manager = get_bot_manager_optional()
+
+    if manager is None:
+        return {"bots": []}
+
+    bots_status: list[dict[str, Any]] = []
+    for bot in manager.bots.values():
+        state = bot.get_state()
+        uptime_start = state.get("uptime_start")
+        uptime_seconds = 0.0
+        if uptime_start:
+            from datetime import datetime  # noqa: PLC0415
+            if isinstance(uptime_start, datetime):
+                uptime_seconds = (datetime.now() - uptime_start).total_seconds()
+
+        bots_status.append({
+            "bot_name": state.get("bot_name", ""),
+            "is_running": state.get("is_running", False),
+            "is_paused": state.get("is_paused", False),
+            "loop_count": state.get("loop_count", 0),
+            "last_loop_duration_sec": state.get("last_loop_duration", 0.0),
+            "last_signal": state.get("last_signal", "WAIT"),
+            "current_price": state.get("current_price", 0.0),
+            "market_regime": state.get("market_regime", "UNKNOWN"),
+            "has_position": state.get("has_position", False),
+            "uptime_seconds": round(uptime_seconds, 1),
+        })
+
+    return {"bots": bots_status}
+
+
 @router.get("/metrics")
 async def prometheus_metrics() -> Response:
     """Prometheus 메트릭 엔드포인트.

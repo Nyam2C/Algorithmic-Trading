@@ -3,6 +3,9 @@
 Phase 4: AsyncClient 마이그레이션 - 비동기 클라이언트 사용
 """
 import asyncio
+import contextlib
+import time
+from typing import Any
 
 import pandas as pd
 from binance import AsyncClient
@@ -40,6 +43,18 @@ class BinanceTestnetClient:
         self._secret_key = secret_key
         self._testnet = testnet
         self._client: AsyncClient | None = None
+        self._metrics: Any | None = None
+        try:
+            from src.metrics.prometheus import _get_metrics  # noqa: PLC0415
+            self._metrics = _get_metrics()
+        except Exception:  # noqa: S110
+            pass  # prometheus_client 미설치 시 스킵
+
+    def _record_latency(self, endpoint: str, start: float) -> None:
+        """API 지연시간 메트릭 기록."""
+        if self._metrics:
+            with contextlib.suppress(Exception):
+                self._metrics.record_api_latency(endpoint, time.monotonic() - start)
 
     async def connect(self) -> None:
         """AsyncClient 초기화 (비동기).
@@ -97,6 +112,7 @@ class BinanceTestnetClient:
         Returns:
             Current price as float
         """
+        t0 = time.monotonic()
         try:
             ticker = await self.client.futures_symbol_ticker(symbol=symbol)
             price = float(ticker["price"])
@@ -105,6 +121,8 @@ class BinanceTestnetClient:
         except Exception as e:
             logger.error(f"Failed to get current price for {symbol}: {e}")
             raise
+        finally:
+            self._record_latency("get_current_price", t0)
 
     @async_retry(
         max_attempts=3,
@@ -128,6 +146,7 @@ class BinanceTestnetClient:
         Returns:
             DataFrame with OHLCV data
         """
+        t0 = time.monotonic()
         try:
             klines = await self.client.futures_klines(
                 symbol=symbol, interval=interval, limit=limit
@@ -165,6 +184,8 @@ class BinanceTestnetClient:
         except Exception as e:
             logger.error(f"Failed to get klines for {symbol}: {e}")
             raise
+        finally:
+            self._record_latency("get_klines", t0)
 
     @async_retry(
         max_attempts=3,
@@ -241,6 +262,7 @@ class BinanceTestnetClient:
         Returns:
             Order details
         """
+        t0 = time.monotonic()
         try:
             order = await self.client.futures_create_order(
                 symbol=symbol,
@@ -256,6 +278,8 @@ class BinanceTestnetClient:
         except Exception as e:
             logger.error(f"Failed to create market order: {e}")
             raise
+        finally:
+            self._record_latency("create_market_order", t0)
 
     @async_retry(
         max_attempts=3,

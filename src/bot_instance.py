@@ -8,6 +8,8 @@ Phase 4: AI 메모리 시스템 통합
 - 과거 거래 분석 기반 시그널 생성
 """
 import asyncio
+import contextlib
+import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any, Union
@@ -59,7 +61,7 @@ class BotInstance:
         >>> await instance.start()
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0915
         self,
         config: BotConfig,
         binance_api_key: str,
@@ -125,6 +127,10 @@ class BotInstance:
         self._last_signal_time: datetime | None = None
         self._current_position: dict | None = None
         self._market_data: dict | None = None
+
+        # 루프 타이밍
+        self._last_loop_duration: float = 0.0
+        self._last_loop_time: datetime | None = None
 
         # 의존성
         self._binance_client = binance_client
@@ -248,6 +254,11 @@ class BotInstance:
             "risk_stats": self._risk_manager.get_stats(),
             # Phase 6.2: 마켓 레짐
             "market_regime": self._current_regime.value,
+            # 루프 타이밍
+            "last_loop_duration": self._last_loop_duration,
+            "last_loop_time": self._last_loop_time,
+            # 포지션 유무
+            "has_position": self._current_position is not None,
             # Phase 5 통합: MTF 분석
             "use_mtf_filter": getattr(self.config, "use_mtf_filter", False),
             "higher_tf_trend": (
@@ -674,6 +685,15 @@ class BotInstance:
             # 콜백 호출
             await self._notify_trade("OPEN", signal, current_price, None)
 
+            # 구조화 로깅: 거래 진입 이벤트
+            self._log.bind(event_type="TRADE_OPEN").info(
+                "포지션 진입",
+                side=signal,
+                price=current_price,
+                quantity=float(order.get("origQty", 0)),
+                leverage=self.config.get_effective_leverage(),
+            )
+
         return order
 
     async def _close_position(  # noqa: PLR0915
@@ -778,8 +798,14 @@ class BotInstance:
             # 콜백 호출
             await self._notify_trade("CLOSE", side, current_price, pnl_pct)
 
-            self._log.info(
-                f"포지션 청산 완료: {exit_reason}, PnL={pnl_pct:+.2f}%"
+            self._log.bind(event_type="TRADE_CLOSE").info(
+                f"포지션 청산 완료: {exit_reason}, PnL={pnl_pct:+.2f}%",
+                exit_reason=exit_reason,
+                side=side,
+                entry_price=entry_price,
+                exit_price=current_price,
+                pnl_usd=pnl_usd,
+                pnl_pct=pnl_pct,
             )
 
         return order
@@ -866,6 +892,12 @@ class BotInstance:
                     f"앙상블 시그널: {signal} @ ${current_price:,.2f} "
                     f"(합의율={result.consensus_ratio:.1%})"
                 )
+                # Prometheus: signal_confidence 기록
+                if self._metrics:
+                    with contextlib.suppress(Exception):
+                        self._metrics.record_signal_confidence(
+                            self.bot_name, result.consensus_ratio
+                        )
             except Exception as e:
                 self._log.warning(f"앙상블 시그널 실패, 폴백: {e}")
                 signal = self._generate_signal(market_data)
@@ -905,10 +937,15 @@ class BotInstance:
 
         # Phase 5 통합: 시그널 기록
         try:
-            conditions = {
+            conditions: dict[str, Any] = {
                 "price": current_price,
                 "regime": self._current_regime.value,
+                "signal_source": signal_source,
             }
+            if indicators:
+                for k in ("rsi", "atr", "volume_ratio", "ma_7", "ma_25", "ma_99"):
+                    if k in indicators:
+                        conditions[k] = indicators[k]
             self._last_signal_id = await self._signal_tracker.record_signal(
                 bot_id=str(self.config.bot_id),
                 signal=signal,
@@ -917,6 +954,11 @@ class BotInstance:
             )
         except Exception:  # noqa: S110
             pass
+
+        # Prometheus: 시그널 메트릭 기록
+        if self._metrics:
+            with contextlib.suppress(Exception):
+                self._metrics.record_signal(self.bot_name, signal, signal_source)
 
         # 콜백 호출
         await self._notify_signal(signal, current_price)
@@ -1056,6 +1098,7 @@ class BotInstance:
         self._log.info("트레이딩 루프 시작")
 
         while self._is_running:
+            loop_start = time.monotonic()
             try:
                 await self._execute_single_loop()
 
@@ -1065,6 +1108,15 @@ class BotInstance:
             except Exception as e:
                 self._log.error(f"루프 에러: {e}", exc_info=True)
                 await self._notify_error(e)
+            finally:
+                # 루프 타이밍 기록
+                self._last_loop_duration = time.monotonic() - loop_start
+                self._last_loop_time = datetime.now()
+                if self._metrics:
+                    with contextlib.suppress(Exception):
+                        self._metrics.record_loop_duration(
+                            self.bot_name, self._last_loop_duration
+                        )
 
             # 다음 루프까지 대기
             await asyncio.sleep(self._loop_interval_seconds)

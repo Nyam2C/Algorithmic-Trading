@@ -3,11 +3,13 @@
 Phase 4: AI 메모리 시스템 - 과거 거래 분석을 프롬프트에 주입
 기존 GeminiSignalGenerator를 확장하여 메모리 컨텍스트 지원
 """
+import time
 from pathlib import Path
 
 from google.genai.errors import ClientError, ServerError
 from loguru import logger
 
+from src.ai.ai_logger import AIDecisionLogger
 from src.ai.gemini import GeminiSignalGenerator
 from src.analytics.memory_context import AIMemoryContextBuilder, MemoryContext
 from src.utils.retry import async_retry
@@ -67,6 +69,7 @@ class EnhancedGeminiSignalGenerator(GeminiSignalGenerator):
         # 메모리 시스템 프롬프트 로드
         self.memory_system_prompt = self._load_memory_prompt()
 
+        self._ai_logger = AIDecisionLogger()
         self._log = logger.bind(module="enhanced_gemini")
         self._log.info(
             f"Enhanced Gemini 초기화 (memory_enabled={self.memory_enabled})"
@@ -135,6 +138,11 @@ Output ONLY: LONG, SHORT, or WAIT."""
         Returns:
             시그널: "LONG", "SHORT", or "WAIT"
         """
+        t0 = time.monotonic()
+        raw_response_text = ""
+        signal = "WAIT"
+        memory_used = False
+        prompt_summary = ""
         try:
             # 1. 메모리 컨텍스트 생성
             memory_context = None
@@ -146,6 +154,7 @@ Output ONLY: LONG, SHORT, or WAIT."""
                     )
                     if not memory_context.is_empty():
                         self._log.debug("메모리 컨텍스트 생성 완료")
+                        memory_used = True
                     else:
                         self._log.debug("메모리 컨텍스트 비어있음")
                         memory_context = None
@@ -158,6 +167,7 @@ Output ONLY: LONG, SHORT, or WAIT."""
                 market_data=market_data,
                 memory_context=memory_context,
             )
+            prompt_summary = full_prompt
 
             self._log.debug("Calling Gemini API with memory context...")
 
@@ -176,6 +186,7 @@ Output ONLY: LONG, SHORT, or WAIT."""
                 self._log.warning("Empty response from Gemini, defaulting to WAIT")
                 return "WAIT"
 
+            raw_response_text = response.text
             signal = response.text.strip().upper()
 
             # 5. 시그널 검증
@@ -195,6 +206,18 @@ Output ONLY: LONG, SHORT, or WAIT."""
             self._log.error(f"Gemini API error: {e}")
             self._log.warning("Defaulting to WAIT due to error")
             return "WAIT"
+        finally:
+            latency_ms = (time.monotonic() - t0) * 1000
+            self._ai_logger.log_gemini_call(
+                bot_name=bot_id or "",
+                prompt_summary=prompt_summary,
+                raw_response=raw_response_text,
+                parsed_signal=signal,
+                reason="",
+                memory_used=memory_used,
+                latency_ms=latency_ms,
+                model=self.model,
+            )
 
     def _build_prompt_with_memory(
         self,
