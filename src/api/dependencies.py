@@ -183,26 +183,28 @@ async def verify_n8n_api_key(
 
 async def verify_api_key(
     request: Request,
-    x_api_key: str = Header(..., alias="X-API-Key"),
-) -> str:
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
+) -> str | None:
     """일반 API 키 검증.
+
+    API_KEY 환경변수가 미설정이면 인증을 건너뜁니다.
 
     Args:
         request: FastAPI Request 객체 (보안 감사 로그용)
-        x_api_key: 요청 헤더의 API 키
+        x_api_key: 요청 헤더의 API 키 (선택)
 
     Returns:
-        검증된 API 키
+        검증된 API 키 또는 None (인증 비활성 시)
 
     Raises:
-        HTTPException: API 키가 유효하지 않거나 미설정된 경우
+        HTTPException: API 키가 유효하지 않은 경우
     """
     expected_key = os.getenv("API_KEY")
     if not expected_key:
-        raise HTTPException(
-            status_code=500,
-            detail="API_KEY not configured"
-        )
+        return None
+
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="X-API-Key header required")
 
     # Timing Attack 방지: 상수 시간 비교
     if not hmac.compare_digest(x_api_key, expected_key):

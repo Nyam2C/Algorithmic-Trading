@@ -9,6 +9,7 @@
 """
 import asyncio
 import contextlib
+import logging
 import os
 import signal
 import sys
@@ -139,6 +140,16 @@ async def send_discord_embed(
         return False
 
 
+class _EndpointLogFilter(logging.Filter):
+    """Uvicorn access log에서 반복 엔드포인트 필터링."""
+
+    _excluded = ("/health", "/metrics")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(ep in msg for ep in self._excluded)
+
+
 async def run_embedded_api(
     app, host: str = "0.0.0.0", port: int = 8000  # noqa: S104
 ) -> None:
@@ -151,6 +162,7 @@ async def run_embedded_api(
     """
     import uvicorn  # noqa: PLC0415
 
+    logging.getLogger("uvicorn.access").addFilter(_EndpointLogFilter())
     config = uvicorn.Config(app, host=host, port=port, log_level="info")
     server = uvicorn.Server(config)
     await server.serve()

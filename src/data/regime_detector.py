@@ -4,6 +4,7 @@ Phase 6.2: 마켓 레짐 감지 (횡보 vs 추세)
 - MA 정렬과 ATR로 시장 상태 분류
 - 횡보장에서는 진입 회피
 """
+import math
 from enum import Enum
 
 from loguru import logger
@@ -80,6 +81,12 @@ class RegimeDetector:
             if not all([ma_7, ma_25, ma_99]):
                 logger.warning("MA 데이터 부족, UNKNOWN 반환")
                 return MarketRegime.UNKNOWN
+
+            # NaN 체크 (캔들 수 부족 시 MA25/MA99가 NaN)
+            ma_values = [ma_7, ma_25, ma_99]
+            if any(math.isnan(v) for v in ma_values if isinstance(v, float)):
+                logger.info("MA 데이터 부족 (캔들 수 부족), RANGING 반환")
+                return MarketRegime.RANGING
 
             # ATR 비율 계산 (%)
             atr_pct = 0.0
