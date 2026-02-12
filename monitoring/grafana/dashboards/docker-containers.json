@@ -440,14 +440,19 @@
           "type": "loki",
           "uid": "P8E80F9AEF21F6940"
         },
-        "definition": "label_values({job=\"docker-containers\"}, container)",
+        "definition": "",
         "hide": 0,
         "includeAll": true,
         "label": "Container",
         "multi": true,
         "name": "container",
         "options": [],
-        "query": "label_values({job=\"docker-containers\"}, container)",
+        "query": {
+          "label": "container",
+          "stream": "{job=\"docker-containers\"}",
+          "type": 1,
+          "refId": "LokiVariableQueryEditor-VariableQuery"
+        },
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,

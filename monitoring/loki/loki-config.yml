@@ -6,7 +6,10 @@
 
 auth_enabled: false
 
+# 로그 레벨 (info 쿼리 로그 → 피드백 루프 방지)
+
 server:
+  log_level: warn
   http_listen_port: 3100
   grpc_listen_port: 9096
 

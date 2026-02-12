@@ -168,6 +168,9 @@ scrape_configs:
         refresh_interval: 5s
 
     relabel_configs:
+      # job 레이블 설정
+      - target_label: 'job'
+        replacement: 'docker-containers'
       # 컨테이너 이름 (예: trading-bot, trading-redis)
       - source_labels: ['__meta_docker_container_name']
         regex: '/(.*)'
