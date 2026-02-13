@@ -20,9 +20,7 @@ class RuleBasedSignalGenerator:
       - SHORT: RSI > overbought AND price < MA_7 AND volume > threshold
     - WAIT: Otherwise
 
-    기본 RSI 설정:
-    - 테스트넷/개발: 45/55 (더 많은 시그널)
-    - 프로덕션 권장: 30/70 (더 보수적)
+    기본 RSI 설정: 30/70 (보수적, 생존 우선)
 
     Phase 6.3: BotConfig에서 rsi_oversold/rsi_overbought 설정 가능
     """
@@ -33,16 +31,16 @@ class RuleBasedSignalGenerator:
 
     def __init__(
         self,
-        rsi_oversold: float = 45.0,  # 테스트용 기본값, 프로덕션에선 30 권장
-        rsi_overbought: float = 55.0,  # 테스트용 기본값, 프로덕션에선 70 권장
+        rsi_oversold: float = 30.0,
+        rsi_overbought: float = 70.0,
         volume_threshold: float = 0.5,
         strategy: str = "trend_pullback",
     ):
         """Initialize rule-based signal generator.
 
         Args:
-            rsi_oversold: RSI threshold for oversold condition (프로덕션 권장: 30)
-            rsi_overbought: RSI threshold for overbought condition (프로덕션 권장: 70)
+            rsi_oversold: RSI threshold for oversold condition (default: 30)
+            rsi_overbought: RSI threshold for overbought condition (default: 70)
             volume_threshold: Volume ratio threshold (1.2 = 20% above average)
             strategy: Signal strategy - 'trend_pullback' or 'classic'
         """
@@ -102,32 +100,42 @@ class RuleBasedSignalGenerator:
                 f"Vol={volume_ratio}"
             )
 
-            # LONG: uptrend (MA7 > MA25) + oversold pullback + volume
+            # Candle direction confirmation
+            current_close = market_data.get("current_price", 0)
+            prev_close = market_data.get("prev_close", current_close)
+
+            # LONG: uptrend (MA7 > MA25) + oversold pullback + volume + bullish candle
             if (
                 ma_7 > ma_25 > 0
                 and rsi < self.rsi_oversold
                 and volume_ratio > self.volume_threshold
+                and current_close > prev_close
             ):
                 logger.info(
                     f"LONG signal [trend_pullback]: "
                     f"MA7={ma_7:.2f} > MA25={ma_25:.2f} (uptrend), "
                     f"RSI={rsi:.2f} < {self.rsi_oversold} (pullback), "
-                    f"Vol={volume_ratio:.2f} > {self.volume_threshold}"
+                    f"Vol={volume_ratio:.2f} > {self.volume_threshold}, "
+                    f"Bullish candle (close={current_close:.2f} "
+                    f"> prev={prev_close:.2f})"
                 )
                 return "LONG"
 
-            # SHORT: downtrend (MA7 < MA25) + overbought pullback + volume
+            # SHORT: downtrend + overbought pullback + volume + bearish candle
             if (
                 ma_7 < ma_25
                 and ma_25 > 0
                 and rsi > self.rsi_overbought
                 and volume_ratio > self.volume_threshold
+                and current_close < prev_close
             ):
                 logger.info(
                     f"SHORT signal [trend_pullback]: "
                     f"MA7={ma_7:.2f} < MA25={ma_25:.2f} (downtrend), "
                     f"RSI={rsi:.2f} > {self.rsi_overbought} (overbought), "
-                    f"Vol={volume_ratio:.2f} > {self.volume_threshold}"
+                    f"Vol={volume_ratio:.2f} > {self.volume_threshold}, "
+                    f"Bearish candle (close={current_close:.2f} "
+                    f"< prev={prev_close:.2f})"
                 )
                 return "SHORT"
 

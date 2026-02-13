@@ -266,6 +266,11 @@ def analyze_market(
         analysis = {
             # Price data
             "current_price": current_price,
+            "prev_close": (
+                float(df["close"].iloc[-2])
+                if len(df) >= 2  # noqa: PLR2004
+                else current_price
+            ),
             "high_24h": ticker_24h["high_24h"],
             "low_24h": ticker_24h["low_24h"],
             "change_24h_pct": ticker_24h["change_24h"],

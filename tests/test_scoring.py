@@ -182,6 +182,33 @@ class TestScoringMACDEdgeCases:
         assert "강한 하락" in score.reason
 
 
+class TestMACDNoiseFilter:
+    """MACD ATR 기반 노이즈 필터 테스트"""
+
+    @pytest.fixture
+    def scorer(self):
+        return IndicatorScorer()
+
+    def test_macd_below_atr_threshold_returns_zero(self, scorer):
+        """histogram이 ATR의 10% 미만이면 score=0"""
+        data = {
+            "macd": 10, "macd_signal": 8, "macd_histogram": 2,
+            "atr": 100,  # 10% of ATR = 10, |histogram|=2 < 10
+        }
+        score = scorer._score_macd(data)
+        assert score.score == 0.0
+        assert "노이즈 필터" in score.reason
+
+    def test_macd_above_atr_threshold_returns_nonzero(self, scorer):
+        """histogram이 ATR의 10% 이상이면 정상 점수"""
+        data = {
+            "macd": 100, "macd_signal": 50, "macd_histogram": 50,
+            "atr": 100,  # 10% of ATR = 10, |histogram|=50 > 10
+        }
+        score = scorer._score_macd(data)
+        assert score.score != 0.0
+
+
 # =============================================================================
 # Scoring: 가격 위치 경계값 테스트
 # =============================================================================
@@ -207,6 +234,50 @@ class TestScoringPricePositionEdgeCases:
         score = scorer._score_price_position(data)
         assert score.score == 0.3
         assert "과매도" in score.reason
+
+
+# =============================================================================
+# Scoring: 볼륨 방향 테스트
+# =============================================================================
+
+
+class TestVolumeScoreDirection:
+    """볼륨 점수 방향 반영 테스트"""
+
+    @pytest.fixture
+    def scorer(self):
+        return IndicatorScorer()
+
+    def test_volume_long_direction(self, scorer):
+        """LONG 방향이면 양수 score 유지"""
+        score = scorer._score_volume(2.5, signal_direction=1)
+        assert score.score > 0
+
+    def test_volume_short_direction(self, scorer):
+        """SHORT 방향이면 양수 score가 음수로 전환"""
+        score = scorer._score_volume(2.5, signal_direction=-1)
+        assert score.score < 0
+
+    def test_volume_neutral_direction(self, scorer):
+        """중립 방향이면 원래 score 유지"""
+        score = scorer._score_volume(2.5, signal_direction=0)
+        assert score.score == 0.5  # 원래 높은 거래량 점수
+
+    def test_volume_direction_integration_regression(self, scorer):
+        """calculate_score에서 방향이 반영되는 통합 테스트"""
+        # SHORT 방향 데이터: RSI 과매수 + MA 하락
+        data = {
+            "rsi": 85.0,  # 극단적 과매수 -> SHORT
+            "ma_7": 49000.0,
+            "ma_25": 50000.0,
+            "volume_ratio": 2.5,  # 높은 거래량
+        }
+        result = scorer.calculate_score(data)
+        # volume score가 SHORT 방향으로 기여해야 함
+        vol_score = next(
+            s for s in result.indicator_scores if s.name == "volume"
+        )
+        assert vol_score.score < 0  # SHORT 방향 반영
 
 
 # =============================================================================

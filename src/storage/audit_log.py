@@ -482,7 +482,7 @@ class AuditLogManager:
         Returns:
             AuditLog 리스트
         """
-        logs = self._memory_logs.copy()
+        logs = list(self._memory_logs)
 
         # 날짜 필터링
         logs = [

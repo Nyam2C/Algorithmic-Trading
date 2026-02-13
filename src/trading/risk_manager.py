@@ -98,6 +98,36 @@ class RiskManager:
             f"리셋 시간={self._daily_reset_time.isoformat()}"
         )
 
+
+    async def check_and_reset_if_new_day(self, current_balance: float) -> bool:
+        """UTC 자정 경과 시 일일 통계 자동 리셋.
+
+        매 루프 반복마다 호출하여, 마지막 리셋 이후 UTC 자정을 넘었으면
+        자동으로 일일 통계를 리셋합니다.
+
+        Args:
+            current_balance: 현재 잔고
+
+        Returns:
+            리셋 수행 여부 (True = 리셋함)
+        """
+        now = datetime.now(timezone.utc)
+
+        if self._daily_reset_time is None:
+            # 최초 호출: 리셋 수행
+            await self.reset_daily_stats(current_balance)
+            return True
+
+        # 마지막 리셋 날짜와 현재 날짜 비교
+        if now.date() > self._daily_reset_time.date():
+            logger.info(
+                f"새로운 거래일 감지 (UTC {now.date()}), 일일 통계 리셋"
+            )
+            await self.reset_daily_stats(current_balance)
+            return True
+
+        return False
+
     async def track_trade_pnl(self, pnl: float) -> None:
         """거래 PnL 추적.
 
@@ -138,6 +168,35 @@ class RiskManager:
                     f"연속 손실 한도 도달 ({self._consecutive_losses}회), "
                     f"쿨다운 시작: {self._cooldown_until.isoformat()} 까지"
                 )
+
+    async def validate_position_risk(
+        self,
+        stop_loss_pct: float,
+        leverage: int,
+        max_loss_per_trade_pct: float = 0.02,
+    ) -> tuple[bool, str]:
+        """단일 거래 리스크 검증.
+
+        진입 전 단일 거래의 예상 최대 손실이 허용 범위 내인지 확인합니다.
+
+        Args:
+            stop_loss_pct: 손절 비율 (0.004 = 0.4%)
+            leverage: 레버리지
+            max_loss_per_trade_pct: 최대 허용 단일 거래 손실률
+
+        Returns:
+            (허용 여부, 사유)
+        """
+        potential_loss = stop_loss_pct * leverage
+        if potential_loss > max_loss_per_trade_pct:
+            reason = (
+                f"단일 거래 리스크 초과: SL({stop_loss_pct:.2%}) x "
+                f"레버리지({leverage}x) = {potential_loss:.2%} > "
+                f"한도({max_loss_per_trade_pct:.2%})"
+            )
+            logger.warning(reason)
+            return False, reason
+        return True, ""
 
     async def should_halt_trading(self) -> tuple[bool, str]:
         """거래 중단 여부 확인.

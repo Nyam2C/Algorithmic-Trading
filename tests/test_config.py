@@ -322,3 +322,154 @@ class TestMainnetSafetySwitch:
         assert config.use_atr_tp_sl is False
         assert config.atr_tp_multiplier == 2.0
         assert config.atr_sl_multiplier == 1.0
+
+
+class TestPhase5IntegrationFields:
+    """Phase 5 통합 필드 테스트 (regime filter, MTF, ensemble, manual approval)"""
+
+    def test_new_fields_defaults(self):
+        """새 필드 기본값 테스트"""
+        config = TradingConfig(
+            binance_api_key="test",
+            binance_secret_key="test",
+            gemini_api_key="test",
+            discord_webhook_url="https://test.com",
+        )
+
+        assert config.use_regime_filter is False
+        assert config.allow_weak_trend is True
+        assert config.use_mtf_filter is False
+        assert config.use_ensemble is False
+        assert config.manual_approval_enabled is False
+        assert config.manual_approval_trades == 5
+        assert config.approval_timeout == 60
+
+    def test_new_fields_explicit_values(self):
+        """새 필드 명시적 값 테스트"""
+        config = TradingConfig(
+            binance_api_key="test",
+            binance_secret_key="test",
+            gemini_api_key="test",
+            discord_webhook_url="https://test.com",
+            use_regime_filter=True,
+            allow_weak_trend=False,
+            use_mtf_filter=True,
+            use_ensemble=True,
+            manual_approval_enabled=True,
+            manual_approval_trades=10,
+            approval_timeout=120,
+        )
+
+        assert config.use_regime_filter is True
+        assert config.allow_weak_trend is False
+        assert config.use_mtf_filter is True
+        assert config.use_ensemble is True
+        assert config.manual_approval_enabled is True
+        assert config.manual_approval_trades == 10
+        assert config.approval_timeout == 120
+
+    def test_load_config_new_env_vars(self, monkeypatch):
+        """새 필드 환경변수 로딩 테스트"""
+        monkeypatch.setenv("BINANCE_API_KEY", "test")
+        monkeypatch.setenv("BINANCE_SECRET_KEY", "test")
+        monkeypatch.setenv("GEMINI_API_KEY", "test")
+        monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://test.com")
+        monkeypatch.setenv("USE_REGIME_FILTER", "true")
+        monkeypatch.setenv("ALLOW_WEAK_TREND", "false")
+        monkeypatch.setenv("USE_MTF_FILTER", "true")
+        monkeypatch.setenv("USE_ENSEMBLE", "true")
+        monkeypatch.setenv("MANUAL_APPROVAL_ENABLED", "true")
+        monkeypatch.setenv("MANUAL_APPROVAL_TRADES", "10")
+        monkeypatch.setenv("APPROVAL_TIMEOUT", "120")
+
+        config = load_config()
+
+        assert config.use_regime_filter is True
+        assert config.allow_weak_trend is False
+        assert config.use_mtf_filter is True
+        assert config.use_ensemble is True
+        assert config.manual_approval_enabled is True
+        assert config.manual_approval_trades == 10
+        assert config.approval_timeout == 120
+
+    def test_load_config_new_env_vars_defaults(self, monkeypatch):
+        """새 필드 환경변수 기본값 테스트"""
+        monkeypatch.setenv("BINANCE_API_KEY", "test")
+        monkeypatch.setenv("BINANCE_SECRET_KEY", "test")
+        monkeypatch.setenv("GEMINI_API_KEY", "test")
+        monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://test.com")
+
+        config = load_config()
+
+        assert config.use_regime_filter is False
+        assert config.allow_weak_trend is True
+        assert config.use_mtf_filter is False
+        assert config.use_ensemble is False
+        assert config.manual_approval_enabled is False
+        assert config.manual_approval_trades == 5
+        assert config.approval_timeout == 60
+
+    def test_manual_approval_trades_validation(self):
+        """manual_approval_trades는 1 이상이어야 함"""
+        with pytest.raises(ValidationError):
+            TradingConfig(
+                binance_api_key="test",
+                binance_secret_key="test",
+                gemini_api_key="test",
+                discord_webhook_url="https://test.com",
+                manual_approval_trades=0,
+            )
+
+    def test_approval_timeout_validation(self):
+        """approval_timeout은 1 이상이어야 함"""
+        with pytest.raises(ValidationError):
+            TradingConfig(
+                binance_api_key="test",
+                binance_secret_key="test",
+                gemini_api_key="test",
+                discord_webhook_url="https://test.com",
+                approval_timeout=0,
+            )
+
+
+class TestBinanceApiKeyValidation:
+    """Binance API 키 검증 테스트"""
+
+    def test_mainnet_empty_api_key_raises(self):
+        """메인넷에서 빈 API 키는 ValueError 발생"""
+        with pytest.raises(ValidationError) as exc_info:
+            TradingConfig(
+                binance_api_key="",
+                binance_secret_key="test_secret",
+                binance_testnet=False,
+                gemini_api_key="test",
+                discord_webhook_url="https://test.com",
+            )
+
+        assert "required for mainnet" in str(exc_info.value)
+
+    def test_mainnet_empty_secret_key_raises(self):
+        """메인넷에서 빈 시크릿 키는 ValueError 발생"""
+        with pytest.raises(ValidationError) as exc_info:
+            TradingConfig(
+                binance_api_key="test_key",
+                binance_secret_key="",
+                binance_testnet=False,
+                gemini_api_key="test",
+                discord_webhook_url="https://test.com",
+            )
+
+        assert "required for mainnet" in str(exc_info.value)
+
+    def test_testnet_empty_keys_warns_only(self):
+        """테스트넷에서 빈 키는 경고만 출력 (에러 없음)"""
+        config = TradingConfig(
+            binance_api_key="",
+            binance_secret_key="",
+            binance_testnet=True,
+            gemini_api_key="test",
+            discord_webhook_url="https://test.com",
+        )
+
+        assert config.binance_api_key == ""
+        assert config.binance_secret_key == ""

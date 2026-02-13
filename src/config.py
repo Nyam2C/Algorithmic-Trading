@@ -47,6 +47,21 @@ class TradingConfig(BaseModel):
     atr_tp_multiplier: float = Field(default=2.0, gt=0)
     atr_sl_multiplier: float = Field(default=1.0, gt=0)
 
+    # Phase 6.2: 마켓 레짐 필터링
+    use_regime_filter: bool = Field(default=False)
+    allow_weak_trend: bool = Field(default=True)
+
+    # Phase 5 통합: 다중 타임프레임 필터
+    use_mtf_filter: bool = Field(default=False)
+
+    # Phase 5 통합: 앙상블 시그널
+    use_ensemble: bool = Field(default=False)
+
+    # Phase 5 통합: 수동 승인
+    manual_approval_enabled: bool = Field(default=False)
+    manual_approval_trades: int = Field(default=5, ge=1)
+    approval_timeout: int = Field(default=60, ge=1)
+
     # AI Configuration
     gemini_api_key: str
     gemini_model: str = Field(default="gemini-2.5-flash")
@@ -87,6 +102,27 @@ class TradingConfig(BaseModel):
         max_position_pct = 0.1  # Max 10% of capital
         if v > max_position_pct:
             logger.warning(f"Position size {v*100}% is high, recommended: <=10%")
+        return v
+
+    @validator("binance_secret_key")
+    def validate_binance_keys(cls, v, values):
+        """메인넷에서 빈 API 키 차단.
+
+        테스트넷에서는 경고만 출력하고, 메인넷에서는 ValueError 발생.
+        """
+        is_testnet = values.get("binance_testnet", True)
+        api_key = values.get("binance_api_key", "")
+
+        if not api_key or not v:
+            if not is_testnet:
+                raise ValueError(
+                    "Binance API key and secret key are required for mainnet. "
+                    "Set BINANCE_API_KEY and BINANCE_SECRET_KEY environment variables."
+                )
+            if not api_key:
+                logger.warning("BINANCE_API_KEY is empty (testnet mode)")
+            if not v:
+                logger.warning("BINANCE_SECRET_KEY is empty (testnet mode)")
         return v
 
     def validate_mainnet_switch(self) -> bool:
@@ -139,6 +175,20 @@ def load_config() -> TradingConfig:
             use_atr_tp_sl=os.getenv("USE_ATR_TP_SL", "false").lower() == "true",
             atr_tp_multiplier=float(os.getenv("ATR_TP_MULTIPLIER", "2.0")),
             atr_sl_multiplier=float(os.getenv("ATR_SL_MULTIPLIER", "1.0")),
+            # Phase 6.2: 마켓 레짐 필터링
+            use_regime_filter=os.getenv("USE_REGIME_FILTER", "false").lower() == "true",
+            allow_weak_trend=os.getenv("ALLOW_WEAK_TREND", "true").lower() == "true",
+            # Phase 5 통합: 다중 타임프레임 필터
+            use_mtf_filter=os.getenv("USE_MTF_FILTER", "false").lower() == "true",
+            # Phase 5 통합: 앙상블 시그널
+            use_ensemble=os.getenv("USE_ENSEMBLE", "false").lower() == "true",
+            # Phase 5 통합: 수동 승인
+            manual_approval_enabled=(
+                os.getenv("MANUAL_APPROVAL_ENABLED", "false").lower()
+                == "true"
+            ),
+            manual_approval_trades=int(os.getenv("MANUAL_APPROVAL_TRADES", "5")),
+            approval_timeout=int(os.getenv("APPROVAL_TIMEOUT", "60")),
             gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
             gemini_temperature=float(os.getenv("GEMINI_TEMPERATURE", "0.1")),

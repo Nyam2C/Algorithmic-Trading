@@ -133,7 +133,7 @@ class IndicatorScorer:
         self.short_threshold = short_threshold
         self._log = logger.bind(module="indicator_scorer")
 
-    def calculate_score(self, market_data: dict[str, Any]) -> ScoringResult:
+    def calculate_score(self, market_data: dict[str, Any]) -> ScoringResult:  # noqa: PLR0912
         """종합 점수 계산.
 
         Args:
@@ -159,9 +159,19 @@ class IndicatorScorer:
             if abs(ma_score.score) > MODERATE_CONFIDENCE:
                 reasons.append(ma_score.reason)
 
-        # 볼륨 점수
+        # 볼륨 점수 (방향 반영)
         if "volume_ratio" in market_data:
-            volume_score = self._score_volume(market_data["volume_ratio"])
+            # 예비 방향 계산: RSI + MA 점수 기반
+            preliminary_score = sum(s.weighted_score() for s in scores)
+            if preliminary_score > 0:
+                signal_direction = 1
+            elif preliminary_score < 0:
+                signal_direction = -1
+            else:
+                signal_direction = 0
+            volume_score = self._score_volume(
+                market_data["volume_ratio"], signal_direction
+            )
             scores.append(volume_score)
 
         # ATR 점수
@@ -297,10 +307,13 @@ class IndicatorScorer:
             reason=reason,
         )
 
-    def _score_volume(self, volume_ratio: float) -> IndicatorScore:
+    def _score_volume(
+        self, volume_ratio: float, signal_direction: int = 0
+    ) -> IndicatorScore:
         """볼륨 점수 계산.
 
-        볼륨 증가는 추세 확인 (점수 증폭 효과로 사용)
+        볼륨 증가는 추세 확인 (점수 증폭 효과로 사용).
+        signal_direction으로 방향 반영: +1=LONG, -1=SHORT, 0=중립.
         """
         if volume_ratio > STRONG_MOMENTUM:
             score = 0.5  # 강한 볼륨 - 추세 확인
@@ -314,6 +327,10 @@ class IndicatorScorer:
         else:
             score = -0.2  # 낮은 볼륨 - 신뢰도 감소
             reason = f"낮은 거래량 ({volume_ratio:.1f}x)"
+
+        # 방향 반영: 양수 score를 direction에 따라 부호 조정
+        if signal_direction != 0 and score > 0:
+            score = score * signal_direction
 
         return IndicatorScore(
             name="volume",
@@ -355,10 +372,25 @@ class IndicatorScorer:
         - MACD > Signal: 상승 모멘텀 (+)
         - MACD < Signal: 하락 모멘텀 (-)
         - Histogram 크기로 강도 결정
+        - ATR 기반 노이즈 필터: |histogram| < ATR * 0.1 이면 score=0
         """
         macd = data.get("macd", 0)
         signal = data.get("macd_signal", 0)
         histogram = data.get("macd_histogram", macd - signal)
+
+        # ATR 기반 노이즈 필터: histogram이 ATR의 10% 미만이면 무시
+        atr = data.get("atr", 0)
+        if atr > 0 and abs(histogram) < atr * 0.1:
+            return IndicatorScore(
+                name="macd",
+                value=histogram,
+                score=0.0,
+                weight=self.weights.get("macd", 0.15),
+                reason=(
+                    f"MACD 노이즈 필터 "
+                    f"(|hist|={abs(histogram):.1f} < ATR*10%={atr*0.1:.1f})"
+                ),
+            )
 
         if histogram > 0:
             # 상승 모멘텀

@@ -321,3 +321,54 @@ class TestGetStats:
         risk_manager._current_drawdown = 0.08
 
         assert risk_manager.get_current_drawdown() == 0.08
+
+class TestDailyRiskReset:
+    """check_and_reset_if_new_day 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_first_call_resets(self):
+        """최초 호출 시 리셋 수행"""
+        rm = RiskManager()
+        assert rm._daily_reset_time is None
+
+        result = await rm.check_and_reset_if_new_day(5000.0)
+
+        assert result is True
+        assert rm._daily_start_balance == 5000.0
+        assert rm._daily_reset_time is not None
+
+    @pytest.mark.asyncio
+    async def test_same_day_no_reset(self):
+        """같은 날 재호출 시 리셋 안 함"""
+        rm = RiskManager()
+        await rm.reset_daily_stats(5000.0)
+
+        # PnL을 일부 기록
+        await rm.track_trade_pnl(-50.0)
+        assert rm._daily_pnl == -50.0
+
+        result = await rm.check_and_reset_if_new_day(4950.0)
+
+        assert result is False
+        # PnL이 리셋되지 않아야 함
+        assert rm._daily_pnl == -50.0
+
+    @pytest.mark.asyncio
+    async def test_midnight_crossing_resets(self):
+        """UTC 자정 경과 시 리셋 수행"""
+        rm = RiskManager()
+        await rm.reset_daily_stats(5000.0)
+
+        # 리셋 시간을 어제로 조작
+        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+        rm._daily_reset_time = yesterday
+
+        # PnL 기록
+        await rm.track_trade_pnl(-100.0)
+        assert rm._daily_pnl == -100.0
+
+        result = await rm.check_and_reset_if_new_day(4900.0)
+
+        assert result is True
+        assert rm._daily_pnl == 0.0
+        assert rm._daily_start_balance == 4900.0

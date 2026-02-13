@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from loguru import logger
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # =============================================================================
 # 위험도별 기본값 상수
@@ -15,21 +15,21 @@ from pydantic import BaseModel, Field, field_validator
 
 RISK_LEVEL_DEFAULTS: dict[str, dict[str, Any]] = {
     "low": {
-        "leverage": 10,
+        "leverage": 3,
         "position_size_pct": 0.03,
-        "take_profit_pct": 0.003,
+        "take_profit_pct": 0.006,
         "stop_loss_pct": 0.003,
     },
     "medium": {
-        "leverage": 15,
+        "leverage": 5,
         "position_size_pct": 0.05,
-        "take_profit_pct": 0.004,
+        "take_profit_pct": 0.008,
         "stop_loss_pct": 0.004,
     },
     "high": {
-        "leverage": 20,
+        "leverage": 10,
         "position_size_pct": 0.08,
-        "take_profit_pct": 0.006,
+        "take_profit_pct": 0.012,
         "stop_loss_pct": 0.006,
     },
 }
@@ -97,8 +97,14 @@ class BotConfig(BaseModel):
     # Phase 5: 드로다운 관리
     max_drawdown_pct: float = Field(default=0.10, gt=0, le=1)  # 10%
 
+    # Phase 7: 단일 거래 최대 손실률
+    max_loss_per_trade_pct: float = Field(default=0.02, gt=0, le=1)  # 2%
+
+    # Phase 7: 리스크 한도 시 포지션 청산
+    close_on_risk_halt: bool = Field(default=True)
+
     # Phase 6.1: ATR 기반 동적 TP/SL
-    use_atr_tp_sl: bool = Field(default=False)  # True면 ATR 기반 TP/SL 사용
+    use_atr_tp_sl: bool = Field(default=True)  # ATR 기반 TP/SL 사용 (기본 활성화)
     atr_tp_multiplier: float = Field(default=2.0, gt=0)  # TP = entry ± ATR x multiplier
     atr_sl_multiplier: float = Field(default=1.0, gt=0)  # SL = entry ± ATR x multiplier
 
@@ -118,8 +124,8 @@ class BotConfig(BaseModel):
     approval_timeout: int = Field(default=60, ge=1)
 
     # 신호 파라미터
-    rsi_oversold: float = Field(default=45.0, ge=0, le=100)
-    rsi_overbought: float = Field(default=55.0, ge=0, le=100)
+    rsi_oversold: float = Field(default=30.0, ge=0, le=100)
+    rsi_overbought: float = Field(default=70.0, ge=0, le=100)
     volume_threshold: float = Field(default=0.5, ge=0)  # 테스트넷 호환 (프로덕션: 1.2)
 
     # 신호 전략
@@ -162,6 +168,20 @@ class BotConfig(BaseModel):
         if v is not None and v > max_position_size:
             logger.warning(f"Position size {v*100}%가 높습니다. 권장: <=10%")
         return v
+
+    @model_validator(mode="after")
+    def check_risk_consistency(self) -> "BotConfig":
+        """SL x leverage가 일일 손실 한도를 초과하면 경고."""
+        sl = self.get_effective_stop_loss_pct()
+        leverage = self.get_effective_leverage()
+        single_trade_loss = sl * leverage
+        if single_trade_loss > self.max_daily_loss_pct:
+            logger.warning(
+                f"리스크 불일치: SL({sl:.2%}) x 레버리지({leverage}x) = "
+                f"{single_trade_loss:.2%} > 일일한도({self.max_daily_loss_pct:.2%}). "
+                f"max_loss_per_trade_pct={self.max_loss_per_trade_pct:.2%}로 제한됨."
+            )
+        return self
 
     def get_effective_leverage(self) -> int:
         """실제 적용될 레버리지 반환.
@@ -290,8 +310,8 @@ class BotConfig(BaseModel):
             use_atr_tp_sl=row.get("use_atr_tp_sl", False),  # Phase 6.1
             atr_tp_multiplier=row.get("atr_tp_multiplier", 2.0),  # Phase 6.1
             atr_sl_multiplier=row.get("atr_sl_multiplier", 1.0),  # Phase 6.1
-            rsi_oversold=row.get("rsi_oversold", 45.0),
-            rsi_overbought=row.get("rsi_overbought", 55.0),
+            rsi_oversold=row.get("rsi_oversold", 30.0),
+            rsi_overbought=row.get("rsi_overbought", 70.0),
             volume_threshold=row.get("volume_threshold", 0.5),
             signal_strategy=row.get("signal_strategy", "trend_pullback"),
             binance_api_key_ref=row.get("binance_api_key_ref"),

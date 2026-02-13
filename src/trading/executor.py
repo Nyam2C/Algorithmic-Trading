@@ -13,6 +13,8 @@ from binance.enums import (
 )
 from loguru import logger
 
+from src.utils.pnl import calculate_pnl_pct as _calculate_pnl_pct
+
 
 class TradingExecutor:
     """Execute trades on Binance Futures.
@@ -21,6 +23,9 @@ class TradingExecutor:
     - 실제 잔고 기반 포지션 사이징 (use_real_balance 옵션)
     - ATR 기반 동적 TP/SL (Phase 6.1)
     """
+
+    MIN_ORDER_QTY = 0.001  # Binance BTC minimum order quantity
+    PARTIAL_FILL_THRESHOLD = 0.99  # 99% fill threshold
 
     def __init__(self, binance_client, config):
         """Initialize trading executor.
@@ -36,7 +41,7 @@ class TradingExecutor:
         # Phase 5: 잔고 캐싱
         self._cached_balance: float | None = None
         self._balance_cache_time: datetime | None = None
-        self._balance_cache_ttl_seconds: int = 60  # 1분 캐싱
+        self._balance_cache_ttl_seconds: int = 300  # 5분 캐싱
 
         logger.info("Trading executor initialized")
 
@@ -85,8 +90,13 @@ class TradingExecutor:
             return self._cached_balance
         except Exception as e:
             logger.error(f"잔고 조회 실패: {e}")
-            # 캐시된 값이 있으면 사용, 없으면 기본값
-            if self._cached_balance is not None:
+            # 캐시된 값이 TTL 내에 있으면 사용, 없거나 만료면 재발생
+            if (
+                self._cached_balance is not None
+                and self._balance_cache_time is not None
+                and (datetime.now() - self._balance_cache_time).total_seconds()
+                < self._balance_cache_ttl_seconds
+            ):
                 logger.warning(f"캐시된 잔고 사용: ${self._cached_balance:,.2f}")
                 return self._cached_balance
             raise
@@ -116,6 +126,13 @@ class TradingExecutor:
         # Round to appropriate precision (BTC = 3 decimals)
         quantity = round(quantity, 3)
 
+        # Minimum order quantity check (Binance BTC minimum = 0.001)
+        if quantity < self.MIN_ORDER_QTY:
+            raise ValueError(
+                f"포지션 수량 {quantity}이 최소 주문 수량(0.001) 미만입니다. "
+                f"자본=${capital:,.2f}, 가격=${current_price:,.2f}"
+            )
+
         logger.info(
             f"Position size calculated: {quantity} "
             f"@ ${current_price:,.2f} = ${position_value:,.2f} "
@@ -144,8 +161,25 @@ class TradingExecutor:
             try:
                 capital = await self._get_available_balance()
             except Exception as e:
-                logger.warning(f"실제 잔고 조회 실패, 기본값 사용: {e}")
-                capital = 1000.0
+                # Check if we have a recent cache (within 5 min)
+                cache_age = (
+                    (datetime.now() - self._balance_cache_time).total_seconds()
+                    if self._balance_cache_time
+                    else float("inf")
+                )
+                if (
+                    self._cached_balance is not None
+                    and cache_age < self._balance_cache_ttl_seconds
+                ):
+                    logger.warning(
+                        "잔고 API 실패, 최근 캐시 사용: "
+                        f"${self._cached_balance:,.2f}"
+                    )
+                    capital = self._cached_balance
+                else:
+                    raise RuntimeError(
+                        f"잔고 조회 실패 - 캐시 만료 또는 없음. 거래 중단: {e}"
+                    ) from e
         else:
             capital = 1000.0
 
@@ -208,6 +242,21 @@ class TradingExecutor:
                 side=side,
                 quantity=quantity,
             )
+
+        # Slippage detection for market orders
+        if not use_maker and order:
+            avg_price_str = order.get("avgPrice")
+            if avg_price_str:
+                avg_price = float(avg_price_str)
+                slippage = abs(avg_price - current_price) / current_price
+                max_slippage = getattr(self.config, "max_slippage_pct", 0.005)
+                if slippage > max_slippage:
+                    logger.critical(
+                        f"슬리피지 경고: {slippage:.4%} > {max_slippage:.4%} "
+                        f"(예상=${current_price:,.2f}, 체결=${avg_price:,.2f})"
+                    )
+                # Update entry price to actual fill price
+                current_price = avg_price
 
         # Store position info with entry time
         self.current_position = {
@@ -388,15 +437,39 @@ class TradingExecutor:
                 logger.info("No position to close")
                 return None
 
-            # Close position
+            expected_qty = abs(position['position_amt'])
             logger.info(
-                f"Closing position: {position['side']} {abs(position['position_amt'])}"
+                f"Closing position: {position['side']} {expected_qty}"
             )
             order = await self.client.close_position(self.config.symbol)
 
-            # Clear stored position
-            self.current_position = None
+            # Check for partial fill
+            if order:
+                executed_qty = float(order.get("executedQty", 0))
+                fill_ratio = executed_qty / expected_qty if expected_qty > 0 else 1.0
+                if fill_ratio < self.PARTIAL_FILL_THRESHOLD:
+                    remaining = round(expected_qty - executed_qty, 3)
+                    logger.warning(
+                        f"부분 체결 감지: {executed_qty}/{expected_qty}, "
+                        f"잔여={remaining}"
+                    )
+                    # Retry with remaining quantity
+                    try:
+                        side = "SELL" if position['side'] == "LONG" else "BUY"
+                        retry_order = await self.client.create_market_order(  # noqa: F841
+                            symbol=self.config.symbol,
+                            side=side,
+                            quantity=remaining,
+                        )
+                        logger.info(f"잔여 수량 청산 완료: {remaining}")
+                        # Merge executed quantities
+                        order["executedQty"] = str(expected_qty)
+                    except Exception as retry_err:
+                        logger.critical(
+                            f"잔여 수량 청산 실패 - 수동 확인 필요: {retry_err}"
+                        )
 
+            self.current_position = None
             logger.info("Position closed successfully")
             return order
 
@@ -438,12 +511,7 @@ class TradingExecutor:
         Returns:
             PnL percentage
         """
-        if side == "LONG":
-            pnl_pct = ((current_price - entry_price) / entry_price) * 100
-        else:  # SHORT
-            pnl_pct = ((entry_price - current_price) / entry_price) * 100
-
-        return pnl_pct
+        return _calculate_pnl_pct(entry_price, current_price, side)
 
     async def check_tp_sl(self, position: dict, current_price: float) -> str | None:
         """Check if TP or SL should be triggered.
@@ -577,6 +645,76 @@ class TradingExecutor:
             logger.error(f"ATR TP/SL 체크 실패: {e}")
             # Fallback to regular check
             return await self.check_tp_sl(position, current_price)
+
+
+    async def _place_exchange_tp_sl(
+        self,
+        symbol: str,
+        side: str,
+        quantity: float,
+        entry_price: float,
+        entry_atr: float | None = None,
+    ) -> None:
+        """거래소 측 STOP_MARKET/TAKE_PROFIT_MARKET 주문 배치.
+
+        포지션 오픈 후 호출하여 거래소 측에서 TP/SL을 관리하도록 합니다.
+
+        Args:
+            symbol: 거래쌍
+            side: 포지션 방향 ("LONG" or "SHORT")
+            quantity: 포지션 수량
+            entry_price: 진입 가격
+            entry_atr: ATR 값 (None이면 고정 퍼센트 사용)
+        """
+        try:
+            close_side = "SELL" if side == "LONG" else "BUY"
+
+            use_atr = getattr(self.config, "use_atr_tp_sl", False)
+
+            if use_atr and entry_atr:
+                atr_tp_mul = getattr(self.config, "atr_tp_multiplier", 2.0)
+                atr_sl_mul = getattr(self.config, "atr_sl_multiplier", 1.0)
+
+                if side == "LONG":
+                    tp_price = round(entry_price + entry_atr * atr_tp_mul, 2)
+                    sl_price = round(entry_price - entry_atr * atr_sl_mul, 2)
+                else:
+                    tp_price = round(entry_price - entry_atr * atr_tp_mul, 2)
+                    sl_price = round(entry_price + entry_atr * atr_sl_mul, 2)
+            else:
+                tp_pct = self.config.take_profit_pct
+                sl_pct = self.config.stop_loss_pct
+
+                if side == "LONG":
+                    tp_price = round(entry_price * (1 + tp_pct), 2)
+                    sl_price = round(entry_price * (1 - sl_pct), 2)
+                else:
+                    tp_price = round(entry_price * (1 - tp_pct), 2)
+                    sl_price = round(entry_price * (1 + sl_pct), 2)
+
+            # SL 주문
+            await self.client.create_stop_market_order(
+                symbol=symbol,
+                side=close_side,
+                quantity=quantity,
+                stop_price=sl_price,
+            )
+
+            # TP 주문
+            await self.client.create_take_profit_market_order(
+                symbol=symbol,
+                side=close_side,
+                quantity=quantity,
+                stop_price=tp_price,
+            )
+
+            logger.info(
+                f"거래소 TP/SL 주문 배치 완료: "
+                f"TP=, SL= ({side})"
+            )
+
+        except Exception as e:
+            logger.error(f"거래소 TP/SL 주문 배치 실패: {e}")
 
     def check_timecut(self, position: dict) -> bool:
         """Check if position should be closed due to timecut (2 hours).

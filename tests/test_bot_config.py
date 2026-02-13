@@ -29,7 +29,7 @@ class TestBotConfig:
             assert config.risk_level == "medium"  # 기본값
             # leverage는 None이지만 get_effective_leverage()로 기본값 15 반환
             assert config.leverage is None
-            assert config.get_effective_leverage() == 15
+            assert config.get_effective_leverage() == 5
             assert config.is_active is False  # 기본값
 
         def test_모든_파라미터_지정하여_생성(self) -> None:
@@ -131,10 +131,10 @@ class TestBotConfig:
                 risk_level="low",
             )
 
-            # low risk 기본값: leverage=10, position_size=0.03, tp/sl=0.003
-            assert config.get_effective_leverage() == 10
+            # low risk 기본값: leverage=3, position_size=0.03, tp=0.006/sl=0.003
+            assert config.get_effective_leverage() == 3
             assert config.get_effective_position_size_pct() == 0.03
-            assert config.get_effective_take_profit_pct() == 0.003
+            assert config.get_effective_take_profit_pct() == 0.006
             assert config.get_effective_stop_loss_pct() == 0.003
 
         def test_medium_risk_기본값(self) -> None:
@@ -147,10 +147,10 @@ class TestBotConfig:
                 risk_level="medium",
             )
 
-            # medium risk 기본값: leverage=15, position_size=0.05, tp/sl=0.004
-            assert config.get_effective_leverage() == 15
+            # medium risk 기본값: leverage=5, position_size=0.05, tp=0.008/sl=0.004
+            assert config.get_effective_leverage() == 5
             assert config.get_effective_position_size_pct() == 0.05
-            assert config.get_effective_take_profit_pct() == 0.004
+            assert config.get_effective_take_profit_pct() == 0.008
             assert config.get_effective_stop_loss_pct() == 0.004
 
         def test_high_risk_기본값(self) -> None:
@@ -163,10 +163,10 @@ class TestBotConfig:
                 risk_level="high",
             )
 
-            # high risk 기본값: leverage=20, position_size=0.08, tp/sl=0.006
-            assert config.get_effective_leverage() == 20
+            # high risk 기본값: leverage=10, position_size=0.08, tp=0.012/sl=0.006
+            assert config.get_effective_leverage() == 10
             assert config.get_effective_position_size_pct() == 0.08
-            assert config.get_effective_take_profit_pct() == 0.006
+            assert config.get_effective_take_profit_pct() == 0.012
             assert config.get_effective_stop_loss_pct() == 0.006
 
         def test_명시적_값이_기본값_오버라이드(self) -> None:
@@ -185,7 +185,7 @@ class TestBotConfig:
             assert config.get_effective_leverage() == 25
             assert config.get_effective_position_size_pct() == 0.1
             # 미지정 값은 risk_level 기본값 사용
-            assert config.get_effective_take_profit_pct() == 0.003
+            assert config.get_effective_take_profit_pct() == 0.006
 
     # ===== symbol 검증 테스트 =====
     class TestSymbolValidation:

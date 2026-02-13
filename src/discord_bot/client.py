@@ -84,10 +84,49 @@ class TradingBotClient(discord.Client):
         self.bot_manager = bot_manager
         self._api_url = os.getenv("TRADING_BOT_API_URL", "http://localhost:8000")
 
+        # Phase 7: 감사 로그
+        self._audit_log: Any | None = None
+
         # 명령어 등록
         register_monitoring_commands(self)
         register_control_commands(self)
         register_multibot_commands(self)
+
+
+    def set_audit_log(self, audit_log: Any) -> None:
+        """감사 로그 매니저 설정.
+
+        Args:
+            audit_log: AuditLogManager 인스턴스
+        """
+        self._audit_log = audit_log
+        logger.info("Discord 봇 감사 로그 설정 완료")
+
+    async def _audit_command(
+        self, command: str, user: str, bot_name: str = "", details: str = ""
+    ) -> None:
+        """Discord 명령어 감사 로그 기록.
+
+        Args:
+            command: 명령어 이름
+            user: Discord 사용자
+            bot_name: 대상 봇 이름
+            details: 추가 상세 정보
+        """
+        if self._audit_log is None:
+            return
+        try:
+            await self._audit_log.log_event(
+                event_type="DISCORD_COMMAND",
+                bot_name=bot_name or "global",
+                details={
+                    "command": command,
+                    "discord_user": str(user),
+                    "details": details,
+                },
+            )
+        except Exception as e:
+            logger.warning(f"감사 로그 기록 실패: {e}")
 
     # =========================================================================
     # Embed Getters (Helper Methods)
@@ -364,6 +403,14 @@ class TradingBotClient(discord.Client):
             await interaction.followup.send(embed=embed)
             logger.warning(f"봇 일시정지: {interaction.user}")
 
+            bot_name = ""
+            if self.bot_manager and self.bot_manager.bot_count > 0:
+                bot_name = first_bot.bot_name
+            await self._audit_command(
+                "일시정지", str(interaction.user),
+                bot_name=bot_name,
+            )
+
         except Exception as e:
             logger.error(f"/일시정지 명령어 에러: {e}")
             await interaction.followup.send(
@@ -418,6 +465,14 @@ class TradingBotClient(discord.Client):
 
             await interaction.followup.send(embed=embed)
             logger.info(f"봇 재시작: {interaction.user}")
+
+            bot_name = ""
+            if self.bot_manager and self.bot_manager.bot_count > 0:
+                bot_name = first_bot.bot_name
+            await self._audit_command(
+                "재시작", str(interaction.user),
+                bot_name=bot_name,
+            )
 
         except Exception as e:
             logger.error(f"/재시작 명령어 에러: {e}")
@@ -486,6 +541,15 @@ class TradingBotClient(discord.Client):
 
             await interaction.followup.send(embed=embed)
             logger.critical(f"긴급 청산 시작: {interaction.user}")
+
+            em_bot_name = ""
+            if self.bot_manager and self.bot_manager.bot_count > 0:
+                em_bot_name = first_bot.bot_name
+            await self._audit_command(
+                "긴급청산", str(interaction.user),
+                bot_name=em_bot_name,
+                details=f"side={side}, entry=${entry_price:,.2f}",
+            )
 
         except Exception as e:
             logger.error(f"/긴급청산 명령어 에러: {e}")

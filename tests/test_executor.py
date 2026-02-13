@@ -811,8 +811,8 @@ class TestRealBalanceFeature:
         mock_binance_client.get_account_balance.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_calculate_position_size_fallback_on_error(self, mock_binance_client):
-        """잔고 조회 실패 시 기본값으로 fallback"""
+    async def test_calculate_position_size_raises_on_error_no_cache(self, mock_binance_client):
+        """잔고 조회 실패 + 캐시 없음 -> RuntimeError (안전장치)"""
         mock_binance_client.get_account_balance = AsyncMock(
             side_effect=Exception("API Error")
         )
@@ -832,12 +832,9 @@ class TestRealBalanceFeature:
         executor = TradingExecutor(mock_binance_client, config)
         current_price = 100000.0
 
-        # 에러 발생 시에도 기본값으로 동작해야 함
-        quantity = await executor._calculate_position_size_with_balance(current_price)
-
-        # 기본값 1000 사용
-        expected_quantity = round(1000 * 0.05 * 15 / 100000, 3)
-        assert quantity == expected_quantity
+        # P1 안전장치: 잔고 조회 실패 + 캐시 없음 -> 거래 중단
+        with pytest.raises(RuntimeError, match="잔고 조회 실패"):
+            await executor._calculate_position_size_with_balance(current_price)
 
 
 # =============================================================================
@@ -863,11 +860,11 @@ class TestExecutorBalanceErrorWithCache:
 
     @pytest.mark.asyncio
     async def test_balance_error_with_cached_value(self, mock_binance_client, mock_config):
-        """조회 실패 + 캐시 값 -> 캐시 사용"""
+        """조회 실패 + 최근 캐시 값 -> 캐시 사용"""
         executor = TradingExecutor(mock_binance_client, mock_config)
-        # 먼저 캐시에 값 저장
+        # 먼저 캐시에 값 저장 (TTL 이내)
         executor._cached_balance = 3000.0
-        executor._balance_cache_time = datetime.now() - timedelta(minutes=5)  # 만료됨
+        executor._balance_cache_time = datetime.now() - timedelta(minutes=2)  # 아직 유효
 
         # API 에러 발생
         mock_binance_client.get_account_balance = AsyncMock(

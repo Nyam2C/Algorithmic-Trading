@@ -119,6 +119,7 @@ class BotInstance:
         self._is_running = False
         self._is_paused = False
         self._emergency_close = False
+        self._emergency_event = asyncio.Event()
         self._uptime_start: datetime | None = None
         self._loop_count = 0
 
@@ -296,6 +297,7 @@ class BotInstance:
     def request_emergency_close(self) -> None:
         """긴급 포지션 청산 요청."""
         self._emergency_close = True
+        self._emergency_event.set()
         self._log.warning("긴급 청산 요청됨")
 
     def inject_signal(self, signal_data: dict[str, Any]) -> bool:
@@ -432,6 +434,69 @@ class BotInstance:
             self._log.warning(f"Redis 상태 복구 실패: {e}")
             return False
 
+    async def _reconcile_position(self) -> None:
+        """거래소 포지션과 Redis 상태를 비교하여 조정.
+
+        - 거래소에만 포지션 있음 (orphan) -> Redis에 저장, 내부 상태 갱신
+        - Redis에만 포지션 있음 (ghost) -> Redis에서 삭제, 내부 상태 초기화
+        - 양쪽 모두 있음 -> 거래소 값으로 동기화
+        - 양쪽 모두 없음 -> 아무 동작 없음
+        """
+        if self._binance_client is None:
+            return
+
+        try:
+            exchange_pos = await self._binance_client.get_position(self.symbol)
+        except Exception as e:
+            self._log.warning(f"거래소 포지션 조회 실패 (조정 스킵): {e}")
+            return
+
+        redis_pos = None
+        if self._redis_state_manager:
+            try:
+                redis_pos = await self._redis_state_manager.load_position(self.bot_name)
+            except Exception as e:
+                self._log.warning(f"Redis 포지션 조회 실패: {e}")
+
+        if exchange_pos and not redis_pos:
+            # Orphan: 거래소에만 포지션 존재 -> adopt
+            self._current_position = exchange_pos
+            side = exchange_pos['side']
+            ep = exchange_pos['entry_price']
+            self._log.warning(
+                f"고아 포지션 발견 (거래소만): {side} @ ${ep:,.2f} - 채택"
+            )
+            if self._redis_state_manager:
+                await self._redis_state_manager.save_position(
+                    self.bot_name, exchange_pos
+                )
+
+        elif not exchange_pos and redis_pos:
+            # Ghost: Redis에만 포지션 존재 -> remove
+            self._current_position = None
+            side = redis_pos.get('side')
+            ep = redis_pos.get('entry_price', 0)
+            self._log.warning(
+                f"유령 포지션 발견 (Redis만): {side} @ ${ep:,.2f} - 삭제"
+            )
+            if self._redis_state_manager:
+                await self._redis_state_manager.delete_position(self.bot_name)
+
+        elif exchange_pos and redis_pos:
+            # Both exist -> sync to exchange values
+            self._current_position = exchange_pos
+            side = exchange_pos['side']
+            ep = exchange_pos['entry_price']
+            self._log.info(
+                f"포지션 동기화 (거래소 기준): {side} @ ${ep:,.2f}"
+            )
+            if self._redis_state_manager:
+                await self._redis_state_manager.save_position(
+                    self.bot_name, exchange_pos
+                )
+
+        # else: no position on either side -> nothing to do
+
     def set_redis_state_manager(
         self, manager: Union[RedisStateManager, DummyRedisStateManager]
     ) -> None:
@@ -529,6 +594,10 @@ class BotInstance:
             # 봇 실행 상태 등록
             await self._redis_state_manager.register_bot(self.bot_name)
             await self._redis_state_manager.set_bot_running(self.bot_name)
+
+        # Position reconciliation: 거래소 vs Redis 포지션 동기화
+        if self._binance_client:
+            await self._reconcile_position()
 
         # Phase 5 통합: EnsembleSignalGenerator 초기화
         if getattr(self.config, "use_ensemble", False):
@@ -741,23 +810,57 @@ class BotInstance:
         if self._executor is None:
             raise RuntimeError("Executor not initialized")
 
+        # Phase 7: 단일 거래 리스크 검증
+        risk_ok, risk_reason = await self._risk_manager.validate_position_risk(
+            stop_loss_pct=self.config.get_effective_stop_loss_pct(),
+            leverage=self.config.get_effective_leverage(),
+            max_loss_per_trade_pct=getattr(self.config, "max_loss_per_trade_pct", 0.02),
+        )
+        if not risk_ok:
+            self._log.warning(f"리스크 검증 실패 - 진입 중단: {risk_reason}")
+            return None
+
         order = await self._executor.open_position(signal, current_price, entry_atr)
 
         if order:
             self._current_position = self._executor.current_position
 
-            # DB에 기록
+            # DB에 기록 (실패 시 Redis에 복구 마커 저장)
             if self._trade_db and self._executor.current_position:
-                trade_id = await self._trade_db.add_entry(
-                    entry_time=datetime.now(),
-                    entry_price=current_price,
-                    side=signal,
-                    quantity=float(order.get("origQty", 0)),
-                    leverage=self.config.get_effective_leverage(),
-                    symbol=self.symbol,
-                )
-                self._executor.current_position["trade_id"] = trade_id
-                self._log.info(f"거래 진입 기록: ID={trade_id}")
+                try:
+                    trade_id = await self._trade_db.add_entry(
+                        entry_time=datetime.now(),
+                        entry_price=current_price,
+                        side=signal,
+                        quantity=float(order.get("origQty", 0)),
+                        leverage=self.config.get_effective_leverage(),
+                        symbol=self.symbol,
+                    )
+                    self._executor.current_position["trade_id"] = trade_id
+                    self._log.info(f"거래 진입 기록: ID={trade_id}")
+                except Exception as db_err:
+                    self._log.error(f"거래 진입 DB 기록 실패: {db_err}")
+                    # Redis에 복구 마커 저장
+                    if self._redis_state_manager:
+                        try:
+                            recovery_data = {
+                                "entry_time": datetime.now().isoformat(),
+                                "entry_price": current_price,
+                                "side": signal,
+                                "quantity": float(order.get("origQty", 0)),
+                                "leverage": self.config.get_effective_leverage(),
+                                "symbol": self.symbol,
+                                "order_id": order.get("orderId"),
+                            }
+                            await self._redis_state_manager.save_position(
+                                f"{self.bot_name}:recovery", recovery_data
+                            )
+                            self._log.warning("Redis에 복구 마커 저장 완료")
+                        except Exception as redis_err:
+                            self._log.critical(
+                                "DB와 Redis 모두 기록 실패"
+                                f" - 수동 확인 필요: {redis_err}"
+                            )
 
             # Phase 5 통합: 감사 로그 기록
             if self._audit_log:
@@ -811,12 +914,24 @@ class BotInstance:
             entry_price = position["entry_price"]
             side = position["side"]
 
-            # PnL 계산
-            pnl_pct = self._executor.calculate_pnl_pct(entry_price, current_price, side)
-            if side == "LONG":
-                pnl_usd = (current_price - entry_price) * abs(position["position_amt"])
+            # Phase 7: 실제 체결가 기반 PnL 계산
+            exit_price = current_price  # default fallback
+            avg_price_str = order.get("avgPrice")
+            if avg_price_str:
+                try:
+                    exit_price = float(avg_price_str)
+                    self._log.info(f"실제 체결가 사용: ${exit_price:,.2f}")
+                except (ValueError, TypeError):
+                    self._log.warning("체결가 파싱 실패, 현재가 사용")
             else:
-                pnl_usd = (entry_price - current_price) * abs(position["position_amt"])
+                self._log.warning("체결가 없음(avgPrice), 현재가 사용")
+
+            # PnL 계산 (exit_price 사용)
+            pnl_pct = self._executor.calculate_pnl_pct(entry_price, exit_price, side)
+            if side == "LONG":
+                pnl_usd = (exit_price - entry_price) * abs(position["position_amt"])
+            else:
+                pnl_usd = (entry_price - exit_price) * abs(position["position_amt"])
             pnl_usd *= self.config.get_effective_leverage()
 
             # Phase 5 통합: 감사 로그 기록
@@ -835,7 +950,7 @@ class BotInstance:
                     await self._trade_db.add_exit(
                         trade_id=executor_position["trade_id"],
                         exit_time=datetime.now(),
-                        exit_price=current_price,
+                        exit_price=exit_price,
                         exit_reason=exit_reason,
                         pnl=pnl_usd,
                         pnl_pct=pnl_pct,
@@ -851,9 +966,9 @@ class BotInstance:
             halt, reason = await self._risk_manager.should_halt_trading()
             if halt and not self._risk_halt_notified:
                 self._log.warning(f"리스크 한도 도달 - 자동 정지: {reason}")
-                self.pause()
                 self._risk_halt_notified = True
                 await self._notify_risk_halt(reason)
+                self.pause()
 
             # Phase 5 통합: SignalTracker 결과 업데이트
             if self._last_signal_id:
@@ -888,14 +1003,14 @@ class BotInstance:
             self._current_position = None
 
             # 콜백 호출
-            await self._notify_trade("CLOSE", side, current_price, pnl_pct)
+            await self._notify_trade("CLOSE", side, exit_price, pnl_pct)
 
             self._log.bind(event_type="TRADE_CLOSE").info(
                 f"포지션 청산 완료: {exit_reason}, PnL={pnl_pct:+.2f}%",
                 exit_reason=exit_reason,
                 side=side,
                 entry_price=entry_price,
-                exit_price=current_price,
+                exit_price=exit_price,
                 pnl_usd=pnl_usd,
                 pnl_pct=pnl_pct,
             )
@@ -959,6 +1074,42 @@ class BotInstance:
         """단일 트레이딩 루프 실행."""
         self._loop_count += 1
         self._log.info(f"루프 #{self._loop_count} 시작")
+
+        # 0. 일일 리스크 리셋 체크 (UTC 자정 경과 시)
+        if self._binance_client:
+            try:
+                balance_info = await self._binance_client.get_account_balance()
+                await self._risk_manager.check_and_reset_if_new_day(
+                    balance_info["available"]
+                )
+            except Exception:  # noqa: S110
+                pass  # 잔고 조회 실패 시 스킵
+
+        # Phase 7: 리스크 한도 시 기존 포지션 강제 청산
+        halt, halt_reason = await self._risk_manager.should_halt_trading()
+        if halt:
+            if not self._risk_halt_notified:
+                self._log.warning(f"리스크 한도 도달: {halt_reason}")
+                self._risk_halt_notified = True
+                await self._notify_risk_halt(halt_reason)
+
+            # 기존 포지션 청산 (close_on_risk_halt 설정 확인)
+            close_on_halt = getattr(self.config, "close_on_risk_halt", True)
+            if close_on_halt and self._executor:
+                position = await self._executor.get_position()
+                if position:
+                    self._log.warning("리스크 한도 - 기존 포지션 강제 청산")
+                    # 현재가 조회를 위해 시장 데이터 필요
+                    try:
+                        price = await self._binance_client.get_current_price(
+                            self.symbol
+                        )
+                        await self._close_position(price, "RISK_HALT")
+                    except Exception as e:
+                        self._log.error(f"리스크 강제 청산 실패: {e}")
+
+            self.pause()
+            return
 
         # 1. 시장 데이터 수집
         market_data = await self._fetch_market_data()
@@ -1262,8 +1413,14 @@ class BotInstance:
                             self.bot_name, self._last_loop_duration
                         )
 
-            # 다음 루프까지 대기
-            await asyncio.sleep(self._loop_interval_seconds)
+            # 다음 루프까지 대기 (긴급 이벤트 시 즉시 깨어남)
+            if not self._emergency_event.is_set():
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(
+                        self._emergency_event.wait(),
+                        timeout=self._loop_interval_seconds,
+                    )
+            self._emergency_event.clear()
 
         self._log.info("트레이딩 루프 종료")
 
