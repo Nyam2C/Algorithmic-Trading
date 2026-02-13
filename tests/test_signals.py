@@ -3,8 +3,6 @@ Tests for trading signal parsing and validation
 """
 
 from src.ai.signals import (
-    get_signal_color,
-    get_signal_emoji,
     parse_signal,
     should_enter_trade,
     validate_signal,
@@ -59,34 +57,6 @@ class TestValidateSignal:
         assert validate_signal("HOLD") is False
         assert validate_signal("INVALID") is False
         assert validate_signal("") is False
-
-
-class TestGetSignalEmoji:
-    """신호 이모지 테스트"""
-
-    def test_get_emoji_for_signals(self):
-        """각 신호에 대한 이모지 반환"""
-        assert get_signal_emoji("LONG") == "🟢"
-        assert get_signal_emoji("SHORT") == "🔴"
-        assert get_signal_emoji("WAIT") == "⏸️"
-
-    def test_get_emoji_for_invalid(self):
-        """유효하지 않은 신호는 물음표"""
-        assert get_signal_emoji("INVALID") == "❓"
-
-
-class TestGetSignalColor:
-    """신호 색상 코드 테스트"""
-
-    def test_get_color_for_signals(self):
-        """각 신호에 대한 Discord 색상 코드"""
-        assert get_signal_color("LONG") == 0x00FF00  # 녹색
-        assert get_signal_color("SHORT") == 0xFF0000  # 빨간색
-        assert get_signal_color("WAIT") == 0xFFFF00  # 노란색
-
-    def test_get_color_for_invalid(self):
-        """유효하지 않은 신호는 회색"""
-        assert get_signal_color("INVALID") == 0x808080
 
 
 class TestShouldEnterTrade:

@@ -29,10 +29,6 @@ class RuleBasedSignalGenerator:
     Phase 6.3: BotConfig에서 rsi_oversold/rsi_overbought 설정 가능
     """
 
-    # 프로덕션 권장 RSI 임계값
-    PRODUCTION_RSI_OVERSOLD = 30.0
-    PRODUCTION_RSI_OVERBOUGHT = 70.0
-
     def __init__(
         self,
         rsi_oversold: float = 30.0,

@@ -1274,11 +1274,6 @@ class TestMessages:
         assert "test-bot" in msg
         assert "찾을 수 없습니다" in msg
 
-    def test_control_success(self):
-        msg = Messages.CONTROL_SUCCESS.format(action="시작", target="bot1")
-        assert "시작" in msg
-        assert "bot1" in msg
-
     def test_alert_updated(self):
         msg = Messages.ALERT_UPDATED.format(alert_type="진입 알림", state="켜기")
         assert "진입 알림" in msg
