@@ -62,6 +62,9 @@ def set_n8n_api_key_env():
 def client(mock_manager):
     """테스트 클라이언트 fixture"""
     app = create_app(bot_manager=mock_manager)
+    # Phase 7: 레이트 리밋 의존성 우회 (테스트에서 불필요)
+    from src.api.dependencies import check_critical_rate_limit
+    app.dependency_overrides[check_critical_rate_limit] = lambda: None
     return TestClient(app)
 
 

@@ -110,6 +110,7 @@ class TestAddEntry:
         db = TradeHistoryDB("postgresql://test:test@localhost:5432/test")
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = "123e4567-e89b-12d3-a456-426614174000"
+        mock_conn.execute.return_value = "UPDATE 1"
 
         mock_pool = MagicMock()
         mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
@@ -156,6 +157,7 @@ class TestAddExit:
     def db_with_pool(self):
         db = TradeHistoryDB("postgresql://test:test@localhost:5432/test")
         mock_conn = AsyncMock()
+        mock_conn.execute.return_value = "UPDATE 1"
 
         mock_pool = MagicMock()
         mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
@@ -451,6 +453,7 @@ class TestBotIdSupport:
         db = TradeHistoryDB("postgresql://test:test@localhost:5432/test")
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = "123e4567-e89b-12d3-a456-426614174000"
+        mock_conn.execute.return_value = "UPDATE 1"
 
         mock_pool = MagicMock()
         mock_pool.acquire.return_value.__aenter__.return_value = mock_conn

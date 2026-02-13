@@ -1101,6 +1101,8 @@ class BotInstance:
                     self._log.warning("리스크 한도 - 기존 포지션 강제 청산")
                     # 현재가 조회를 위해 시장 데이터 필요
                     try:
+                        if self._binance_client is None:
+                            raise RuntimeError('Binance client not initialized')
                         price = await self._binance_client.get_current_price(
                             self.symbol
                         )
