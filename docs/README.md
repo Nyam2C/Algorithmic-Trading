@@ -51,7 +51,7 @@ Algorithmic Trading 프로젝트의 모든 문서는 이 폴더에서 관리됩�
 **테스트 실행 및 작성 가이드**
 
 - 테스트 실행 방법
-- 64개 테스트 케이스 설명
+- 1860+ 테스트 케이스 설명
 - 코드 커버리지 확인
 - 테스트 작성 가이드 (Unit/Async/Mock/Fixture)
 - 디버깅 방법
@@ -74,29 +74,19 @@ Algorithmic Trading 프로젝트의 모든 문서는 이 폴더에서 관리됩�
 
 ---
 
-### 개발 계획 문서 (../.claude/)
+### 개발 문서 (../.claude/)
 
-프로젝트 루트의 `.claude/` 폴더에 있는 개발 계획 문서:
+프로젝트 루트의 `.claude/` 폴더에 있는 문서:
 
-#### TRADING_PLAN.md
-- 트레이딩 전략 상세 설명
-- 리스크 관리 방법
-- 파라미터 설정 근거
+#### [PROJECT_OVERVIEW.md](../.claude/PROJECT_OVERVIEW.md)
+- 전체 아키텍처 및 모듈 상세
+- 구현 체크리스트 (Phase 5-9)
+- API 레퍼런스, 멀티봇 아키텍처
 
-#### DEVELOPMENT_PLAN.md
-- 전체 개발 로드맵
-- 스프린트별 목표
-- 아키텍처 설계
-
-#### IMPLEMENTATION_PLAN.md
-- 스프린트별 구현 계획
-- 완료 체크리스트
-- 기술 스택 선정 이유
-
-#### PROMPT_ENGINEERING.md
-- Gemini AI 프롬프트 설계
-- 신호 생성 로직
-- 프롬프트 최적화 방법
+#### [CLAUDE.md](../.claude/CLAUDE.md)
+- 코딩 컨벤션 및 개발 원칙
+- 테스트/리뷰 기준
+- Common Pitfalls
 
 ---
 
@@ -113,12 +103,7 @@ Algorithmic Trading 프로젝트의 모든 문서는 이 폴더에서 관리됩�
 
 ### 개발하는 경우
 1. **[TEST_GUIDE.md](TEST_GUIDE.md)** - 테스트 방법
-2. **[../.claude/DEVELOPMENT_PLAN.md](../.claude/DEVELOPMENT_PLAN.md)** - 개발 계획
-3. **[../.claude/IMPLEMENTATION_PLAN.md](../.claude/IMPLEMENTATION_PLAN.md)** - 구현 가이드
-
-### 전략 이해하는 경우
-1. **[../.claude/TRADING_PLAN.md](../.claude/TRADING_PLAN.md)** - 트레이딩 전략
-2. **[../.claude/PROMPT_ENGINEERING.md](../.claude/PROMPT_ENGINEERING.md)** - AI 프롬프트
+2. **[../.claude/PROJECT_OVERVIEW.md](../.claude/PROJECT_OVERVIEW.md)** - 전체 아키텍처 및 구현 상세
 
 ---
 
@@ -147,7 +132,7 @@ Algorithmic Trading 프로젝트의 모든 문서는 이 폴더에서 관리됩�
 
 ### SETUP_GUIDE.md
 ```
-- 시스템 요구사항 (Python 3.11+, Docker)
+- 시스템 요구사항 (Python 3.10+, Docker)
 - API 키 발급 (Binance, Gemini, Discord)
 - 설정 스크립트 사용법
 - 데이터베이스 초기화
@@ -160,7 +145,7 @@ Algorithmic Trading 프로젝트의 모든 문서는 이 폴더에서 관리됩�
 - 테스트 실행 (./scripts/run-tests.sh)
 - 테스트 구조 (conftest.py, test_*.py)
 - 커버리지 목표 (94%+)
-- 64개 테스트 케이스 상세
+- 1860+ 테스트 케이스 상세
 - CI/CD 통합
 - 테스트 작성 패턴
 ```
@@ -227,4 +212,4 @@ docs/
 ---
 
 **문서 버전:** 3.0
-**마지막 업데이트:** 2026-02-03
+**마지막 업데이트:** 2026-02-14

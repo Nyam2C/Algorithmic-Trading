@@ -106,7 +106,7 @@ Binance Futures + Gemini AI 기반 비트코인 선물 자동매매 시스템
 
 ### 시스템 요구사항
 
-- **Python 3.11+** (필수)
+- **Python 3.10+** (필수)
 - **Docker & Docker Compose** (Docker 실행 시 필수)
 - **Git** (선택)
 
@@ -170,13 +170,20 @@ Algorithmic-Trading/
 │   ├── bot_manager.py            # 멀티봇 관리자
 │   ├── api/                      # REST API
 │   │   ├── main.py               # FastAPI 앱 팩토리
-│   │   └── routes/               # API 라우터
+│   │   ├── dependencies.py       # 의존성 주입 + 인증
+│   │   ├── middleware/            # Rate Limiting 등
+│   │   ├── routes/               # API 라우터
+│   │   ├── schemas/              # 요청/응답 모델
+│   │   └── services/             # 비즈니스 로직
 │   ├── analytics/                # 거래 분석
 │   │   ├── trade_analyzer.py     # 거래 이력 분석기
-│   │   └── memory_context.py     # AI 메모리 컨텍스트
+│   │   ├── memory_context.py     # AI 메모리 컨텍스트
+│   │   └── signal_tracker.py     # 신호 추적 및 통계
 │   ├── ai/                       # AI 신호 생성
 │   │   ├── gemini.py             # Gemini AI 클라이언트
 │   │   ├── enhanced_gemini.py    # 메모리 주입 Gemini
+│   │   ├── ensemble.py           # 앙상블 시그널 생성기
+│   │   ├── scoring.py            # 지표 스코어링
 │   │   ├── rule_based.py         # 규칙 기반 신호
 │   │   ├── signals.py            # 신호 파싱
 │   │   └── prompts/              # AI 프롬프트
@@ -185,7 +192,8 @@ Algorithmic-Trading/
 │   ├── data/                     # 데이터 처리
 │   │   ├── indicators.py         # 기술적 지표 (RSI, MA, ATR)
 │   │   ├── regime_detector.py    # 마켓 레짐 감지
-│   │   └── multi_timeframe.py    # 다중 타임프레임 분석
+│   │   ├── multi_timeframe.py    # 다중 타임프레임 분석
+│   │   └── market_data_formatter.py # AI용 데이터 포맷터
 │   ├── exchange/                 # 거래소 API
 │   │   └── binance.py            # Binance Testnet 클라이언트
 │   ├── metrics/                  # 모니터링 메트릭
@@ -199,11 +207,16 @@ Algorithmic-Trading/
 │   │   ├── risk_manager.py       # 리스크 관리
 │   │   └── trade_approval.py     # 수동 승인 시스템
 │   ├── discord_bot/              # Discord 봇
-│   │   └── bot.py                # 원격 제어 UI
+│   │   ├── client.py             # 봇 클라이언트
+│   │   ├── commands/             # 슬래시 명령어 (11개 한글)
+│   │   ├── permissions.py        # 권한 시스템
+│   │   ├── embeds.py             # UI 컴포넌트
+│   │   └── views.py              # Discord Views
 │   └── utils/                    # 유틸리티
+│       ├── circuit_breaker.py    # Circuit Breaker
 │       ├── retry.py              # 재시도 데코레이터
 │       └── logging.py            # JSON 구조화 로깅
-├── tests/                        # 테스트 (481개, 65% 커버리지)
+├── tests/                        # 테스트 (1860+ 테스트, 90%+ 커버리지)
 ├── deploy/                       # 🐳 Docker 배포
 │   ├── docker-compose.yml        # 통합 서비스 (Bot + API)
 │   ├── docker-compose.dev.yml    # 개발 환경
@@ -253,9 +266,9 @@ Algorithmic-Trading/
 - 에러 발생 알림
 - **Discord 봇 UI** (선택사항):
   - `/대시보드` - 인터랙티브 버튼 UI로 빠른 조회
-  - `/상태`, `/포지션`, `/통계`, `/내역` - 실시간 정보 조회
-  - `/일시정지`, `/재시작`, `/긴급청산` - 원격 봇 제어
-  - 한글 및 영어 명령어 모두 지원
+  - `/상태`, `/포지션`, `/수익`, `/내역`, `/계정`, `/프롬프트`, `/핑` - 모니터링
+  - `/제어`, `/긴급청산`, `/알림` - 봇 제어
+  - 한글 전용 명령어 (11개)
 
 ---
 
@@ -286,34 +299,26 @@ Discord 봇을 설정하면 채팅으로 봇을 원격 제어할 수 있습니�
 
 ### 💬 명령어 목록
 
-#### 정보 조회
-| 명령어 | 설명 | 예시 |
+#### 모니터링 (8개)
+| 명령어 | 설명 |
+|--------|------|
+| `/대시보드` | 인터랙티브 버튼 UI 대시보드 |
+| `/상태 [봇이름?]` | 봇 상태 조회 (생략 시 전체) |
+| `/포지션 [봇이름?]` | 현재 포지션 상세 정보 |
+| `/수익 [기간] [봇이름?]` | 거래 수익 리포트 (일간/주간/월간) |
+| `/내역 [개수]` | 최근 거래 내역 (기본 5, 최대 10) |
+| `/계정` | 계정 잔고 및 전체 포지션 |
+| `/프롬프트 [봇이름?]` | 마지막 AI 프롬프트 및 응답 |
+| `/핑` | 봇 응답 확인 |
+
+#### 봇 제어 (3개, 권한 필요)
+| 명령어 | 설명 | 권한 |
 |--------|------|------|
-| `/상태` | 봇 실행 상태 및 포지션 요약 | 가동시간, 현재가, 포지션 |
-| `/포지션` | 현재 포지션 상세 정보 | 진입가, TP/SL, PnL, 타임컷 |
-| `/통계` | 거래 통계 (기본 24시간) | 승률, 총 PnL, 최고/최악 거래 |
-| `/내역` | 최근 거래 내역 (기본 5개) | 진입/청산가, PnL, 시간 |
+| `/제어 <대상> <동작>` | 봇 시작/정지/일시정지/재개 | TRADER+ |
+| `/긴급청산 <대상>` | 포지션 즉시 시장가 청산 + 봇 정지 | ADMIN |
+| `/알림 [유형] [설정]` | 알림 설정 관리 (진입/청산/일간/에러) | TRADER+ |
 
-#### 봇 제어 (확인 필요)
-| 명령어 | 설명 | 효과 |
-|--------|------|------|
-| `/일시정지` | 봇 일시 정지 | 새 포지션 진입 중지, 기존 포지션 유지 |
-| `/재시작` | 봇 재시작 | 정상 거래 재개 |
-| `/긴급청산` | 긴급 포지션 청산 | 현재 포지션 즉시 시장가 청산 + 봇 정지 |
-
-**참고**: 제어 명령어는 확인 대화상자가 표시되며, "예" 클릭 시에만 실행됩니다.
-
-### 🌐 영어 명령어
-
-모든 명령어는 한글과 영어를 모두 지원합니다:
-- `/dashboard` (대시보드)
-- `/status` (상태)
-- `/position` (포지션)
-- `/stats` (통계)
-- `/history` (내역)
-- `/stop` (일시정지)
-- `/start` (재시작)
-- `/emergency` (긴급청산)
+**참고**: 제어 명령어는 권한 레벨(VIEWER/TRADER/ADMIN)에 따라 접근이 제한됩니다.
 
 ---
 
@@ -327,7 +332,7 @@ Discord 봇을 설정하면 채팅으로 봇을 원격 제어할 수 있습니�
 | 익절 | +0.4% | ROE +6.0% |
 | 손절 | -0.4% | ROE -6.0% |
 | 타임컷 | 2시간 | 구현 완료 |
-| 루프 주기 | 5분 | 300초 간격 |
+| 루프 주기 | 1시간 | 3600초 간격 |
 
 ---
 
@@ -335,7 +340,7 @@ Discord 봇을 설정하면 채팅으로 봇을 원격 제어할 수 있습니�
 
 ### 테스트 실행
 
-**전체 테스트 스위트 (355개 테스트)**
+**전체 테스트 스위트 (1860+ 테스트)**
 
 ```bash
 # 빠른 테스트
@@ -353,7 +358,7 @@ xdg-open htmlcov/index.html  # Linux
 start htmlcov/index.html  # Windows
 ```
 
-**테스트 커버리지**: 65%+ (src/ 모듈)
+**테스트 커버리지**: 90%+ (src/ 모듈)
 
 자세한 테스트 가이드: [TEST_GUIDE.md](docs/TEST_GUIDE.md)
 
@@ -373,7 +378,7 @@ python -m src.main
 
 **예상 동작:**
 1. Discord에 봇 시작 알림 수신 ✅
-2. 5분마다 시장 데이터 수집 및 분석 ✅
+2. 1시간마다 시장 데이터 수집 및 분석 ✅
 3. Gemini AI 신호 생성 (LONG/SHORT/WAIT) ✅
 4. 신호에 따라 포지션 진입 ✅
 5. 기존 포지션 TP/SL 체크 및 청산 ✅
@@ -455,7 +460,7 @@ PW: admin123
 | 모니터링 | Prometheus + Grafana + Loki |
 | 알림/제어 | Discord Bot |
 | 컨테이너 | Docker Compose |
-| 테스트 | pytest (481개 테스트, 65% 커버리지) |
+| 테스트 | pytest (1860+ 테스트, 90%+ 커버리지) |
 
 ---
 
@@ -469,14 +474,11 @@ PW: admin123
 - **[TEST_GUIDE.md](docs/TEST_GUIDE.md)** - 테스트 실행 및 작성 가이드
 - **[README.md](README.md)** - 프로젝트 개요 (현재 문서)
 
-### 개발 계획 문서 (.claude/)
+### 개발 문서 (.claude/)
 
-프로젝트의 상세한 계획 문서는 `.claude/` 폴더에 있습니다:
+프로젝트의 상세 문서는 `.claude/` 폴더에 있습니다:
 
-- **TRADING_PLAN.md** - 트레이딩 전략 상세
-- **DEVELOPMENT_PLAN.md** - 개발 계획 및 아키텍처
-- **IMPLEMENTATION_PLAN.md** - 스프린트별 구현 계획
-- **PROMPT_ENGINEERING.md** - Gemini AI 프롬프트 설계
+- **[PROJECT_OVERVIEW.md](.claude/PROJECT_OVERVIEW.md)** - 전체 아키텍처, 구현 체크리스트, API 레퍼런스
 
 ---
 
@@ -493,11 +495,11 @@ PW: admin123
 
 문제가 발생하면 다음을 확인하세요:
 
-1. Python 버전 3.8 이상
+1. Python 3.10 이상
 2. 모든 API 키가 올바르게 설정됨
 3. 인터넷 연결 정상
 4. Binance Testnet 서버 정상 작동 여부
 
 ---
 
-**마지막 업데이트**: 2026-02-03
+**마지막 업데이트**: 2026-02-14

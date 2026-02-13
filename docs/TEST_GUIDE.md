@@ -66,15 +66,32 @@ start htmlcov/index.html  # Windows
 ## 📁 테스트 구조
 
 ```
-tests/
-├── conftest.py              # pytest 설정 및 공통 fixtures
-├── test_config.py           # 설정 관리 테스트 (14개)
-├── test_indicators.py       # 기술적 지표 테스트 (20개)
-├── test_signals.py          # 신호 파싱 테스트 (12개)
-└── test_executor.py         # 주문 실행 테스트 (18개)
+tests/                           # 60개 테스트 파일, 1860+ 테스트 케이스
+├── conftest.py                  # pytest 설정 및 공통 fixtures
+├── test_config.py               # 설정 관리
+├── test_bot_config.py           # 멀티봇 설정 모델
+├── test_bot_instance*.py        # 봇 인스턴스 (통합, 루프 등)
+├── test_executor*.py            # 주문 실행 + 안전장치
+├── test_risk_manager.py         # 리스크 관리
+├── test_trade_approval.py       # 수동 승인 시스템
+├── test_indicators.py           # 기술적 지표
+├── test_regime_detector.py      # 마켓 레짐 감지
+├── test_multi_timeframe.py      # 다중 타임프레임
+├── test_gemini*.py              # Gemini AI 클라이언트
+├── test_ensemble*.py            # 앙상블 시그널
+├── test_signals.py              # 신호 파싱
+├── test_binance*.py             # Binance API
+├── test_trade_history.py        # PostgreSQL 거래 기록
+├── test_redis_state.py          # Redis 상태
+├── test_audit_log.py            # 감사 로그
+├── test_observability.py        # Prometheus + 로깅
+├── test_discord_*.py            # Discord 봇 + 권한
+├── test_api_*.py                # REST API + 미들웨어
+├── test_backtest*.py            # 백테스트 엔진
+└── ...                          # Phase 7-9 전용 테스트
 ```
 
-**총 64개 테스트 케이스**
+**총 1860+ 테스트 케이스 (60개 파일)**
 
 ---
 
@@ -82,112 +99,33 @@ tests/
 
 | 모듈 | 목표 커버리지 | 설명 |
 |------|--------------|------|
-| src/config.py | 90%+ | 설정 관리 |
-| src/data/indicators.py | 85%+ | 지표 계산 |
-| src/ai/signals.py | 100% | 신호 파싱 (단순) |
-| src/trading/executor.py | 80%+ | 주문 실행 |
-| src/exchange/binance.py | 70%+ | API 연동 (Mock) |
-| src/ai/gemini.py | 70%+ | AI 연동 (Mock) |
+| `src/trading/` | 95%+ | 주문 실행, 리스크 관리 |
+| `src/exchange/` | 95%+ | Binance API 연동 |
+| `src/ai/` | 90%+ | AI 신호 생성 |
+| `src/data/` | 90%+ | 기술적 지표, 레짐 감지 |
 
 ---
 
-## 📝 작성된 테스트
+## 📝 테스트 모듈별 요약
 
-### 1. test_config.py
-
-**TestTradingConfig 클래스:**
-- ✅ 유효한 데이터로 설정 생성
-- ✅ 심볼 대문자 변환
-- ✅ 심볼이 USDT로 끝나는지 검증
-- ✅ 레버리지 범위 검증 (1-125)
-- ✅ 포지션 크기 검증 (0 < size <= 1)
-- ✅ 기본값 테스트
-
-**TestLoadConfig 클래스:**
-- ✅ 환경 변수에서 설정 로딩
-- ✅ 필수 키 없을 때 에러
-
-**TestGetConfig 클래스:**
-- ✅ 싱글톤 패턴 확인
-
----
-
-### 2. test_indicators.py
-
-**TestCalculateRSI 클래스:**
-- ✅ RSI 정상 계산
-- ✅ RSI 범위 검증 (0-100)
-- ✅ 상승 추세에서 RSI > 50
-- ✅ 하락 추세에서 RSI < 50
-
-**TestCalculateMA 클래스:**
-- ✅ MA 정상 계산
-- ✅ 상승 추세에서 단기 MA > 장기 MA
-
-**TestCalculateATR 클래스:**
-- ✅ ATR 정상 계산
-- ✅ ATR 양수 검증
-
-**TestCalculateVolumeRatio 클래스:**
-- ✅ 볼륨 비율 계산
-- ✅ 높은 볼륨일 때 비율 > 1
-
-**TestAnalyzeRSITrend 클래스:**
-- ✅ RSI 상승/하락/횡보 감지
-
-**TestCalculatePriceVsMA 클래스:**
-- ✅ 가격이 MA 위/아래 판단
-
-**TestAnalyzeCandlePattern 클래스:**
-- ✅ 상승/하락 캔들 카운트
-
-**TestAnalyzeMarket 클래스:**
-- ✅ 전체 시장 분석 통합
-- ✅ 모든 필수 키 포함 확인
-- ✅ 값 범위 검증
-
----
-
-### 3. test_signals.py
-
-**TestParseSignal 클래스:**
-- ✅ 단순 신호 파싱 (LONG/SHORT/WAIT)
-- ✅ 소문자 → 대문자 변환
-- ✅ 공백 제거
-- ✅ 프리픽스 제거 (SIGNAL:, OUTPUT: 등)
-- ✅ 여러 단어 중 첫 단어 추출
-
-**TestValidateSignal 클래스:**
-- ✅ 유효한 신호 검증
-- ✅ 유효하지 않은 신호 거부
-
-**TestGetSignalEmoji 클래스:**
-- ✅ 신호별 이모지 반환 (🟢🔴⏸️)
-
-**TestGetSignalColor 클래스:**
-- ✅ 신호별 Discord 색상 코드
-
-**TestShouldEnterTrade 클래스:**
-- ✅ 진입 조건 판단 (신호 + 포지션 상태)
-
----
-
-### 4. test_executor.py
-
-**TestTradingExecutor 클래스:**
-- ✅ 레버리지 설정
-- ✅ 포지션 크기 계산
-- ✅ LONG 포지션 진입
-- ✅ SHORT 포지션 진입
-- ✅ 기존 포지션 있을 때 진입 거부
-- ✅ 포지션 청산
-- ✅ 포지션 없을 때 청산 불가
-- ✅ 포지션 여부 확인
-- ✅ PnL 계산 (LONG 수익/손실)
-- ✅ PnL 계산 (SHORT 수익/손실)
-- ✅ TP 조건 체크
-- ✅ SL 조건 체크
-- ✅ TP/SL 미도달 시 None 반환
+| 모듈 | 테스트 파일 | 주요 커버리지 |
+|------|------------|--------------|
+| 설정 | test_config, test_bot_config | 환경변수, Pydantic 모델, risk_level 기본값 |
+| 봇 인스턴스 | test_bot_instance* | 트레이딩 루프, MTF 통합, 앙상블, 메트릭 |
+| 주문 실행 | test_executor* | 진입/청산, TP/SL, PnL 계산, 안전장치 |
+| 리스크 관리 | test_risk_manager | 일일 한도, 쿨다운, 드로다운, 수수료, 직렬화 |
+| 수동 승인 | test_trade_approval | 승인 워크플로우, 타임아웃 |
+| 기술적 지표 | test_indicators | RSI, MA, ATR, 볼륨, 캔들 패턴 |
+| 레짐 감지 | test_regime_detector | 추세/횡보 분류, ATR 기반 강도 |
+| 다중 TF | test_multi_timeframe | 상위 TF 필터링, 추세 일치/충돌 |
+| AI 신호 | test_gemini*, test_ensemble*, test_signals | Gemini API, 앙상블, 신호 파싱 |
+| Binance | test_binance* | API 클라이언트, Circuit Breaker, 재시도 |
+| DB/Redis | test_trade_history, test_redis_state | PostgreSQL 거래 기록, Redis 상태 |
+| 감사 로그 | test_audit_log | 이벤트 기록, 인메모리 폴백 |
+| 모니터링 | test_observability | Prometheus 메트릭, 로깅 파이프라인 |
+| Discord | test_discord_* | 명령어, 권한, 뷰, 임베드 |
+| API | test_api_* | REST 엔드포인트, 인증, Rate Limiting |
+| 백테스트 | test_backtest* | 시뮬레이션, 슬리피지 |
 
 ---
 
@@ -285,17 +223,9 @@ pytest -vv -s  # 모든 print 출력 표시
 
 ---
 
-## 📈 다음 단계
-
-추가 예정 테스트:
-- [ ] test_binance.py - Binance API Mock 테스트
-- [ ] test_gemini.py - Gemini AI Mock 테스트
-- [ ] test_integration.py - E2E 통합 테스트
-- [ ] test_main.py - 메인 루프 테스트
-
 ---
 
 **테스트 커버리지 현황:**
-- 총 64개 테스트 작성 완료
-- 핵심 모듈 커버리지: 85%+
+- 총 1860+ 테스트 작성 완료 (60개 파일)
+- 전체 커버리지: 90%+
 - 모든 테스트 통과 ✅

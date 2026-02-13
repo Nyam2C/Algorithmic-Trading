@@ -9,7 +9,7 @@
 ## Approach (What Worked)
 
 1. **모듈 단위로 파일을 병렬 Read** → 리뷰 요약을 사용자에게 출력
-2. **관찰 포인트는 `docs/brainstorms/code-review-observations.md`에 누적 기록** (P1/P2/P3 분류)
+2. **관찰 포인트는 `docs/brainstorms/code-review-observations.md (파일 미존재 — 주요 사항은 Phase 7-9에서 해결 완료)`에 누적 기록** (P1/P2/P3 분류)
 3. 사용자는 "응 다음 가자"로 다음 모듈 진행. 간결하게 요약하되 핵심 관찰 포인트는 빠짐없이 기록.
 4. 모듈 순서: 최상위 → data → trading → ai → analytics → exchange → storage → api → discord_bot → utils → backtest → metrics
 
@@ -99,7 +99,7 @@
 
 모든 관찰 포인트가 기록된 파일:
 
-**`docs/brainstorms/code-review-observations.md`**
+**`docs/brainstorms/code-review-observations.md (파일 미존재 — 주요 사항은 Phase 7-9에서 해결 완료)`**
 
 ## Key Recurring Themes (Updated)
 

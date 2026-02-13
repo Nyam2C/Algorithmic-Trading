@@ -33,7 +33,7 @@
 | 전략 | 마켓 레짐 감지, 다중 타임프레임 분석, ATR 기반 TP/SL |
 | 모니터링 | Prometheus 메트릭, Grafana 대시보드, 감사 로그 |
 | 제어 | Discord 봇, REST API, 수동 승인 모드 |
-| 검증 | 백테스트 엔진, 1606개 테스트 |
+| 검증 | 백테스트 엔진, 1860+ 테스트 |
 
 ---
 
@@ -49,7 +49,7 @@
 | REST API | FastAPI | 0.109.0+ |
 | 알림/제어 | Discord Bot | discord.py |
 | 모니터링 | Grafana + Loki | Docker Compose |
-| 테스트 | pytest | 1606개 테스트 |
+| 테스트 | pytest | 1860+ 테스트 |
 | 코드 품질 | ruff, mypy | 린트 + 타입 체크 ✅ 통과 |
 | CI/CD | GitHub Actions | 자동 테스트 |
 
@@ -105,11 +105,15 @@ Algorithmic-Trading/
 │   │   ├── redis_state.py        # Redis 상태 관리
 │   │   └── audit_log.py          # 감사 로그
 │   ├── discord_bot/              # Discord 봇
-│   │   └── bot.py                # 원격 제어 UI + 멀티봇 지원
+│   │   ├── client.py             # 봇 클라이언트
+│   ├── commands/             # 슬래시 명령어 (11개 한글)
+│   ├── permissions.py        # 권한 시스템
+│   ├── embeds.py             # UI 컴포넌트
+│   └── views.py              # Discord Views
 │   └── utils/                    # 유틸리티
 │       ├── retry.py              # 재시도 데코레이터
 │       └── logging.py            # JSON 구조화 로깅
-├── tests/                        # 테스트 코드 (1560개)
+├── tests/                        # 테스트 코드 (1860+)
 ├── workflows/                    # n8n 워크플로우 템플릿
 ├── scripts/                      # 운영 스크립트
 ├── deploy/                       # Docker Compose 파일
@@ -199,7 +203,6 @@ Algorithmic-Trading/
 |------|------|------|
 | 권한 모듈 | `src/discord_bot/permissions.py` | 권한 레벨 정의 및 체크 |
 | 제어 명령어 권한 | `src/discord_bot/commands/control.py` | TRADER/ADMIN 권한 적용 |
-| 멀티봇 명령어 권한 | `src/discord_bot/commands/multibot.py` | TRADER/ADMIN 권한 적용 |
 | UI 권한 체크 | `src/discord_bot/views.py` | 버튼 클릭 시 권한 검증 |
 
 ### Observability & Monitoring 개선 (2026-02-12 구현)
@@ -479,9 +482,9 @@ Discord 봇 명령어에 권한 레벨을 적용하여 보안을 강화합니다
 **권한 레벨:**
 | 레벨 | 값 | 명령어 |
 |------|-----|--------|
-| VIEWER | 1 | /상태, /포지션, /통계, /내역, /계정, /핑, /봇목록, /봇상태 |
-| TRADER | 2 | 위 + /일시정지, /재시작, /봇일시정지, /봇재개 |
-| ADMIN | 3 | 위 + /긴급청산, /봇시작, /봇정지, /전체시작, /전체정지 |
+| VIEWER | 1 | /대시보드, /상태, /포지션, /수익, /내역, /계정, /프롬프트, /핑 |
+| TRADER | 2 | 위 + /제어 (일시정지/재개), /알림 |
+| ADMIN | 3 | 위 + /제어 (시작/정지), /긴급청산 |
 
 **환경변수:**
 | 환경변수 | 설명 | 예시 |
@@ -519,7 +522,7 @@ async def trader_command(interaction):
 ## 검증 상태
 - **Ruff**: ✅ All checks passed!
 - **MyPy**: ✅ Success: no issues found
-- **테스트**: ✅ 1606 passed (Phase 5 통합 테스트 포함)
+- **테스트**: ✅ 1860+ passed (Phase 5 통합 테스트 포함)
 
 ### 검증 방법
 ```bash
@@ -554,4 +557,4 @@ curl http://localhost:8000/health | jq .
 
 ---
 
-*문서 작성일: 2026-02-11*
+*문서 작성일: 2026-02-14*

@@ -90,7 +90,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - **자동화**: 24/7 무인 운영, Discord 원격 제어.
 - **모든 작업 단위가 다음 작업을 더 쉽게 만들어야 한다.**
 
-**현재 상태**: 핵심 기능 구현 완료. 리팩토링 및 개선 진행 중 (`feature/phase4-refactor-improvements` 브랜치).
+**현재 상태**: 핵심 기능 구현 완료. 리팩토링 및 개선 진행 중 (`feature/phase5-integration-completion` 브랜치).
 
 ---
 
@@ -106,7 +106,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 | REST API | FastAPI | 비동기 고성능 API | ✅ |
 | 알림/제어 | Discord Bot (discord.py) | 원격 모니터링 및 제어 | ✅ |
 | 모니터링 | Prometheus + Grafana + Loki | 메트릭/로그 통합 | ✅ |
-| 테스트 | pytest | 1560+ 테스트 | ✅ |
+| 테스트 | pytest | 1860+ 테스트 | ✅ |
 | 린터 | ruff | Rust 기반, 빠름 | ✅ |
 | 타입 체크 | mypy | strict 모드 | ✅ |
 | CI/CD | GitHub Actions | 자동 테스트 + codecov | ✅ |
@@ -183,7 +183,7 @@ Algorithmic-Trading/
 │   ├── storage/                     # ✅ PostgreSQL + Redis + 감사 로그
 │   ├── trading/                     # ✅ 주문 실행 + 리스크 관리
 │   └── utils/                       # ✅ 재시도, 로깅
-├── tests/                           # ✅ 테스트 (1560+)
+├── tests/                           # ✅ 테스트 (1860+)
 ├── docs/
 │   ├── plans/                       # Phase별 계획 문서
 │   ├── solutions/                   # 문제 해결 기록
