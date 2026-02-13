@@ -486,3 +486,137 @@ class TestRiskConsistencyValidation:
         # 0.004 * 10 = 0.04 < 0.05 => OK
         assert config.get_effective_stop_loss_pct() == 0.004
         assert config.get_effective_leverage() == 10
+
+
+# =============================================================================
+# Phase 9 WS2: BotConfig Hardening (merged from test_ws2_risk_hardening.py)
+# =============================================================================
+
+
+class TestPhase9LeverageCap:
+    """Issue R: leverage 최대값을 125x -> 50x로 변경."""
+
+    def test_leverage_50_allowed(self) -> None:
+        """50x leverage는 허용."""
+        from src.bot_config import BotConfig
+
+        config = BotConfig(
+            bot_name="test-bot",
+            symbol="BTCUSDT",
+            leverage=50,
+            stop_loss_pct=0.0003,
+            max_daily_loss_pct=0.50,
+        )
+        assert config.leverage == 50
+
+    def test_leverage_51_rejected(self) -> None:
+        """51x leverage는 거부."""
+        from pydantic import ValidationError
+
+        from src.bot_config import BotConfig
+
+        with pytest.raises(ValidationError):
+            BotConfig(
+                bot_name="test-bot",
+                symbol="BTCUSDT",
+                leverage=51,
+                stop_loss_pct=0.0003,
+                max_daily_loss_pct=0.50,
+            )
+
+    def test_leverage_125_rejected(self) -> None:
+        """125x leverage는 거부 (이전에 허용)."""
+        from pydantic import ValidationError
+
+        from src.bot_config import BotConfig
+
+        with pytest.raises(ValidationError):
+            BotConfig(
+                bot_name="test-bot",
+                symbol="BTCUSDT",
+                leverage=125,
+                stop_loss_pct=0.0003,
+                max_daily_loss_pct=0.50,
+            )
+
+
+class TestPhase9FeeRate:
+    """Issue F: BotConfig에 estimated_fee_rate 필드 추가."""
+
+    def test_estimated_fee_rate_default(self) -> None:
+        """기본 fee rate 0.0008 (0.08%)."""
+        from src.bot_config import BotConfig
+
+        config = BotConfig(
+            bot_name="test-bot",
+            symbol="BTCUSDT",
+        )
+        assert config.estimated_fee_rate == 0.0008
+
+    def test_estimated_fee_rate_custom(self) -> None:
+        """커스텀 fee rate 설정."""
+        from src.bot_config import BotConfig
+
+        config = BotConfig(
+            bot_name="test-bot",
+            symbol="BTCUSDT",
+            estimated_fee_rate=0.001,
+        )
+        assert config.estimated_fee_rate == 0.001
+
+    def test_estimated_fee_rate_zero(self) -> None:
+        """fee rate 0 허용 (수수료 없는 경우)."""
+        from src.bot_config import BotConfig
+
+        config = BotConfig(
+            bot_name="test-bot",
+            symbol="BTCUSDT",
+            estimated_fee_rate=0.0,
+        )
+        assert config.estimated_fee_rate == 0.0
+
+    def test_estimated_fee_rate_max(self) -> None:
+        """fee rate 최대값 0.01 (1%) 허용."""
+        from src.bot_config import BotConfig
+
+        config = BotConfig(
+            bot_name="test-bot",
+            symbol="BTCUSDT",
+            estimated_fee_rate=0.01,
+        )
+        assert config.estimated_fee_rate == 0.01
+
+    def test_estimated_fee_rate_over_max_rejected(self) -> None:
+        """fee rate > 0.01 거부."""
+        from pydantic import ValidationError
+
+        from src.bot_config import BotConfig
+
+        with pytest.raises(ValidationError):
+            BotConfig(
+                bot_name="test-bot",
+                symbol="BTCUSDT",
+                estimated_fee_rate=0.02,
+            )
+
+
+class TestPhase9ExposureConsistency:
+    """Issue H: position_value에 leverage 포함 필요."""
+
+    def test_exposure_value_includes_leverage(self) -> None:
+        """position_value = price * pct * leverage 임을 확인."""
+        from src.bot_config import BotConfig
+
+        config = BotConfig(
+            bot_name="test-bot",
+            symbol="BTCUSDT",
+            risk_level="medium",  # leverage=5
+        )
+        pct = config.get_effective_position_size_pct()  # 0.05
+        leverage = config.get_effective_leverage()  # 5
+        current_price = 50000.0
+
+        # Before fix: position_value = 50000 * 0.05 = 2500
+        # After fix:  position_value = 50000 * 0.05 * 5 = 12500
+        position_value = current_price * pct * leverage
+        assert position_value == 12500.0

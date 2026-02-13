@@ -209,7 +209,76 @@ class TradingExecutor:
 
         return self._calculate_position_size(current_price, capital)
 
-    async def _prepare_and_open_position(  # noqa: PLR0912, PLR0915
+    def _calculate_tp_sl_prices(
+        self, side: str, entry_price: float, entry_atr: float | None = None
+    ) -> tuple[float, float]:
+        """TP/SL 가격 계산 (ATR 또는 고정 퍼센트 기반).
+
+        Args:
+            side: 포지션 방향 ("LONG" or "SHORT")
+            entry_price: 진입 가격
+            entry_atr: ATR 값 (None이면 고정 퍼센트 사용)
+
+        Returns:
+            (tp_price, sl_price) 튜플
+        """
+        use_atr = getattr(self.config, "use_atr_tp_sl", False)
+
+        if use_atr and entry_atr:
+            atr_tp_mul = getattr(self.config, "atr_tp_multiplier", 2.0)
+            atr_sl_mul = getattr(self.config, "atr_sl_multiplier", 1.0)
+            if side == "LONG":
+                tp_price = round(entry_price + entry_atr * atr_tp_mul, 2)
+                sl_price = round(entry_price - entry_atr * atr_sl_mul, 2)
+            else:
+                tp_price = round(entry_price - entry_atr * atr_tp_mul, 2)
+                sl_price = round(entry_price + entry_atr * atr_sl_mul, 2)
+        else:
+            tp_pct = self.config.take_profit_pct
+            sl_pct = self.config.stop_loss_pct
+            if side == "LONG":
+                tp_price = round(entry_price * (1 + tp_pct), 2)
+                sl_price = round(entry_price * (1 - sl_pct), 2)
+            else:
+                tp_price = round(entry_price * (1 - tp_pct), 2)
+                sl_price = round(entry_price * (1 + sl_pct), 2)
+
+        return tp_price, sl_price
+
+    def _handle_slippage_detection(
+        self, order: dict, current_price: float
+    ) -> tuple[bool, float]:
+        """슬리피지 감지 및 처리 여부 판단.
+
+        Args:
+            order: 체결된 주문 정보
+            current_price: 예상 진입 가격
+
+        Returns:
+            (should_close, actual_price) 튜플.
+            should_close=True이면 과도한 슬리피지로 포지션 청산 필요.
+            actual_price는 실제 체결 가격 (avgPrice 없으면 current_price 그대로).
+        """
+        avg_price_str = order.get("avgPrice")
+        if not avg_price_str:
+            return False, current_price
+
+        avg_price = float(avg_price_str)
+        slippage = abs(avg_price - current_price) / current_price
+        max_slippage = self.config.max_slippage_pct
+
+        if slippage > max_slippage:
+            logger.critical(
+                f"슬리피지 경고: {slippage:.4%} > {max_slippage:.4%} "
+                f"(예상=${current_price:,.2f}, 체결=${avg_price:,.2f})"
+            )
+            close_on_slippage = self.config.close_on_excessive_slippage
+            if close_on_slippage:
+                return True, avg_price
+
+        return False, avg_price
+
+    async def _prepare_and_open_position(
         self,
         signal: str,
         current_price: float,
@@ -269,48 +338,21 @@ class TradingExecutor:
 
         # Slippage detection for market orders
         if not use_maker and order:
-            avg_price_str = order.get("avgPrice")
-            if avg_price_str:
-                avg_price = float(avg_price_str)
-                slippage = abs(avg_price - current_price) / current_price
-                max_slippage = self.config.max_slippage_pct
-                if slippage > max_slippage:
-                    logger.critical(
-                        f"슬리피지 경고: {slippage:.4%} > {max_slippage:.4%} "
-                        f"(예상=${current_price:,.2f}, 체결=${avg_price:,.2f})"
-                    )
-                    # Close on excessive slippage if configured
-                    close_on_slippage = self.config.close_on_excessive_slippage
-                    if close_on_slippage:
-                        logger.critical("과도한 슬리피지 - 즉시 포지션 청산")
-                        try:
-                            await self.client.close_position(self.config.symbol)
-                        except Exception as close_err:
-                            logger.critical(f"슬리피지 청산 실패: {close_err}")
-                        return None
-                # Update entry price to actual fill price
-                current_price = avg_price
+            should_close, current_price = self._handle_slippage_detection(
+                order, current_price
+            )
+            if should_close:
+                logger.critical("과도한 슬리피지 - 즉시 포지션 청산")
+                try:
+                    await self.client.close_position(self.config.symbol)
+                except Exception as close_err:
+                    logger.critical(f"슬리피지 청산 실패: {close_err}")
+                return None
 
         # Calculate TP/SL prices for Redis persistence
-        use_atr = getattr(self.config, "use_atr_tp_sl", False)
-        if use_atr and entry_atr:
-            atr_tp_mul = getattr(self.config, "atr_tp_multiplier", 2.0)
-            atr_sl_mul = getattr(self.config, "atr_sl_multiplier", 1.0)
-            if signal == "LONG":
-                tp_price = round(current_price + entry_atr * atr_tp_mul, 2)
-                sl_price = round(current_price - entry_atr * atr_sl_mul, 2)
-            else:
-                tp_price = round(current_price - entry_atr * atr_tp_mul, 2)
-                sl_price = round(current_price + entry_atr * atr_sl_mul, 2)
-        else:
-            tp_pct = self.config.take_profit_pct
-            sl_pct = self.config.stop_loss_pct
-            if signal == "LONG":
-                tp_price = round(current_price * (1 + tp_pct), 2)
-                sl_price = round(current_price * (1 - sl_pct), 2)
-            else:
-                tp_price = round(current_price * (1 - tp_pct), 2)
-                sl_price = round(current_price * (1 + sl_pct), 2)
+        tp_price, sl_price = self._calculate_tp_sl_prices(
+            signal, current_price, entry_atr
+        )
 
         # Store position info with entry time
         self.current_position = {
@@ -757,7 +799,6 @@ class TradingExecutor:
             # Fallback to regular check
             return await self.check_tp_sl(position, current_price)
 
-
     async def _place_exchange_tp_sl(
         self,
         symbol: str,
@@ -783,28 +824,9 @@ class TradingExecutor:
         """
         close_side = "SELL" if side == "LONG" else "BUY"
 
-        use_atr = getattr(self.config, "use_atr_tp_sl", False)
-
-        if use_atr and entry_atr:
-            atr_tp_mul = getattr(self.config, "atr_tp_multiplier", 2.0)
-            atr_sl_mul = getattr(self.config, "atr_sl_multiplier", 1.0)
-
-            if side == "LONG":
-                tp_price = round(entry_price + entry_atr * atr_tp_mul, 2)
-                sl_price = round(entry_price - entry_atr * atr_sl_mul, 2)
-            else:
-                tp_price = round(entry_price - entry_atr * atr_tp_mul, 2)
-                sl_price = round(entry_price + entry_atr * atr_sl_mul, 2)
-        else:
-            tp_pct = self.config.take_profit_pct
-            sl_pct = self.config.stop_loss_pct
-
-            if side == "LONG":
-                tp_price = round(entry_price * (1 + tp_pct), 2)
-                sl_price = round(entry_price * (1 - sl_pct), 2)
-            else:
-                tp_price = round(entry_price * (1 - tp_pct), 2)
-                sl_price = round(entry_price * (1 + sl_pct), 2)
+        tp_price, sl_price = self._calculate_tp_sl_prices(
+            side, entry_price, entry_atr
+        )
 
         # SL 주문 (필수 - 실패 시 False 반환)
         try:

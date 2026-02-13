@@ -7,52 +7,11 @@ Issue E: Post-close cancel_all_open_orders may cancel other bot's SL
 Issue O: check_timecut() mutates position dict
 """
 from datetime import datetime
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from src.config import TradingConfig
 from src.trading.executor import TradingExecutor
-
-
-@pytest.fixture
-def mock_config():
-    return TradingConfig(
-        bot_name="test-bot",
-        binance_api_key="test_key",
-        binance_secret_key="test_secret",
-        gemini_api_key="test_gemini",
-        discord_webhook_url="https://test.com",
-        symbol="BTCUSDT",
-        leverage=15,
-        position_size_pct=0.05,
-        take_profit_pct=0.004,
-        stop_loss_pct=0.004,
-    )
-
-
-@pytest.fixture
-def mock_binance_client():
-    client = Mock()
-    client.set_leverage = AsyncMock(return_value={"leverage": 15})
-    client.get_position = AsyncMock(return_value=None)
-    client.create_market_order = AsyncMock(return_value={
-        "orderId": 12345, "symbol": "BTCUSDT",
-        "side": "BUY", "status": "FILLED",
-    })
-    client.close_position = AsyncMock(return_value={
-        "orderId": 67890, "status": "FILLED", "executedQty": "0.01",
-    })
-    client.create_stop_market_order = AsyncMock(return_value={"orderId": 10001})
-    client.create_take_profit_market_order = AsyncMock(return_value={"orderId": 10002})
-    client.cancel_all_open_orders = AsyncMock(return_value=None)
-    return client
-
-
-@pytest.fixture
-def executor(mock_binance_client, mock_config):
-    return TradingExecutor(mock_binance_client, mock_config)
-
 
 # =========================================================================
 # Issue A: close_position() should NOT null current_position

@@ -884,10 +884,12 @@ class BotInstance:
         except Exception as e:
             self._log.warning(f"AI 시그널 생성 실패, 규칙 기반으로 폴백: {e}")
             if self._metrics:
-                with contextlib.suppress(Exception):
+                try:
                     self._metrics.record_signal(
                         self.bot_name, "FALLBACK", "gemini_error"
                     )
+                except Exception as e:
+                    self._log.debug(f"폴백 시그널 메트릭 기록 실패: {e}")
             return self._generate_signal(market_data)
 
     # =========================================================================
@@ -968,11 +970,13 @@ class BotInstance:
 
             # Phase 5 통합: 감사 로그 기록
             if self._audit_log:
-                with contextlib.suppress(Exception):
+                try:
                     await self._audit_log.log_trade_open(
                         self.bot_name, signal,
                         float(order.get("origQty", 0)), current_price,
                     )
+                except Exception as e:
+                    self._log.debug(f"진입 감사 로그 기록 실패: {e}")
 
             # 콜백 호출
             await self._notify_trade("OPEN", signal, current_price, None)
@@ -1064,10 +1068,12 @@ class BotInstance:
 
             # Phase 5 통합: 감사 로그 기록
             if self._audit_log:
-                with contextlib.suppress(Exception):
+                try:
                     await self._audit_log.log_trade_close(
                         self.bot_name, side, exit_reason, pnl_usd, pnl_pct,
                     )
+                except Exception as e:
+                    self._log.debug(f"청산 감사 로그 기록 실패: {e}")
 
             # DB에 기록
             exit_closed = True  # Default: track PnL unless DB says already closed
@@ -1217,8 +1223,10 @@ class BotInstance:
         self._log.warning(f"[RISK HALT] {self.bot_name}: {reason}")
         # Phase 5 통합: 감사 로그 기록
         if self._audit_log:
-            with contextlib.suppress(Exception):
+            try:
                 await self._audit_log.log_risk_halt(self.bot_name, reason)
+            except Exception as e:
+                self._log.debug(f"리스크 중지 감사 로그 기록 실패: {e}")
         # 에러 콜백을 통해 알림 (Discord 등에서 처리)
         if self._on_error_callback:
             try:
@@ -1231,104 +1239,104 @@ class BotInstance:
     # 트레이딩 루프
     # =========================================================================
 
-    async def _execute_single_loop(self) -> None:  # noqa: PLR0911, PLR0915
-        """단일 트레이딩 루프 실행."""
-        self._loop_count += 1
-        self._log.info(f"루프 #{self._loop_count} 시작")
-
-        # 0. 일일 리스크 리셋 체크 (UTC 자정 경과 시)
-        # Phase 8: 미실현 PnL 조회 (리셋 시 이월용)
+    async def _check_daily_risk_reset(self) -> None:
+        """일일 리스크 리셋 체크 (UTC 자정 경과 시)."""
+        # 미실현 PnL 조회 (리셋 시 이월용)
         _unrealized_pnl = 0.0
         if self._executor:
             try:
                 _pos = await self._executor.get_position()
                 if _pos:
                     _unrealized_pnl = _pos.get("unrealized_pnl", 0.0)
-            except Exception:  # noqa: S110
-                pass
+            except Exception as e:
+                self._log.debug(f"미실현 PnL 조회 실패: {e}")
         if self._binance_client:
             try:
                 balance_info = await self._binance_client.get_account_balance()
                 await self._risk_manager.check_and_reset_if_new_day(
                     balance_info["available"], unrealized_pnl=_unrealized_pnl
                 )
-            except Exception:  # noqa: S110
-                pass  # 잔고 조회 실패 시 스킵
+            except Exception as e:
+                self._log.debug(f"일일 리스크 리셋 실패: {e}")
 
-        # Phase 7: 리스크 한도 시 기존 포지션 강제 청산
+    async def _handle_risk_halt(self) -> bool:
+        """리스크 한도 도달 시 기존 포지션 강제 청산.
+
+        Returns:
+            True이면 루프 조기 종료 (halt 상태)
+        """
+        # 미실현 PnL 조회
+        _unrealized_pnl = 0.0
         if self._executor:
             try:
                 _pos = await self._executor.get_position()
                 if _pos:
                     _unrealized_pnl = _pos.get("unrealized_pnl", 0.0)
-            except Exception:  # noqa: S110
-                pass
+            except Exception as e:
+                self._log.debug(f"미실현 PnL 조회 실패: {e}")
         halt, halt_reason = await self._risk_manager.should_halt_trading(
             _unrealized_pnl
         )
-        if halt:
-            if not self._risk_halt_notified:
-                self._log.warning(f"리스크 한도 도달: {halt_reason}")
-                self._risk_halt_notified = True
-                await self._notify_risk_halt(halt_reason)
+        if not halt:
+            return False
 
-            # 기존 포지션 청산 (close_on_risk_halt 설정 확인)
-            close_on_halt = getattr(self.config, "close_on_risk_halt", True)
-            if close_on_halt and self._executor:
-                position = await self._executor.get_position()
-                if position:
-                    self._log.warning("리스크 한도 - 기존 포지션 강제 청산")
-                    # 주문 먼저 취소 (SL/TP와의 경쟁 조건 방지)
-                    if self._binance_client:
-                        try:
-                            await self._binance_client.cancel_all_open_orders(
-                                self.symbol
-                            )
-                            self._log.info("강제 청산 전 주문 취소 완료")
-                        except Exception as cancel_err:
-                            self._log.warning(
-                                f"강제 청산 전 주문 취소 실패: {cancel_err}"
-                            )
+        if not self._risk_halt_notified:
+            self._log.warning(f"리스크 한도 도달: {halt_reason}")
+            self._risk_halt_notified = True
+            await self._notify_risk_halt(halt_reason)
 
-                        # 주문 취소 후 포지션 재확인 (SL 체결 시 청산 불필요)
-                        position = await self._executor.get_position()
-                        if not position:
-                            self._log.info(
-                                "주문 취소 후 포지션 없음 (SL/TP 이미 체결)"
-                            )
-                            self.pause()
-                            return
-
-                    # 현재가 조회를 위해 시장 데이터 필요
+        # 기존 포지션 청산 (close_on_risk_halt 설정 확인)
+        close_on_halt = getattr(self.config, "close_on_risk_halt", True)
+        if close_on_halt and self._executor:
+            position = await self._executor.get_position()
+            if position:
+                self._log.warning("리스크 한도 - 기존 포지션 강제 청산")
+                # 주문 먼저 취소 (SL/TP와의 경쟁 조건 방지)
+                if self._binance_client:
                     try:
-                        if self._binance_client is None:
-                            raise RuntimeError('Binance client not initialized')
-                        price = await self._binance_client.get_current_price(
+                        await self._binance_client.cancel_all_open_orders(
                             self.symbol
                         )
-                        await self._close_position(price, "RISK_HALT")
-                    except Exception as e:
-                        self._log.error(f"리스크 강제 청산 실패: {e}")
+                        self._log.info("강제 청산 전 주문 취소 완료")
+                    except Exception as cancel_err:
+                        self._log.warning(
+                            f"강제 청산 전 주문 취소 실패: {cancel_err}"
+                        )
 
-            self.pause()
-            return
+                    # 주문 취소 후 포지션 재확인 (SL 체결 시 청산 불필요)
+                    position = await self._executor.get_position()
+                    if not position:
+                        self._log.info(
+                            "주문 취소 후 포지션 없음 (SL/TP 이미 체결)"
+                        )
+                        self.pause()
+                        return True
 
-        # 1. 시장 데이터 수집
-        market_data = await self._fetch_market_data()
+                # 현재가 조회를 위해 시장 데이터 필요
+                try:
+                    if self._binance_client is None:
+                        raise RuntimeError('Binance client not initialized')
+                    price = await self._binance_client.get_current_price(
+                        self.symbol
+                    )
+                    await self._close_position(price, "RISK_HALT")
+                except Exception as e:
+                    self._log.error(f"리스크 강제 청산 실패: {e}")
+
+        self.pause()
+        return True
+
+    async def _generate_combined_signal(
+        self, market_data: dict[str, Any]
+    ) -> tuple[str, str]:
+        """4-source 시그널 생성 (injected > ensemble > memory > rule_based).
+
+        Returns:
+            (signal, signal_source) 튜플
+        """
         current_price = market_data["current_price"]
 
-        # 잔고 업데이트 (드로다운 추적)
-        if self._binance_client:
-            try:
-                balance_info = await self._binance_client.get_account_balance()
-                await self._risk_manager.update_balance(balance_info["available"])
-            except Exception:  # noqa: S110
-                pass  # 잔고 조회 실패 시 스킵
-
-        # 2. 시그널 생성 (우선순위: injected > ensemble > memory_gemini > rule_based)
-        signal_source = "rule_based"
         if self._injected_signal:
-            # 외부 주입 시그널 우선 처리
             injected = self._injected_signal
             self._injected_signal = None
             signal = injected.get("signal", "WAIT").upper()
@@ -1338,7 +1346,9 @@ class BotInstance:
             self._log.info(
                 f"주입 시그널 사용: {signal} (source={injected.get('source')})"
             )
-        elif getattr(self.config, "use_ensemble", False) and self._ensemble_generator:
+            return signal, signal_source
+
+        if getattr(self.config, "use_ensemble", False) and self._ensemble_generator:
             _ai_t0 = time.monotonic()
             try:
                 result = await self._ensemble_generator.generate_ensemble_signal(
@@ -1355,46 +1365,60 @@ class BotInstance:
                 )
                 # Prometheus: signal_confidence + ai_latency 기록
                 if self._metrics:
-                    with contextlib.suppress(Exception):
+                    try:
                         self._metrics.record_signal_confidence(
                             self.bot_name, result.consensus_ratio
                         )
-                    with contextlib.suppress(Exception):
+                    except Exception as e:
+                        self._log.debug(f"시그널 confidence 메트릭 기록 실패: {e}")
+                    try:
                         self._metrics.record_ai_latency(
                             self.bot_name, time.monotonic() - _ai_t0
                         )
+                    except Exception as e:
+                        self._log.debug(f"AI latency 메트릭 기록 실패: {e}")
+                return signal, signal_source
             except Exception as e:
                 self._log.warning(f"앙상블 시그널 실패, 폴백: {e}")
                 signal = self._generate_signal(market_data)
-        elif self._use_memory_signals and self._enhanced_gemini:
+                return signal, "rule_based"
+
+        if self._use_memory_signals and self._enhanced_gemini:
             _ai_t0 = time.monotonic()
             signal = await self._generate_signal_with_memory(market_data)
             signal_source = "memory_gemini"
             self._log.info(f"메모리 시그널: {signal} @ ${current_price:,.2f}")
             if self._metrics:
-                with contextlib.suppress(Exception):
+                try:
                     self._metrics.record_ai_latency(
                         self.bot_name, time.monotonic() - _ai_t0
                     )
-        else:
-            signal = self._generate_signal(market_data)
-            self._log.info(f"시그널: {signal} @ ${current_price:,.2f}")
+                except Exception as e:
+                    self._log.debug(f"AI latency 메트릭 기록 실패: {e}")
+            return signal, signal_source
 
-        # Phase 8: 시그널 유효성 검증 게이트 (모든 소스 공통)
-        if not validate_signal(signal):
-            self._log.warning(f"유효하지 않은 시그널 '{signal}', WAIT으로 변경")
-            signal = "WAIT"
-            self._last_signal = signal
+        signal = self._generate_signal(market_data)
+        self._log.info(f"시그널: {signal} @ ${current_price:,.2f}")
+        return signal, "rule_based"
 
-        # Phase 6.2: 마켓 레짐 감지 및 필터링
-        indicators = market_data.get("indicators", {})
+    def _apply_signal_filters(
+        self, signal: str, indicators: dict[str, Any]
+    ) -> str:
+        """레짐/MTF/WAIT 필터 적용.
+
+        Returns:
+            필터링된 시그널
+        """
+        # 레짐 감지 및 필터링
         self._current_regime = self._regime_detector.detect(indicators)
 
         # Prometheus: RSI 기록 (NaN guard)
         _rsi = indicators.get("rsi")
         if self._metrics and _rsi is not None and not math.isnan(float(_rsi)):
-            with contextlib.suppress(Exception):
+            try:
                 self._metrics.record_rsi(self.bot_name, float(_rsi))
+            except Exception as e:
+                self._log.debug(f"RSI 메트릭 기록 실패: {e}")
 
         if self.config.use_regime_filter:
             original_signal = signal
@@ -1409,9 +1433,8 @@ class BotInstance:
                     f"(레짐={self._current_regime.value})"
                 )
 
-        # Phase 5 통합: 다중 타임프레임 필터링
+        # 다중 타임프레임 필터링
         if getattr(self.config, "use_mtf_filter", False) and self._higher_tf_data:
-            # Phase 8: MTF 데이터 만료 체크 (15분)
             _mtf_stale = False
             _mtf_max_age_seconds = 900  # 15분
             if self._higher_tf_fetch_time:
@@ -1450,17 +1473,30 @@ class BotInstance:
                     f"⚠ {cnt}회 연속 WAIT - 시그널 조건 점검 필요"
                 )
             if self._metrics:
-                with contextlib.suppress(Exception):
+                try:
                     self._metrics.record_consecutive_wait(
                         self.bot_name, self._consecutive_wait_count
                     )
+                except Exception as e:
+                    self._log.debug(f"연속 WAIT 메트릭 기록 실패: {e}")
         else:
             self._consecutive_wait_count = 0
             if self._metrics:
-                with contextlib.suppress(Exception):
+                try:
                     self._metrics.record_consecutive_wait(self.bot_name, 0)
+                except Exception as e:
+                    self._log.debug(f"연속 WAIT 리셋 메트릭 기록 실패: {e}")
 
-        # Phase 5 통합: 시그널 기록
+        return signal
+
+    async def _record_signal(
+        self,
+        signal: str,
+        signal_source: str,
+        current_price: float,
+        indicators: dict[str, Any],
+    ) -> None:
+        """시그널 기록 (SignalTracker + Prometheus + 콜백)."""
         try:
             conditions: dict[str, Any] = {
                 "price": current_price,
@@ -1482,168 +1518,200 @@ class BotInstance:
 
         # Prometheus: 시그널 메트릭 기록
         if self._metrics:
-            with contextlib.suppress(Exception):
+            try:
                 self._metrics.record_signal(self.bot_name, signal, signal_source)
+            except Exception as e:
+                self._log.debug(f"시그널 메트릭 기록 실패: {e}")
 
         # 콜백 호출
         await self._notify_signal(signal, current_price)
 
-        # 3. 긴급 청산 확인
-        if self._emergency_event.is_set():
-            self._log.warning("긴급 청산 실행")
-            # Phase 5 통합: 감사 로그 기록
-            if self._audit_log:
-                with contextlib.suppress(Exception):
-                    await self._audit_log.log_emergency_close(
-                        self.bot_name, "수동 긴급 청산 요청"
-                    )
-            await self._close_position(current_price, "MANUAL")
-            self._emergency_event.clear()
-            self._is_paused = True
-            return
+    async def _handle_emergency_close(self, current_price: float) -> bool:
+        """긴급 청산 처리.
 
-        # Phase 9 Issue B: 거래소 측 포지션 종료 감지 (SL/TP 체결)
-        if self._executor and isinstance(self._executor.current_position, dict):
-            exchange_pos = await self._executor.get_position()
-            if exchange_pos is None:
-                # 봇은 포지션을 추적 중이나 거래소에 없음 → SL/TP 체결
-                tracked = self._executor.current_position
-                side = tracked.get("side", "LONG")
-                entry_price = tracked.get("entry_price", 0.0)
-                position_amt = abs(tracked.get("position_amt", 0.0))
+        Returns:
+            True이면 긴급 청산 수행됨 (루프 조기 종료)
+        """
+        if not self._emergency_event.is_set():
+            return False
 
-                self._log.warning(
-                    f"거래소 측 포지션 종료 감지: {side} @ "
+        self._log.warning("긴급 청산 실행")
+        if self._audit_log:
+            try:
+                await self._audit_log.log_emergency_close(
+                    self.bot_name, "수동 긴급 청산 요청"
                 )
+            except Exception as e:
+                self._log.debug(f"긴급 청산 감사 로그 기록 실패: {e}")
+        await self._close_position(current_price, "MANUAL")
+        self._emergency_event.clear()
+        self._is_paused = True
+        return True
 
-                # PnL 추정 (현재가 기준)
-                pnl_pct = self._executor.calculate_pnl_pct(
-                    entry_price, current_price, side
-                )
-                if side == "LONG":
-                    pnl_usd = (current_price - entry_price) * position_amt
-                else:
-                    pnl_usd = (entry_price - current_price) * position_amt
-                pnl_usd *= self.config.get_effective_leverage()
+    async def _detect_exchange_position_close(
+        self, current_price: float
+    ) -> bool:
+        """거래소 측 포지션 종료 감지 (SL/TP 체결).
 
-                # DB에 기록
-                if self._trade_db and tracked.get("trade_id"):
-                    entry_time = tracked.get("entry_time", datetime.now())
-                    duration = int(
-                        (datetime.now() - entry_time).total_seconds() / 60
-                    )
-                    try:
-                        exit_closed = await self._trade_db.add_exit(
-                            trade_id=tracked["trade_id"],
-                            exit_time=datetime.now(),
-                            exit_price=current_price,
-                            exit_reason="EXCHANGE_SL_TP",
-                            pnl=pnl_usd,
-                            pnl_pct=pnl_pct,
-                            duration_minutes=duration,
-                        )
-                        if not exit_closed:
-                            self._log.warning(
-                                "이미 청산된 거래 - PnL 이중 추적 방지"
-                            )
-                    except Exception as db_err:
-                        self._log.error(
-                            f"거래소 측 종료 DB 기록 실패: {db_err}"
-                        )
-                        exit_closed = True  # DB 실패해도 리스크 매니저에는 기록
+        Returns:
+            True이면 거래소 측 종료 감지됨 (루프 조기 종료)
+        """
+        if not (self._executor and isinstance(self._executor.current_position, dict)):
+            return False
 
-                    # 리스크 매니저에 PnL 추적
-                    if exit_closed:
-                        await self._risk_manager.track_trade_pnl(pnl_usd)
-                        is_win = pnl_usd >= 0
-                        await self._risk_manager.track_trade_result(is_win)
-                else:
-                    # trade_id 없으면 리스크 매니저에만 기록
-                    await self._risk_manager.track_trade_pnl(pnl_usd)
-                    is_win = pnl_usd >= 0
-                    await self._risk_manager.track_trade_result(is_win)
+        exchange_pos = await self._executor.get_position()
+        if exchange_pos is not None:
+            return False
 
-                self._log.bind(event_type="TRADE_CLOSE").info(
-                    f"거래소 측 포지션 종료: {side}, PnL={pnl_pct:+.2f}%",
-                    exit_reason="EXCHANGE_SL_TP",
-                    side=side,
-                    entry_price=entry_price,
+        # 봇은 포지션을 추적 중이나 거래소에 없음 → SL/TP 체결
+        tracked = self._executor.current_position
+        side = tracked.get("side", "LONG")
+        entry_price = tracked.get("entry_price", 0.0)
+        position_amt = abs(tracked.get("position_amt", 0.0))
+
+        self._log.warning(
+            f"거래소 측 포지션 종료 감지: {side} @ "
+        )
+
+        # PnL 추정 (현재가 기준)
+        pnl_pct = self._executor.calculate_pnl_pct(
+            entry_price, current_price, side
+        )
+        if side == "LONG":
+            pnl_usd = (current_price - entry_price) * position_amt
+        else:
+            pnl_usd = (entry_price - current_price) * position_amt
+        pnl_usd *= self.config.get_effective_leverage()
+
+        # DB에 기록
+        if self._trade_db and tracked.get("trade_id"):
+            entry_time = tracked.get("entry_time", datetime.now())
+            duration = int(
+                (datetime.now() - entry_time).total_seconds() / 60
+            )
+            try:
+                exit_closed = await self._trade_db.add_exit(
+                    trade_id=tracked["trade_id"],
+                    exit_time=datetime.now(),
                     exit_price=current_price,
-                    pnl_usd=pnl_usd,
+                    exit_reason="EXCHANGE_SL_TP",
+                    pnl=pnl_usd,
                     pnl_pct=pnl_pct,
+                    duration_minutes=duration,
                 )
-
-                # 포지션 정리 (WS1 clear_position() 사용)
-                self._executor.clear_position()
-                self._current_position = None
-
-                # Prometheus 메트릭
-                if self._metrics:
-                    with contextlib.suppress(Exception):
-                        result_str = "win" if pnl_usd >= 0 else "loss"
-                        entry_time = tracked.get("entry_time")
-                        duration_s = (
-                            (datetime.now() - entry_time).total_seconds()
-                            if entry_time else 0.0
-                        )
-                        self._metrics.record_trade(
-                            self.bot_name, side, result_str, duration_s
-                        )
-                        self._metrics.clear_position_metrics(self.bot_name)
-                return
-
-        # 4. 현재 포지션 확인
-        if self._executor is None:
-            return
-
-        position = await self._executor.get_position()
-        has_position = position is not None
-        self._current_position = position
-
-        # unrealized PnL for risk checks below
-        _unrealized_pnl = 0.0
-        if position:
-            _unrealized_pnl = position.get("unrealized_pnl", 0.0)
-
-        if has_position and position is not None:
-            self._log.debug(
-                f"현재 포지션: {position['side']} @ ${position['entry_price']:,.2f}"
-            )
-
-            # Phase 5 통합: Prometheus 포지션 PnL 기록
-            if self._metrics and self._executor:
-                try:
-                    pos_pnl_pct = self._executor.calculate_pnl_pct(
-                        position["entry_price"], current_price, position["side"]
+                if not exit_closed:
+                    self._log.warning(
+                        "이미 청산된 거래 - PnL 이중 추적 방지"
                     )
-                    self._metrics.record_position_pnl(self.bot_name, pos_pnl_pct)
-                except Exception:  # noqa: S110
-                    pass
+            except Exception as db_err:
+                self._log.error(
+                    f"거래소 측 종료 DB 기록 실패: {db_err}"
+                )
+                exit_closed = True  # DB 실패해도 리스크 매니저에는 기록
 
-            # Timecut 체크
-            if (
-                self._executor.current_position
-                and self._executor.check_timecut(self._executor.current_position)
-            ):
-                    self._log.info("Timecut 조건 충족")
-                    await self._close_position(current_price, "TIME_CUT")
-                    return
+            # 리스크 매니저에 PnL 추적
+            if exit_closed:
+                await self._risk_manager.track_trade_pnl(pnl_usd)
+                is_win = pnl_usd >= 0
+                await self._risk_manager.track_trade_result(is_win)
+        else:
+            # trade_id 없으면 리스크 매니저에만 기록
+            await self._risk_manager.track_trade_pnl(pnl_usd)
+            is_win = pnl_usd >= 0
+            await self._risk_manager.track_trade_result(is_win)
 
-            # TP/SL 체크 (Phase 6.1: ATR 기반 동적 TP/SL 지원)
-            exit_reason = await self._executor.check_tp_sl_dynamic(
-                position, current_price
-            )
-            if exit_reason:
-                self._log.info(f"종료 조건 충족: {exit_reason}")
-                await self._close_position(current_price, exit_reason)
-                return
+        self._log.bind(event_type="TRADE_CLOSE").info(
+            f"거래소 측 포지션 종료: {side}, PnL={pnl_pct:+.2f}%",
+            exit_reason="EXCHANGE_SL_TP",
+            side=side,
+            entry_price=entry_price,
+            exit_price=current_price,
+            pnl_usd=pnl_usd,
+            pnl_pct=pnl_pct,
+        )
 
-        # 5. 신규 포지션 진입
+        # 포지션 정리
+        self._executor.clear_position()
+        self._current_position = None
+
+        # Prometheus 메트릭
+        if self._metrics:
+            try:
+                result_str = "win" if pnl_usd >= 0 else "loss"
+                entry_time = tracked.get("entry_time")
+                duration_s = (
+                    (datetime.now() - entry_time).total_seconds()
+                    if entry_time else 0.0
+                )
+                self._metrics.record_trade(
+                    self.bot_name, side, result_str, duration_s
+                )
+                self._metrics.clear_position_metrics(self.bot_name)
+            except Exception as e:
+                self._log.debug(f"거래소 측 종료 메트릭 기록 실패: {e}")
+        return True
+
+    async def _handle_existing_position(
+        self, position: dict[str, Any], current_price: float
+    ) -> bool:
+        """기존 포지션 관리 (PnL 추적, Timecut, TP/SL 체크).
+
+        Returns:
+            True이면 포지션 청산됨 (루프 조기 종료)
+        """
+        if self._executor is None:
+            return False
+
+        self._log.debug(
+            f"현재 포지션: {position['side']} @ ${position['entry_price']:,.2f}"
+        )
+
+        # Prometheus 포지션 PnL 기록
+        if self._metrics and self._executor:
+            try:
+                pos_pnl_pct = self._executor.calculate_pnl_pct(
+                    position["entry_price"], current_price, position["side"]
+                )
+                self._metrics.record_position_pnl(self.bot_name, pos_pnl_pct)
+            except Exception as e:
+                self._log.debug(f"포지션 PnL 메트릭 기록 실패: {e}")
+
+        # Timecut 체크
+        if (
+            self._executor.current_position
+            and self._executor.check_timecut(self._executor.current_position)
+        ):
+                self._log.info("Timecut 조건 충족")
+                await self._close_position(current_price, "TIME_CUT")
+                return True
+
+        # TP/SL 체크 (ATR 기반 동적 TP/SL 지원)
+        exit_reason = await self._executor.check_tp_sl_dynamic(
+            position, current_price
+        )
+        if exit_reason:
+            self._log.info(f"종료 조건 충족: {exit_reason}")
+            await self._close_position(current_price, exit_reason)
+            return True
+
+        return False
+
+    async def _attempt_new_entry(  # noqa: PLR0911
+        self,
+        signal: str,
+        current_price: float,
+        has_position: bool,
+    ) -> None:
+        """신규 포지션 진입 시도."""
         if self._is_paused:
             self._log.debug("봇 일시정지 중 - 진입 스킵")
             return
 
-        # Phase 5.2/5.3: 리스크 체크 (쿨다운, 일일 손실 한도)
+        # 리스크 체크 (쿨다운, 일일 손실 한도)
+        _unrealized_pnl = 0.0
+        if self._current_position:
+            _unrealized_pnl = self._current_position.get("unrealized_pnl", 0.0)
+
         should_skip, skip_reason = await self._risk_manager.should_skip_trade(
             _unrealized_pnl
         )
@@ -1651,7 +1719,7 @@ class BotInstance:
             self._log.info(f"리스크 제한으로 진입 스킵: {skip_reason}")
             return
 
-        # Phase 5 통합: 수동 승인 체크 (비차단)
+        # 수동 승인 체크 (비차단)
         if self._trade_approval and signal in ("LONG", "SHORT"):
             # 대기 중인 승인 요청이 있는지 확인
             if self._pending_approval_request:
@@ -1705,7 +1773,7 @@ class BotInstance:
                 self._log.info(f"수동 승인 요청 생성: {request.request_id}")
                 return
 
-        # Phase 5 통합: 노출도 체크
+        # 노출도 체크
         if self._on_exposure_check and signal in ("LONG", "SHORT"):
             try:
                 pct = self.config.get_effective_position_size_pct()
@@ -1721,16 +1789,81 @@ class BotInstance:
                 self._log.warning(f"노출도 체크 실패: {e}")
 
         if should_enter_trade(signal, has_position):
-            # Phase 6.1: ATR 값 전달 (동적 TP/SL용)
             entry_atr = None
             if self._market_data:
-                indicators = self._market_data
-                entry_atr = indicators.get("atr")
+                entry_atr = self._market_data.get("atr")
             self._log.info(
                 f"{signal} 포지션 진입..."
                 + (f" (ATR={entry_atr:.2f})" if entry_atr else "")
             )
             await self._open_position(signal, current_price, entry_atr)
+
+    async def _execute_single_loop(self) -> None:
+        """단일 트레이딩 루프 실행."""
+        self._loop_count += 1
+        self._log.info(f"루프 #{self._loop_count} 시작")
+
+        # 0. 일일 리스크 리셋 체크
+        await self._check_daily_risk_reset()
+
+        # 1. 리스크 한도 체크 및 강제 청산
+        if await self._handle_risk_halt():
+            return
+
+        # 2. 시장 데이터 수집
+        market_data = await self._fetch_market_data()
+        current_price = market_data["current_price"]
+
+        # 잔고 업데이트 (드로다운 추적)
+        if self._binance_client:
+            try:
+                balance_info = await self._binance_client.get_account_balance()
+                await self._risk_manager.update_balance(balance_info["available"])
+            except Exception as e:
+                self._log.debug(f"잔고 업데이트 실패: {e}")
+
+        # 3. 시그널 생성
+        signal, signal_source = await self._generate_combined_signal(market_data)
+
+        # 시그널 유효성 검증 게이트
+        if not validate_signal(signal):
+            self._log.warning(f"유효하지 않은 시그널 '{signal}', WAIT으로 변경")
+            signal = "WAIT"
+            self._last_signal = signal
+
+        # 4. 필터 적용 (레짐/MTF/WAIT)
+        indicators = market_data.get("indicators", {})
+        signal = self._apply_signal_filters(signal, indicators)
+
+        # 5. 시그널 기록
+        await self._record_signal(signal, signal_source, current_price, indicators)
+
+        # 6. 긴급 청산 확인
+        if await self._handle_emergency_close(current_price):
+            return
+
+        # 7. 거래소 측 포지션 종료 감지 (SL/TP 체결)
+        if await self._detect_exchange_position_close(current_price):
+            return
+
+        # 8. 현재 포지션 확인 및 관리
+        if self._executor is None:
+            return
+
+        position = await self._executor.get_position()
+        has_position = position is not None
+        self._current_position = position
+
+        if (
+            has_position
+            and position is not None
+            and await self._handle_existing_position(position, current_price)
+        ):
+            return
+
+        # 9. 신규 포지션 진입
+        await self._attempt_new_entry(signal, current_price, has_position)
+
 
     async def _run_loop(self) -> None:
         """메인 트레이딩 루프."""
@@ -1785,10 +1918,12 @@ class BotInstance:
                 self._last_loop_duration = time.monotonic() - loop_start
                 self._last_loop_time = datetime.now()
                 if self._metrics:
-                    with contextlib.suppress(Exception):
+                    try:
                         self._metrics.record_loop_duration(
                             self.bot_name, self._last_loop_duration
                         )
+                    except Exception as e:
+                        self._log.debug(f"루프 지속시간 메트릭 기록 실패: {e}")
 
             # 다음 루프까지 대기 (긴급 이벤트 시 즉시 깨어남)
             if not self._emergency_event.is_set():
