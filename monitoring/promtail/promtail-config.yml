@@ -28,7 +28,7 @@ scrape_configs:
           job: trading-bot
           app: trading
           env: testnet
-          __path__: /var/log/trading/bot.log
+          __path__: /var/log/trading/bot.json.log
 
     # 로그 파싱 파이프라인
     pipeline_stages:
@@ -72,7 +72,7 @@ scrape_configs:
           app: trading
           env: testnet
           level: error
-          __path__: /var/log/trading/error.log
+          __path__: /var/log/trading/error.json.log
 
     pipeline_stages:
       - json:
@@ -101,7 +101,7 @@ scrape_configs:
           job: trading-trades
           app: trading
           env: testnet
-          __path__: /var/log/trading/trade.log
+          __path__: /var/log/trading/trade.json.log
 
     pipeline_stages:
       - json:
@@ -136,7 +136,7 @@ scrape_configs:
           job: trading-ai-signals
           app: trading
           env: testnet
-          __path__: /var/log/trading/ai_signal.log
+          __path__: /var/log/trading/ai_signal.json.log
 
     pipeline_stages:
       - json:
@@ -160,23 +160,30 @@ scrape_configs:
           signal:
 
   # ============================================================================
-  # Docker Container 로그
+  # Docker Container 로그 (모든 컨테이너 자동 수집)
   # ============================================================================
   - job_name: docker-containers
     docker_sd_configs:
       - host: unix:///var/run/docker.sock
         refresh_interval: 5s
-        filters:
-          - name: label
-            values:
-              - "com.docker.compose.project=algorithmic-trading"
 
     relabel_configs:
+      # job 레이블 설정
+      - target_label: 'job'
+        replacement: 'docker-containers'
+      # 컨테이너 이름 (예: trading-bot, trading-redis)
       - source_labels: ['__meta_docker_container_name']
         regex: '/(.*)'
         target_label: 'container'
+      # stdout / stderr
       - source_labels: ['__meta_docker_container_log_stream']
         target_label: 'stream'
+      # docker-compose 서비스명 (예: redis, postgres, trading-bot)
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'compose_service'
+      # docker-compose 프로젝트명 (예: deploy, monitoring)
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
+        target_label: 'compose_project'
 
     pipeline_stages:
       - docker: {}

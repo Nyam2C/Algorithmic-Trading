@@ -2,10 +2,13 @@
 
 Kubernetes Liveness/Readiness probe를 위한 엔드포인트입니다.
 Phase 7.2: /metrics 엔드포인트 추가 (Prometheus)
+Phase 9: /metrics Bearer token 인증 추가
 """
+import hmac
+import os
 from typing import Any
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Header, HTTPException, Response, status
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from src.api.dependencies import check_redis_health, get_bot_manager_optional
@@ -81,16 +84,71 @@ async def readiness_check(response: Response) -> dict[str, Any]:
     }
 
 
+@router.get("/health/bots")
+async def bot_health() -> dict[str, Any]:
+    """봇별 상세 상태 확인.
+
+    각 봇의 실시간 상태를 반환합니다.
+    루프 소요시간, 마켓 레짐, 포지션 유무 등을 포함합니다.
+
+    Returns:
+        봇별 상태 목록
+    """
+    manager = get_bot_manager_optional()
+
+    if manager is None:
+        return {"bots": []}
+
+    bots_status: list[dict[str, Any]] = []
+    for bot in manager.bots.values():
+        state = bot.get_state()
+        uptime_start = state.get("uptime_start")
+        uptime_seconds = 0.0
+        if uptime_start:
+            from datetime import datetime  # noqa: PLC0415
+            if isinstance(uptime_start, datetime):
+                uptime_seconds = (datetime.now() - uptime_start).total_seconds()
+
+        bots_status.append({
+            "bot_name": state.get("bot_name", ""),
+            "is_running": state.get("is_running", False),
+            "is_paused": state.get("is_paused", False),
+            "loop_count": state.get("loop_count", 0),
+            "last_loop_duration_sec": state.get("last_loop_duration", 0.0),
+            "last_signal": state.get("last_signal", "WAIT"),
+            "current_price": state.get("current_price", 0.0),
+            "market_regime": state.get("market_regime", "UNKNOWN"),
+            "has_position": state.get("has_position", False),
+            "uptime_seconds": round(uptime_seconds, 1),
+        })
+
+    return {"bots": bots_status}
+
+
 @router.get("/metrics")
-async def prometheus_metrics() -> Response:
+async def prometheus_metrics(
+    authorization: str | None = Header(None),
+) -> Response:
     """Prometheus 메트릭 엔드포인트.
 
     Phase 7.2: Prometheus 서버가 스크래핑하는 메트릭 엔드포인트입니다.
-    거래 메트릭, API 지연시간, 포지션 PnL 등을 노출합니다.
+    Phase 9: METRICS_AUTH_TOKEN 설정 시 Bearer token 인증 필요.
+
+    Args:
+        authorization: Authorization 헤더 (Bearer token)
 
     Returns:
         Prometheus 형식의 메트릭 텍스트
     """
+    # Phase 9: Bearer token 인증
+    expected_token = os.getenv("METRICS_AUTH_TOKEN")
+    if expected_token:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Bearer token required")
+        provided_token = authorization[7:]  # Strip "Bearer " prefix
+        if not hmac.compare_digest(provided_token, expected_token):
+            raise HTTPException(status_code=401, detail="Invalid metrics token")
+
     registry = get_metrics_registry()
     metrics_output = generate_latest(registry)
 

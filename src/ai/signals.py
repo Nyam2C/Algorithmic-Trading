@@ -44,40 +44,6 @@ def validate_signal(signal: str) -> bool:
     return is_valid
 
 
-def get_signal_emoji(signal: str) -> str:
-    """Get emoji for signal (for Discord notifications).
-
-    Args:
-        signal: Trading signal
-
-    Returns:
-        Emoji string
-    """
-    emoji_map = {
-        "LONG": "🟢",
-        "SHORT": "🔴",
-        "WAIT": "⏸️",
-    }
-    return emoji_map.get(signal, "❓")
-
-
-def get_signal_color(signal: str) -> int:
-    """Get color code for signal (for Discord embeds).
-
-    Args:
-        signal: Trading signal
-
-    Returns:
-        Discord color code (integer)
-    """
-    color_map = {
-        "LONG": 0x00FF00,  # Green
-        "SHORT": 0xFF0000,  # Red
-        "WAIT": 0xFFFF00,  # Yellow
-    }
-    return color_map.get(signal, 0x808080)  # Gray for unknown
-
-
 def should_enter_trade(signal: str, has_position: bool) -> bool:
     """Determine if we should enter a trade based on signal and current position.
 

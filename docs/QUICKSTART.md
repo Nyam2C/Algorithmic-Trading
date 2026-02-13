@@ -228,7 +228,7 @@ open http://localhost:3000
 - DB 스키마: [db/README.md](db/README.md)
 - 모니터링: [monitoring/README.md](monitoring/README.md)
 - Go 백엔드: [backend/README.md](backend/README.md)
-- 개발 가이드: [.claude/DEVELOPMENT_PLAN.md](.claude/DEVELOPMENT_PLAN.md)
+- 개발 가이드: [.claude/PROJECT_OVERVIEW.md](../.claude/PROJECT_OVERVIEW.md)
 
 ---
 
@@ -283,5 +283,4 @@ Happy Trading! 🚀
 
 ---
 
-**마지막 업데이트:** 2026-01-21
-**마지막 업데이트:** 2026-02-03
+**마지막 업데이트:** 2026-02-14

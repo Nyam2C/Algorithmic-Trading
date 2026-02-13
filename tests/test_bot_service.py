@@ -334,10 +334,10 @@ class TestBotServiceUpdateBotAllFields:
         service, bot = service_with_bot
         request = BotUpdateRequest(
             risk_level="high",
-            leverage=20,
+            leverage=5,
             position_size_pct=0.05,
             take_profit_pct=3.0,
-            stop_loss_pct=2.0,
+            stop_loss_pct=0.005,
             time_cut_minutes=180,
             rsi_oversold=30.0,
             rsi_overbought=70.0,
@@ -351,10 +351,10 @@ class TestBotServiceUpdateBotAllFields:
 
         assert result is not None
         assert bot.config.risk_level == "high"
-        assert bot.config.leverage == 20
+        assert bot.config.leverage == 5
         assert bot.config.position_size_pct == 0.05
         assert bot.config.take_profit_pct == 3.0
-        assert bot.config.stop_loss_pct == 2.0
+        assert bot.config.stop_loss_pct == 0.005
         assert bot.config.time_cut_minutes == 180
         assert bot.config.rsi_oversold == 30.0
         assert bot.config.rsi_overbought == 70.0
@@ -383,10 +383,10 @@ class TestBotServiceCreateBotWithAllFields:
             bot_name="full-bot",
             symbol="ETHUSDT",
             risk_level="high",
-            leverage=20,
+            leverage=5,
             position_size_pct=0.05,
             take_profit_pct=3.0,
-            stop_loss_pct=2.0,
+            stop_loss_pct=0.005,
             time_cut_minutes=180,
             rsi_oversold=30.0,
             rsi_overbought=70.0,

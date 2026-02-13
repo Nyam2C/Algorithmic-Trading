@@ -29,7 +29,8 @@ class TradeHistoryDB:
                 self.database_url,
                 min_size=1,
                 max_size=10,
-                command_timeout=60
+                command_timeout=60,
+                timeout=10,
             )
             logger.info("PostgreSQL 거래 이력 데이터베이스 연결 완료")
 
@@ -125,12 +126,18 @@ class TradeHistoryDB:
         pnl: float,
         pnl_pct: float,
         duration_minutes: int | None = None
-    ):
-        """거래 청산 기록."""
+    ) -> bool:
+        """거래 청산 기록.
+
+        Phase 7: 중복 청산 방지 (status='OPEN' 조건 추가).
+
+        Returns:
+            True if the trade was successfully closed, False if already closed
+        """
         if self.pool is None:
             raise RuntimeError("Database pool not initialized. Call connect() first.")
         async with self.pool.acquire() as conn:
-            await conn.execute("""
+            result = await conn.execute("""
                 UPDATE trades
                 SET exit_time = $2,
                     exit_price = $3,
@@ -140,15 +147,24 @@ class TradeHistoryDB:
                     duration_minutes = $7,
                     status = 'CLOSED',
                     updated_at = NOW()
-                WHERE id = $1::uuid
+                WHERE id = $1::uuid AND status = 'OPEN'
             """, trade_id, exit_time, exit_price, exit_reason,
                 pnl, pnl_pct, duration_minutes)
+
+            # Check affected rows: "UPDATE N"
+            affected = int(result.split()[-1]) if result else 0
+            if affected == 0:
+                logger.warning(
+                    f"거래 청산 스킵 (이미 청산됨): ID={trade_id}"
+                )
+                return False
 
             logger.info(
                 f"거래 청산 기록: ID={trade_id}, "
                 f"사유={exit_reason} @ ${exit_price}, "
                 f"손익=${pnl:+.2f} ({pnl_pct:+.2f}%)"
             )
+            return True
 
     async def get_recent_trades(
         self,

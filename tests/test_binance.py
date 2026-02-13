@@ -112,43 +112,98 @@ class TestGetKlines:
         client_instance, mock_internal = client
         mock_klines = [
             [
-                1704067200000,  # timestamp
-                "100000.0",     # open
-                "101000.0",     # high
-                "99000.0",      # low
-                "100500.0",     # close
-                "1000.5",       # volume
-                1704070800000,  # close_time
-                "100500000.0",  # quote_volume
-                100,            # trades
-                "500.25",       # taker_buy_base
-                "50250000.0",   # taker_buy_quote
-                "0"             # ignore
+                1704067200000,
+                "100000.0",
+                "101000.0",
+                "99000.0",
+                "100500.0",
+                "1000.5",
+                1704067500000,
+                "100000.0",
+                100,
+                "500.0",
+                "50000.0",
+                "0"
             ],
             [
-                1704070800000,
-                "100500.0",
-                "102000.0",
+                1704067500000,
                 "100000.0",
-                "101500.0",
-                "1200.3",
-                1704074400000,
-                "121500000.0",
-                120,
-                "600.15",
-                "60915000.0",
+                "101000.0",
+                "99000.0",
+                "100600.0",
+                "1000.5",
+                1704067800000,
+                "100000.0",
+                100,
+                "500.0",
+                "50000.0",
+                "0"
+            ],
+            [
+                1704067800000,
+                "100000.0",
+                "101000.0",
+                "99000.0",
+                "100700.0",
+                "1000.5",
+                1704068100000,
+                "100000.0",
+                100,
+                "500.0",
+                "50000.0",
+                "0"
+            ],
+            [
+                1704068100000,
+                "100000.0",
+                "101000.0",
+                "99000.0",
+                "100800.0",
+                "1000.5",
+                1704068400000,
+                "100000.0",
+                100,
+                "500.0",
+                "50000.0",
+                "0"
+            ],
+            [
+                1704068400000,
+                "100000.0",
+                "101000.0",
+                "99000.0",
+                "100900.0",
+                "1000.5",
+                1704068700000,
+                "100000.0",
+                100,
+                "500.0",
+                "50000.0",
+                "0"
+            ],
+            [
+                1704068700000,
+                "100000.0",
+                "101000.0",
+                "99000.0",
+                "101000.0",
+                "1000.5",
+                1704069000000,
+                "100000.0",
+                100,
+                "500.0",
+                "50000.0",
                 "0"
             ]
         ]
         mock_internal.futures_klines = AsyncMock(return_value=mock_klines)
 
-        df = await client_instance.get_klines("BTCUSDT", limit=2)
+        df = await client_instance.get_klines("BTCUSDT", limit=6)
 
         assert isinstance(df, pd.DataFrame)
-        assert len(df) == 2
+        assert len(df) == 6
         assert list(df.columns) == ["timestamp", "open", "high", "low", "close", "volume"]
         assert df["close"].iloc[0] == 100500.0
-        assert df["volume"].iloc[1] == 1200.3
 
 
 class TestSetLeverage:
@@ -705,6 +760,45 @@ class TestGetKlinesError:
             await client_instance.get_klines("BTCUSDT")
 
 
+
+
+class TestGetKlinesNanValidation:
+    """get_klines NaN 데이터 검증 테스트"""
+
+    @pytest.fixture
+    def client(self):
+        client = BinanceTestnetClient("key", "secret", testnet=True)
+        mock_internal = AsyncMock()
+        client._client = mock_internal
+        yield client, mock_internal
+
+    @pytest.mark.asyncio
+    async def test_get_klines_with_nan_data_forward_filled(self, client):
+        """NaN 포함 캔들 데이터가 forward-fill로 처리됨"""
+        client_instance, mock_internal = client
+        # 6 candles, one with NaN close
+        base_ts = 1704067200000
+        interval_ms = 300000
+        mock_klines = []
+        for i in range(6):
+            ts = base_ts + i * interval_ms
+            close_ts = ts + interval_ms
+            close_val = "100500.0" if i != 2 else None  # 3rd candle has NaN close
+            mock_klines.append([
+                ts, "100000.0", "101000.0", "99000.0",
+                close_val, "1000.5", close_ts,
+                "100000.0", 100, "500.0", "50000.0", "0"
+            ])
+        mock_internal.futures_klines = AsyncMock(return_value=mock_klines)
+
+        df = await client_instance.get_klines("BTCUSDT", limit=6)
+
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 6
+        # NaN should be forward-filled
+        assert not df["close"].isna().any()
+
+
 class TestGetTicker24hError:
     """get_ticker_24h 에러 핸들링"""
 
@@ -1245,3 +1339,61 @@ class TestGetAllPositionsLongPnlPct:
         assert pos["quantity"] == 0.01
         assert pos["margin_type"] == "cross"
         assert pos["liquidation_price"] == 90000.0
+
+
+
+class TestIssueKGetPositionRetry:
+    """get_position() should have @async_retry for transient failures."""
+
+    @pytest.fixture
+    def retry_client(self):
+        """Connected BinanceTestnetClient mock for retry tests."""
+        from src.exchange.binance import BinanceTestnetClient
+        c = BinanceTestnetClient("test_key", "test_secret", testnet=True)
+        c._client = AsyncMock()
+        c._metrics = None
+        return c
+
+    @pytest.mark.asyncio
+    async def test_get_position_retries_on_connection_error(self, retry_client):
+        """get_position retries on ConnectionError and succeeds."""
+        retry_client._client.futures_position_information = AsyncMock(
+            side_effect=[
+                ConnectionError("transient"),
+                [{"symbol": "BTCUSDT", "positionAmt": "0.001",
+                  "entryPrice": "50000.0", "unRealizedProfit": "10.0",
+                  "leverage": "10"}],
+            ]
+        )
+        result = await retry_client.get_position("BTCUSDT")
+        assert result is not None
+        assert result["symbol"] == "BTCUSDT"
+        assert retry_client._client.futures_position_information.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_get_position_retries_on_timeout_error(self, retry_client):
+        """get_position retries on TimeoutError."""
+        retry_client._client.futures_position_information = AsyncMock(
+            side_effect=[
+                TimeoutError("timeout"),
+                [{"symbol": "BTCUSDT", "positionAmt": "0",
+                  "entryPrice": "0", "unRealizedProfit": "0"}],
+            ]
+        )
+        result = await retry_client.get_position("BTCUSDT")
+        assert result is None  # no position
+        assert retry_client._client.futures_position_information.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_get_position_no_circuit_breaker(self, retry_client):
+        """get_position should NOT have circuit breaker (critical for monitoring)."""
+        # Fail 10 times - should NOT trigger CircuitBreakerOpen
+        retry_client._client.futures_position_information = AsyncMock(
+            side_effect=ConnectionError("fail")
+        )
+        for _ in range(10):
+            with pytest.raises(ConnectionError):
+                await retry_client.get_position("BTCUSDT")
+        # Should still raise ConnectionError, NOT CircuitBreakerOpen
+        with pytest.raises(ConnectionError):
+            await retry_client.get_position("BTCUSDT")

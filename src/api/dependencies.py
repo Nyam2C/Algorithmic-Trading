@@ -5,9 +5,12 @@ Phase 4: TradeHistoryAnalyzer 의존성 추가
 Phase 4.1: n8n API 키 인증 추가
 Phase 4.2: 보안 강화 (인증 우회 방지, Timing Attack 방지)
 Phase 6.3: SignalTracker 의존성 추가
+Phase 7: 프로덕션 보안 강화 (API_DEBUG 차단, 레이트 리밋)
 """
 import hmac
 import os
+import time
+from collections import defaultdict
 from typing import Any, Union
 
 from fastapi import Header, HTTPException, Request
@@ -183,26 +186,46 @@ async def verify_n8n_api_key(
 
 async def verify_api_key(
     request: Request,
-    x_api_key: str = Header(..., alias="X-API-Key"),
-) -> str:
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
+) -> str | None:
     """일반 API 키 검증.
+
+    Phase 7: ENV=production에서 API_DEBUG=true 차단.
 
     Args:
         request: FastAPI Request 객체 (보안 감사 로그용)
-        x_api_key: 요청 헤더의 API 키
+        x_api_key: 요청 헤더의 API 키 (선택)
 
     Returns:
-        검증된 API 키
+        검증된 API 키 또는 None (디버그 모드 시)
 
     Raises:
         HTTPException: API 키가 유효하지 않거나 미설정된 경우
     """
     expected_key = os.getenv("API_KEY")
+    api_debug = os.getenv("API_DEBUG", "false").lower() == "true"
+    env = os.getenv("ENV", "development").lower()
+
     if not expected_key:
+        if api_debug:
+            # Phase 7: 프로덕션에서 디버그 모드 차단
+            if env == "production":
+                logger.critical(
+                    "보안 위반: ENV=production에서 API_DEBUG=true 감지. 인증 우회 차단."
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="API_DEBUG cannot be enabled in production",
+                )
+            logger.warning("API_DEBUG 모드 활성화 - 인증 건너뜀 (비프로덕션)")
+            return None
         raise HTTPException(
             status_code=500,
             detail="API_KEY not configured"
         )
+
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="X-API-Key header required")
 
     # Timing Attack 방지: 상수 시간 비교
     if not hmac.compare_digest(x_api_key, expected_key):
@@ -214,6 +237,50 @@ async def verify_api_key(
         )
         raise HTTPException(status_code=401, detail="Invalid API key")
     return x_api_key
+
+
+
+# =============================================================================
+# Phase 7: 크리티컬 엔드포인트 레이트 리밋
+# =============================================================================
+
+_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+_RATE_LIMIT_WINDOW = 60  # 1분
+_RATE_LIMIT_CRITICAL = 5  # 크리티컬 엔드포인트: 분당 5회
+
+
+async def check_critical_rate_limit(request: Request) -> None:
+    """크리티컬 엔드포인트 레이트 리밋 (Phase 7).
+
+    분당 5회로 제한. /api/n8n/command 등 거래 명령 경로에 적용.
+
+    Args:
+        request: FastAPI Request 객체
+
+    Raises:
+        HTTPException: 레이트 리밋 초과 시 429
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    key = f"critical:{client_ip}"
+    now = time.time()
+
+    # 만료된 요청 제거
+    _rate_limit_store[key] = [
+        t for t in _rate_limit_store[key]
+        if now - t < _RATE_LIMIT_WINDOW
+    ]
+
+    if len(_rate_limit_store[key]) >= _RATE_LIMIT_CRITICAL:
+        logger.warning(
+            f"레이트 리밋 초과: {client_ip} "
+            f"({len(_rate_limit_store[key])}/{_RATE_LIMIT_CRITICAL}/min)"
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: {_RATE_LIMIT_CRITICAL} requests per minute",
+        )
+
+    _rate_limit_store[key].append(now)
 
 
 # =============================================================================

@@ -3,11 +3,15 @@
 Phase 4: AI 메모리 시스템 - 과거 거래 분석을 프롬프트에 주입
 기존 GeminiSignalGenerator를 확장하여 메모리 컨텍스트 지원
 """
+import time
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from google.genai.errors import ClientError, ServerError
 from loguru import logger
 
+from src.ai.ai_logger import AIDecisionLogger
 from src.ai.gemini import GeminiSignalGenerator
 from src.analytics.memory_context import AIMemoryContextBuilder, MemoryContext
 from src.utils.retry import async_retry
@@ -67,10 +71,17 @@ class EnhancedGeminiSignalGenerator(GeminiSignalGenerator):
         # 메모리 시스템 프롬프트 로드
         self.memory_system_prompt = self._load_memory_prompt()
 
+        self._ai_logger = AIDecisionLogger()
         self._log = logger.bind(module="enhanced_gemini")
         self._log.info(
             f"Enhanced Gemini 초기화 (memory_enabled={self.memory_enabled})"
         )
+
+        # 마지막 AI 호출 기록 (디버깅/Discord 조회용)
+        self._last_prompt: str | None = None
+        self._last_response: str | None = None
+        self._last_call_time: datetime | None = None
+        self._last_signal: str | None = None
 
     @property
     def memory_enabled(self) -> bool:
@@ -135,6 +146,11 @@ Output ONLY: LONG, SHORT, or WAIT."""
         Returns:
             시그널: "LONG", "SHORT", or "WAIT"
         """
+        t0 = time.monotonic()
+        raw_response_text = ""
+        signal = "WAIT"
+        memory_used = False
+        prompt_summary = ""
         try:
             # 1. 메모리 컨텍스트 생성
             memory_context = None
@@ -146,6 +162,7 @@ Output ONLY: LONG, SHORT, or WAIT."""
                     )
                     if not memory_context.is_empty():
                         self._log.debug("메모리 컨텍스트 생성 완료")
+                        memory_used = True
                     else:
                         self._log.debug("메모리 컨텍스트 비어있음")
                         memory_context = None
@@ -158,24 +175,27 @@ Output ONLY: LONG, SHORT, or WAIT."""
                 market_data=market_data,
                 memory_context=memory_context,
             )
+            prompt_summary = full_prompt
 
             self._log.debug("Calling Gemini API with memory context...")
 
-            # 3. Gemini API 호출
-            response = await self.client.aio.models.generate_content(
-                model=self.model,
-                contents=full_prompt,
-                config={
-                    "temperature": self.temperature,
-                    "max_output_tokens": 10,
-                },
-            )
+            # 3. Gemini API 호출 (세마포어로 동시 호출 제한)
+            async with self._get_semaphore():
+                response = await self.client.aio.models.generate_content(
+                    model=self.model,
+                    contents=full_prompt,
+                    config={
+                        "temperature": self.temperature,
+                        "max_output_tokens": 10,
+                    },
+                )
 
             # 4. 응답 파싱
             if response.text is None:
                 self._log.warning("Empty response from Gemini, defaulting to WAIT")
                 return "WAIT"
 
+            raw_response_text = response.text
             signal = response.text.strip().upper()
 
             # 5. 시그널 검증
@@ -195,6 +215,42 @@ Output ONLY: LONG, SHORT, or WAIT."""
             self._log.error(f"Gemini API error: {e}")
             self._log.warning("Defaulting to WAIT due to error")
             return "WAIT"
+        finally:
+            # 마지막 호출 기록 저장
+            self._last_prompt = prompt_summary
+            self._last_response = raw_response_text
+            self._last_call_time = datetime.now()
+            self._last_signal = signal
+
+            latency_ms = (time.monotonic() - t0) * 1000
+            self._ai_logger.log_gemini_call(
+                bot_name=bot_id or "",
+                prompt_summary=prompt_summary,
+                raw_response=raw_response_text,
+                parsed_signal=signal,
+                reason="",
+                memory_used=memory_used,
+                latency_ms=latency_ms,
+                model=self.model,
+            )
+
+    def get_last_ai_call(self) -> dict[str, Any] | None:
+        """마지막 AI 호출 정보 반환.
+
+        Discord 디버깅 명령어에서 사용합니다.
+
+        Returns:
+            마지막 호출 정보 딕셔너리 또는 None
+        """
+        if self._last_prompt is None:
+            return None
+        return {
+            "prompt": self._last_prompt,
+            "response": self._last_response,
+            "timestamp": self._last_call_time,
+            "model": self.model,
+            "signal": self._last_signal,
+        }
 
     def _build_prompt_with_memory(
         self,
@@ -228,10 +284,37 @@ Output ONLY: LONG, SHORT, or WAIT."""
         return f"{system_prompt}{memory_section}\n{market_prompt}"
 
 
-    async def get_signal(self, market_data: dict) -> str:
-        """시그널 생성 (기존 호환성 유지).
+    async def get_signal_with_reason(self, market_data: dict) -> tuple[str, str]:
+        """시그널+이유 생성 (프롬프트 기록 포함).
 
-        메모리 없이 기존 방식으로 시그널 생성
+        앙상블 경로에서 호출될 때도 _last_prompt가 저장되도록 오버라이드.
+
+        Args:
+            market_data: 시장 데이터 딕셔너리
+
+        Returns:
+            (시그널, 이유) 튜플
+        """
+        signal = "WAIT"
+        reason = ""
+        prompt_text = ""
+        raw_response = ""
+        try:
+            user_prompt = self._build_market_prompt_with_reason(market_data)
+            prompt_text = f"{self.system_prompt}\n\n{user_prompt}"
+            signal, reason = await super().get_signal_with_reason(market_data)
+            raw_response = f'{{"signal": "{signal}", "reason": "{reason}"}}'
+            return signal, reason
+        except Exception:
+            raise
+        finally:
+            self._last_prompt = prompt_text
+            self._last_response = raw_response
+            self._last_call_time = datetime.now()
+            self._last_signal = signal
+
+    async def get_signal(self, market_data: dict) -> str:
+        """시그널 생성 (프롬프트 기록 포함).
 
         Args:
             market_data: 시장 데이터 딕셔너리
@@ -239,5 +322,19 @@ Output ONLY: LONG, SHORT, or WAIT."""
         Returns:
             시그널: "LONG", "SHORT", or "WAIT"
         """
-        # 기존 GeminiSignalGenerator의 get_signal 호출
-        return await super().get_signal(market_data)
+        signal = "WAIT"
+        prompt_text = ""
+        raw_response = ""
+        try:
+            user_prompt = self._build_market_prompt(market_data)
+            prompt_text = f"{self.system_prompt}\n\n{user_prompt}"
+            signal = await super().get_signal(market_data)
+            raw_response = signal
+            return signal
+        except Exception:
+            raise
+        finally:
+            self._last_prompt = prompt_text
+            self._last_response = raw_response
+            self._last_call_time = datetime.now()
+            self._last_signal = signal

@@ -27,7 +27,7 @@ class GlobalConfig(BaseModel):
     """
 
     is_testnet: bool = Field(default=True)
-    loop_interval_seconds: int = Field(default=300, gt=0)
+    loop_interval_seconds: int = Field(default=3600, gt=0)
 
 
 class BotYamlEntry(BaseModel):
@@ -46,6 +46,7 @@ class BotYamlEntry(BaseModel):
     symbol: str = Field(default="BTCUSDT")
     risk_level: str = Field(default="medium")
     is_active: bool = Field(default=True)
+    use_ensemble: bool = Field(default=False)
 
     @field_validator("symbol")
     @classmethod
@@ -80,6 +81,7 @@ class BotYamlEntry(BaseModel):
             risk_level=self.risk_level,
             is_testnet=global_config.is_testnet,
             is_active=self.is_active,
+            use_ensemble=self.use_ensemble,
         )
 
 

@@ -369,10 +369,10 @@ class TestDummyRedisStateManager:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_save_bot_state_returns_true(self, dummy_manager):
-        """save_bot_state가 True를 반환하는지 확인"""
+    async def test_save_bot_state_returns_false(self, dummy_manager):
+        """save_bot_state가 False를 반환하는지 확인 (저장 실패 표시)"""
         result = await dummy_manager.save_bot_state("test-bot", {"key": "value"})
-        assert result is True
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_load_bot_state_returns_none(self, dummy_manager):
@@ -839,15 +839,15 @@ class TestDummyRedisStateManagerAdditional:
 
     @pytest.mark.asyncio
     async def test_delete_bot_state(self, dummy):
-        """delete_bot_state는 True 반환"""
+        """delete_bot_state는 False 반환"""
         result = await dummy.delete_bot_state("bot")
-        assert result is True
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_save_position(self, dummy):
-        """save_position은 True 반환"""
+        """save_position은 False 반환"""
         result = await dummy.save_position("bot", {"side": "LONG"})
-        assert result is True
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_load_position(self, dummy):
@@ -857,33 +857,33 @@ class TestDummyRedisStateManagerAdditional:
 
     @pytest.mark.asyncio
     async def test_delete_position(self, dummy):
-        """delete_position은 True 반환"""
+        """delete_position은 False 반환"""
         result = await dummy.delete_position("bot")
-        assert result is True
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_register_bot(self, dummy):
-        """register_bot은 True 반환"""
+        """register_bot은 False 반환"""
         result = await dummy.register_bot("bot")
-        assert result is True
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_unregister_bot(self, dummy):
-        """unregister_bot은 True 반환"""
+        """unregister_bot은 False 반환"""
         result = await dummy.unregister_bot("bot")
-        assert result is True
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_set_bot_running(self, dummy):
-        """set_bot_running은 True 반환"""
+        """set_bot_running은 False 반환"""
         result = await dummy.set_bot_running("bot")
-        assert result is True
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_set_bot_stopped(self, dummy):
-        """set_bot_stopped은 True 반환"""
+        """set_bot_stopped은 False 반환"""
         result = await dummy.set_bot_stopped("bot")
-        assert result is True
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_get_running_bots(self, dummy):
@@ -893,9 +893,9 @@ class TestDummyRedisStateManagerAdditional:
 
     @pytest.mark.asyncio
     async def test_clear_running_bots(self, dummy):
-        """clear_running_bots은 True 반환"""
+        """clear_running_bots은 False 반환"""
         result = await dummy.clear_running_bots()
-        assert result is True
+        assert result is False
 
 
 class TestCreateRedisManagerAdditional:

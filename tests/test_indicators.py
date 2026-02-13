@@ -149,15 +149,39 @@ class TestCalculateVolumeRatio:
         assert ratio > 0
 
     def test_volume_ratio_high_volume(self):
-        """높은 볼륨일 때 비율이 높은지 테스트"""
+        """높은 볼륨일 때 비율이 높은지 테스트 (미완성 캔들 제외)"""
+        # 마지막 캔들(미완성)은 제외하고 완성된 캔들들로 계산
         df = pd.DataFrame({
-            'volume': [1000] * 20 + [5000],  # 마지막 볼륨이 5배
+            'volume': [1000] * 19 + [5000, 100],  # 마지막 100은 미완성 캔들
         })
 
         ratio = calculate_volume_ratio(df)
 
-        # 마지막 볼륨이 평균보다 높으므로 비율 > 1
+        # 완성된 캔들 중 마지막(5000) / 완성된 캔들 평균
+        # 평균 = (1000*19 + 5000) / 20 = 1200
+        # 비율 = 5000 / 1200 ≈ 4.17
         assert ratio > 1
+
+    def test_volume_ratio_excludes_incomplete_candle(self):
+        """미완성 캔들이 제외되는지 테스트"""
+        # 마지막 캔들의 거래량이 극단적으로 낮음 (진행 중)
+        df = pd.DataFrame({
+            'volume': [1000] * 20 + [10],  # 마지막 10은 미완성 캔들
+        })
+
+        ratio = calculate_volume_ratio(df)
+
+        # 미완성 캔들(10) 제외 → 완성된 마지막 캔들(1000) / 평균(1000) = 1.0
+        assert ratio == pytest.approx(1.0, rel=0.01)
+
+    def test_volume_ratio_single_candle(self):
+        """캔들이 1개만 있을 때 (제외 불가)"""
+        df = pd.DataFrame({
+            'volume': [1000],
+        })
+
+        ratio = calculate_volume_ratio(df)
+        assert ratio == pytest.approx(1.0, rel=0.01)
 
 
 class TestAnalyzeRSITrend:
@@ -201,6 +225,22 @@ class TestCalculatePriceVsMA:
 
         assert pct_diff == pytest.approx(-10.0, rel=0.01)
         assert position == "below"
+
+    def test_price_vs_ma_nan(self):
+        """MA가 NaN일 때 안전하게 처리"""
+        import math
+        pct_diff, position = calculate_price_vs_ma(100, float("nan"))
+
+        assert math.isnan(pct_diff)
+        assert position == "N/A"
+
+    def test_price_vs_ma_zero(self):
+        """MA가 0일 때 안전하게 처리"""
+        import math
+        pct_diff, position = calculate_price_vs_ma(100, 0.0)
+
+        assert math.isnan(pct_diff)
+        assert position == "N/A"
 
 
 class TestAnalyzeCandlePattern:

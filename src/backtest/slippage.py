@@ -6,10 +6,6 @@ Phase 6.2: 백테스트 현실화
 """
 from dataclasses import dataclass
 
-# 슬리피지 상수
-MIN_SPREAD = 0.1
-
-
 
 @dataclass
 class SlippageModel:

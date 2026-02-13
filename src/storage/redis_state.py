@@ -528,12 +528,14 @@ class RedisStateManager:
 class DummyRedisStateManager:
     """Redis 연결 실패 시 사용되는 더미 매니저.
 
-    모든 연산이 성공하지만 실제 저장은 하지 않습니다.
+    모든 저장 연산이 False를 반환하여 호출자가 데이터가
+    영구 저장되지 않았음을 인지할 수 있도록 합니다.
     """
 
     def __init__(self) -> None:
         self._log = logger.bind(component="DummyRedisStateManager")
         self._log.warning("Redis 연결 실패 - 더미 상태 관리자 사용")
+        self._log.warning("DummyRedisStateManager: 상태가 영구 저장되지 않습니다")
 
     @property
     def is_connected(self) -> bool:
@@ -549,43 +551,43 @@ class DummyRedisStateManager:
         return False
 
     async def save_bot_state(self, _bot_name: str, _state: dict[str, Any]) -> bool:
-        return True
+        return False
 
     async def load_bot_state(self, _bot_name: str) -> dict[str, Any] | None:
         return None
 
     async def delete_bot_state(self, _bot_name: str) -> bool:
-        return True
+        return False
 
     async def save_position(self, _bot_name: str, _position: dict[str, Any]) -> bool:
-        return True
+        return False
 
     async def load_position(self, _bot_name: str) -> dict[str, Any] | None:
         return None
 
     async def delete_position(self, _bot_name: str) -> bool:
-        return True
+        return False
 
     async def register_bot(self, _bot_name: str) -> bool:
-        return True
+        return False
 
     async def unregister_bot(self, _bot_name: str) -> bool:
-        return True
+        return False
 
     async def get_registered_bots(self) -> list[str]:
         return []
 
     async def set_bot_running(self, _bot_name: str) -> bool:
-        return True
+        return False
 
     async def set_bot_stopped(self, _bot_name: str) -> bool:
-        return True
+        return False
 
     async def get_running_bots(self) -> list[str]:
         return []
 
     async def clear_running_bots(self) -> bool:
-        return True
+        return False
 
 
 async def create_redis_manager(

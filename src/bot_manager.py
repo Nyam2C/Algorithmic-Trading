@@ -14,6 +14,7 @@ from src.bot_config import BotConfig
 from src.bot_instance import (
     BotInstance,
     OnErrorCallback,
+    OnExposureCheckCallback,
     OnSignalCallback,
     OnTradeCallback,
 )
@@ -89,6 +90,17 @@ class MultiBotManager:
         self._on_trade_callback: OnTradeCallback | None = None
         self._on_error_callback: OnErrorCallback | None = None
 
+        # Phase 5: 노출도 체크 콜백
+        self._exposure_check_callback: OnExposureCheckCallback | None = (
+            self.can_open_position if max_total_exposure > 0 else None
+        )
+
+        # Phase 7: 노출도 체크 동시성 보호
+        self._exposure_lock = asyncio.Lock()
+
+        # Phase 8: 노출도 예약 (TOCTOU 방지)
+        self._pending_reservations: dict[str, float] = {}
+
         # 초기 봇 설정 등록
         if configs:
             for config in configs:
@@ -153,10 +165,10 @@ class MultiBotManager:
     # =========================================================================
 
     async def get_total_exposure(self) -> float:
-        """모든 봇의 총 포지션 가치 계산.
+        """모든 봇의 총 포지션 가치 계산 (예약 포함).
 
         Returns:
-            총 노출도 (USDT)
+            총 노출도 (USDT, 예약 포함)
         """
         total = 0.0
 
@@ -179,12 +191,17 @@ class MultiBotManager:
                     f"x {leverage}x = ${position_value:,.2f}"
                 )
 
+        # Phase 8: 예약된 노출도 추가
+        total += sum(self._pending_reservations.values())
+
         return total
 
     async def can_open_position(
         self, bot_name: str, position_value: float
     ) -> tuple[bool, str]:
         """새 포지션 진입 가능 여부 확인 (Phase 5.4).
+
+        Phase 7: asyncio.Lock으로 TOCTOU 경쟁조건 방지.
 
         Args:
             bot_name: 봇 이름
@@ -197,24 +214,70 @@ class MultiBotManager:
         if self._max_total_exposure <= 0:
             return True, ""
 
-        current_exposure = await self.get_total_exposure()
-        new_total = current_exposure + position_value
+        async with self._exposure_lock:
+            current_exposure = await self.get_total_exposure()
+            new_total = current_exposure + position_value
 
-        if new_total > self._max_total_exposure:
-            reason = (
-                f"총 노출도 한도 초과: "
-                f"${new_total:,.2f} > ${self._max_total_exposure:,.2f} "
-                f"(현재=${current_exposure:,.2f}, "
-                f"신규=${position_value:,.2f})"
+            if new_total > self._max_total_exposure:
+                reason = (
+                    f"총 노출도 한도 초과: "
+                    f"${new_total:,.2f} > ${self._max_total_exposure:,.2f} "
+                    f"(현재=${current_exposure:,.2f}, "
+                    f"신규=${position_value:,.2f})"
+                )
+                logger.warning(f"[{bot_name}] {reason}")
+                return False, reason
+
+            # Phase 9: 허용 시 자동 예약 (TOCTOU 방지)
+            self._pending_reservations[bot_name] = position_value
+
+            logger.info(
+                f"[{bot_name}] 포지션 진입 허용 + 예약: "
+                f"총 노출도 ${new_total:,.2f} / ${self._max_total_exposure:,.2f}"
             )
-            logger.warning(f"[{bot_name}] {reason}")
-            return False, reason
+            return True, ""
 
-        logger.info(
-            f"[{bot_name}] 포지션 진입 허용: "
-            f"총 노출도 ${new_total:,.2f} / ${self._max_total_exposure:,.2f}"
-        )
-        return True, ""
+    async def reserve_exposure(self, bot_name: str, amount: float) -> bool:
+        """노출도 예약 (Phase 8: TOCTOU 방지).
+
+        Args:
+            bot_name: 봇 이름
+            amount: 예약할 노출도 (USDT)
+
+        Returns:
+            True: 예약 성공, False: 한도 초과
+        """
+        if self._max_total_exposure <= 0:
+            return True
+
+        async with self._exposure_lock:
+            current_exposure = await self.get_total_exposure()
+            new_total = current_exposure + amount
+
+            if new_total > self._max_total_exposure:
+                logger.warning(
+                    f"[{bot_name}] 노출도 예약 거부: "
+                    f"${new_total:,.2f} > ${self._max_total_exposure:,.2f}"
+                )
+                return False
+
+            self._pending_reservations[bot_name] = amount
+            logger.info(
+                f"[{bot_name}] 노출도 예약 완료: ${amount:,.2f} "
+                f"(총 ${new_total:,.2f} / ${self._max_total_exposure:,.2f})"
+            )
+            return True
+
+    async def release_reservation(self, bot_name: str) -> None:
+        """노출도 예약 해제 (Phase 8: TOCTOU 방지).
+
+        Args:
+            bot_name: 봇 이름
+        """
+        async with self._exposure_lock:
+            removed = self._pending_reservations.pop(bot_name, None)
+            if removed is not None:
+                logger.info(f"[{bot_name}] 노출도 예약 해제: ${removed:,.2f}")
 
     def get_exposure_summary(self) -> dict[str, Any]:
         """노출도 요약 정보 (Phase 5.4).
@@ -378,9 +441,11 @@ class MultiBotManager:
             database_url=self._database_url,
             loop_interval_seconds=self._loop_interval_seconds,
             redis_state_manager=self._redis_state_manager,
+            use_memory_signals=bool(self._gemini_api_key),
             on_signal_callback=self._on_signal_callback,
             on_trade_callback=self._on_trade_callback,
             on_error_callback=self._on_error_callback,
+            on_exposure_check=self._exposure_check_callback,
         )
 
         self._bots[config.bot_name] = instance
@@ -515,7 +580,7 @@ class MultiBotManager:
         logger.info(f"봇 시작됨: {bot_name}")
 
     async def stop_bot(self, bot_name: str) -> None:
-        """특정 봇 정지.
+        """특정 봇 정지. Phase 7: 타임아웃 적용.
 
         Args:
             bot_name: 봇 이름
@@ -527,7 +592,10 @@ class MultiBotManager:
         if not bot:
             raise ValueError(f"Bot '{bot_name}' not found")
 
-        await bot.stop()
+        try:
+            await asyncio.wait_for(bot.stop(), timeout=10)
+        except asyncio.TimeoutError:
+            logger.warning(f"봇 정지 타임아웃 (10초): {bot_name}")
 
         # 태스크 정리
         if bot_name in self._tasks:
@@ -535,7 +603,7 @@ class MultiBotManager:
             if not task.done():
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
-                    await task
+                    await asyncio.wait_for(task, timeout=30)
             del self._tasks[bot_name]
 
         logger.info(f"봇 정지됨: {bot_name}")
@@ -557,29 +625,52 @@ class MultiBotManager:
         logger.info(f"전체 봇 재개: {self.bot_count}개")
 
     async def start_all(self) -> None:
-        """전체 봇 시작."""
-        tasks = []
+        """전체 봇 시작 (API 레이트 리밋 방지를 위해 30초 간격 분산)."""
+        started = 0
         for bot_name, bot in self._bots.items():
             if bot_name not in self._tasks or self._tasks[bot_name].done():
+                if started > 0:
+                    logger.info("다음 봇 시작까지 30초 대기 (레이트 리밋 방지)...")
+                    await asyncio.sleep(30)
                 task = asyncio.create_task(bot.start())
                 self._tasks[bot_name] = task
-                tasks.append(task)
+                started += 1
 
-        logger.info(f"전체 봇 시작: {len(tasks)}개")
+        logger.info(f"전체 봇 시작: {started}개")
 
     async def stop_all(self) -> None:
-        """전체 봇 정지."""
+        """전체 봇 정지. Phase 7: 타임아웃 적용."""
         # 모든 봇에 정지 요청
-        for bot in self._bots.values():
-            await bot.stop()
+        for bot_name, bot in self._bots.items():
+            try:
+                await asyncio.wait_for(bot.stop(), timeout=10)
+            except asyncio.TimeoutError:
+                logger.warning(f"봇 정지 타임아웃 (10초): {bot_name}")
+            except Exception as e:
+                logger.error(f"봇 정지 에러 ({bot_name}): {e}")
 
-        # 모든 태스크 대기
+        # 모든 태스크 취소 및 대기
         if self._tasks:
-            for task in self._tasks.values():
+            tasks_to_cancel = []
+            for bot_name, task in self._tasks.items():
                 if not task.done():
                     task.cancel()
+                    tasks_to_cancel.append((bot_name, task))
+
+            if tasks_to_cancel:
+                task_list = [t for _, t in tasks_to_cancel]
+                done, pending = await asyncio.wait(task_list, timeout=30)
+
+                for bot_name, task in tasks_to_cancel:
+                    if task in pending:
+                        logger.warning(
+                            f"봇 태스크 강제 종료: {bot_name}"
+                        )
+
+                # Suppress CancelledError from done tasks
+                for task in done:
                     with contextlib.suppress(asyncio.CancelledError):
-                        await task
+                        task.result()
 
         self._tasks.clear()
         logger.info(f"전체 봇 정지: {self.bot_count}개")

@@ -29,7 +29,7 @@ class TestBotConfig:
             assert config.risk_level == "medium"  # 기본값
             # leverage는 None이지만 get_effective_leverage()로 기본값 15 반환
             assert config.leverage is None
-            assert config.get_effective_leverage() == 15
+            assert config.get_effective_leverage() == 5
             assert config.is_active is False  # 기본값
 
         def test_모든_파라미터_지정하여_생성(self) -> None:
@@ -43,7 +43,7 @@ class TestBotConfig:
                 leverage=20,
                 position_size_pct=0.08,
                 take_profit_pct=0.006,
-                stop_loss_pct=0.006,
+                stop_loss_pct=0.002,
                 time_cut_minutes=90,
                 rsi_oversold=40.0,
                 rsi_overbought=60.0,
@@ -51,6 +51,7 @@ class TestBotConfig:
                 is_testnet=True,
                 is_active=True,
                 description="공격적 BTC 전략",
+                max_daily_loss_pct=0.05,
             )
 
             assert config.bot_name == "btc-aggressive"
@@ -131,10 +132,10 @@ class TestBotConfig:
                 risk_level="low",
             )
 
-            # low risk 기본값: leverage=10, position_size=0.03, tp/sl=0.003
-            assert config.get_effective_leverage() == 10
+            # low risk 기본값: leverage=3, position_size=0.03, tp=0.006/sl=0.003
+            assert config.get_effective_leverage() == 3
             assert config.get_effective_position_size_pct() == 0.03
-            assert config.get_effective_take_profit_pct() == 0.003
+            assert config.get_effective_take_profit_pct() == 0.006
             assert config.get_effective_stop_loss_pct() == 0.003
 
         def test_medium_risk_기본값(self) -> None:
@@ -147,10 +148,10 @@ class TestBotConfig:
                 risk_level="medium",
             )
 
-            # medium risk 기본값: leverage=15, position_size=0.05, tp/sl=0.004
-            assert config.get_effective_leverage() == 15
+            # medium risk 기본값: leverage=5, position_size=0.05, tp=0.008/sl=0.004
+            assert config.get_effective_leverage() == 5
             assert config.get_effective_position_size_pct() == 0.05
-            assert config.get_effective_take_profit_pct() == 0.004
+            assert config.get_effective_take_profit_pct() == 0.008
             assert config.get_effective_stop_loss_pct() == 0.004
 
         def test_high_risk_기본값(self) -> None:
@@ -163,11 +164,11 @@ class TestBotConfig:
                 risk_level="high",
             )
 
-            # high risk 기본값: leverage=20, position_size=0.08, tp/sl=0.006
-            assert config.get_effective_leverage() == 20
+            # high risk 기본값: leverage=10, position_size=0.08, tp=0.012/sl=0.004
+            assert config.get_effective_leverage() == 10
             assert config.get_effective_position_size_pct() == 0.08
-            assert config.get_effective_take_profit_pct() == 0.006
-            assert config.get_effective_stop_loss_pct() == 0.006
+            assert config.get_effective_take_profit_pct() == 0.012
+            assert config.get_effective_stop_loss_pct() == 0.004
 
         def test_명시적_값이_기본값_오버라이드(self) -> None:
             """명시적으로 지정한 값이 risk_level 기본값을 오버라이드"""
@@ -177,15 +178,15 @@ class TestBotConfig:
                 bot_name="custom-bot",
                 symbol="BTCUSDT",
                 risk_level="low",  # low risk
-                leverage=25,  # 명시적 지정
+                leverage=10,  # 명시적 지정 (0.003 * 10 = 3% < 5%)
                 position_size_pct=0.1,  # 명시적 지정
             )
 
             # 명시적 값 사용
-            assert config.get_effective_leverage() == 25
+            assert config.get_effective_leverage() == 10
             assert config.get_effective_position_size_pct() == 0.1
             # 미지정 값은 risk_level 기본값 사용
-            assert config.get_effective_take_profit_pct() == 0.003
+            assert config.get_effective_take_profit_pct() == 0.006
 
     # ===== symbol 검증 테스트 =====
     class TestSymbolValidation:
@@ -219,14 +220,16 @@ class TestBotConfig:
         """leverage 검증 테스트"""
 
         def test_leverage_범위_내_유효(self) -> None:
-            """1-125 범위의 leverage 유효"""
+            """1-50 범위의 leverage 유효"""
             from src.bot_config import BotConfig
 
-            for leverage in [1, 10, 50, 100, 125]:
+            for leverage in [1, 10, 25, 50]:
                 config = BotConfig(
                     bot_name="test-bot",
                     symbol="BTCUSDT",
                     leverage=leverage,
+                    stop_loss_pct=0.0003,  # 매우 낮은 SL로 리스크 검증 통과
+                    max_daily_loss_pct=0.50,  # 50% 높은 한도
                 )
                 assert config.leverage == leverage
 
@@ -243,8 +246,8 @@ class TestBotConfig:
                     leverage=0,
                 )
 
-        def test_leverage_125초과_에러(self) -> None:
-            """leverage가 125 초과면 에러"""
+        def test_leverage_50초과_에러(self) -> None:
+            """leverage가 50 초과면 에러"""
             from pydantic import ValidationError
 
             from src.bot_config import BotConfig
@@ -253,7 +256,7 @@ class TestBotConfig:
                 BotConfig(
                     bot_name="test-bot",
                     symbol="BTCUSDT",
-                    leverage=126,
+                    leverage=51,
                 )
 
     # ===== position_size_pct 검증 테스트 =====
@@ -301,7 +304,7 @@ class TestBotConfig:
                 bot_name="test-bot",
                 symbol="BTCUSDT",
                 risk_level="medium",
-                leverage=15,
+                leverage=10,
             )
 
             trading_config = bot_config.to_trading_config(
@@ -313,8 +316,65 @@ class TestBotConfig:
 
             assert trading_config.bot_name == "test-bot"
             assert trading_config.symbol == "BTCUSDT"
-            assert trading_config.leverage == 15
+            assert trading_config.leverage == 10
             assert trading_config.binance_api_key == "test_key"
+
+        def test_phase5_통합_필드_매핑(self) -> None:
+            """Phase 5 통합 필드가 to_trading_config에서 올바르게 매핑됨"""
+            from src.bot_config import BotConfig
+
+            bot_config = BotConfig(
+                bot_name="full-bot",
+                symbol="BTCUSDT",
+                risk_level="medium",
+                leverage=10,
+                use_regime_filter=True,
+                allow_weak_trend=False,
+                use_mtf_filter=True,
+                use_ensemble=True,
+                manual_approval_enabled=True,
+                manual_approval_trades=10,
+                approval_timeout=120,
+            )
+
+            trading_config = bot_config.to_trading_config(
+                binance_api_key="key",
+                binance_secret_key="secret",
+                gemini_api_key="gemini",
+                discord_webhook_url="https://discord.com/webhook",
+            )
+
+            assert trading_config.use_regime_filter is True
+            assert trading_config.allow_weak_trend is False
+            assert trading_config.use_mtf_filter is True
+            assert trading_config.use_ensemble is True
+            assert trading_config.manual_approval_enabled is True
+            assert trading_config.manual_approval_trades == 10
+            assert trading_config.approval_timeout == 120
+
+        def test_phase5_통합_필드_기본값_매핑(self) -> None:
+            """Phase 5 통합 필드 기본값이 to_trading_config에서 올바르게 매핑됨"""
+            from src.bot_config import BotConfig
+
+            bot_config = BotConfig(
+                bot_name="default-bot",
+                symbol="BTCUSDT",
+            )
+
+            trading_config = bot_config.to_trading_config(
+                binance_api_key="key",
+                binance_secret_key="secret",
+                gemini_api_key="gemini",
+                discord_webhook_url="https://discord.com/webhook",
+            )
+
+            assert trading_config.use_regime_filter is False
+            assert trading_config.allow_weak_trend is True
+            assert trading_config.use_mtf_filter is False
+            assert trading_config.use_ensemble is False
+            assert trading_config.manual_approval_enabled is False
+            assert trading_config.manual_approval_trades == 5
+            assert trading_config.approval_timeout == 60
 
     # ===== from_db_row 변환 테스트 =====
     class TestFromDbRow:
@@ -335,7 +395,7 @@ class TestBotConfig:
                 "leverage": 20,
                 "position_size_pct": 0.08,
                 "take_profit_pct": 0.006,
-                "stop_loss_pct": 0.006,
+                "stop_loss_pct": 0.002,
                 "time_cut_minutes": 90,
                 "rsi_oversold": 40.0,
                 "rsi_overbought": 60.0,
@@ -378,3 +438,185 @@ class TestRiskLevelDefaults:
         for level in ["low", "medium", "high"]:
             for key in required_keys:
                 assert key in RISK_LEVEL_DEFAULTS[level], f"{level}에 {key} 없음"
+
+
+class TestRiskConsistencyValidation:
+    """Phase 8: 위험한 설정 거부 테스트"""
+
+    def test_위험한_설정_거부_ValueError(self) -> None:
+        """SL x leverage > daily_limit일 때 ValueError 발생"""
+        from pydantic import ValidationError
+
+        from src.bot_config import BotConfig
+
+        # SL=0.4% x leverage=20 = 8% > 5% daily limit => ValueError
+        with pytest.raises(ValidationError, match="리스크 불일치"):
+            BotConfig(
+                bot_name="risky-bot",
+                symbol="BTCUSDT",
+                leverage=20,
+                stop_loss_pct=0.004,
+                max_daily_loss_pct=0.05,
+            )
+
+    def test_안전한_설정_허용(self) -> None:
+        """SL x leverage <= daily_limit일 때 정상 생성"""
+        from src.bot_config import BotConfig
+
+        # SL=0.3% x leverage=3 = 0.9% < 5% => OK
+        config = BotConfig(
+            bot_name="safe-bot",
+            symbol="BTCUSDT",
+            leverage=3,
+            stop_loss_pct=0.003,
+            max_daily_loss_pct=0.05,
+        )
+        assert config.leverage == 3
+        assert config.stop_loss_pct == 0.003
+
+    def test_high_risk_기본값은_안전(self) -> None:
+        """high risk 기본값 SL=0.004 x leverage=10 = 4% < 5% 통과"""
+        from src.bot_config import BotConfig
+
+        config = BotConfig(
+            bot_name="high-bot",
+            symbol="BTCUSDT",
+            risk_level="high",
+        )
+        # 0.004 * 10 = 0.04 < 0.05 => OK
+        assert config.get_effective_stop_loss_pct() == 0.004
+        assert config.get_effective_leverage() == 10
+
+
+# =============================================================================
+# Phase 9 WS2: BotConfig Hardening (merged from test_ws2_risk_hardening.py)
+# =============================================================================
+
+
+class TestPhase9LeverageCap:
+    """Issue R: leverage 최대값을 125x -> 50x로 변경."""
+
+    def test_leverage_50_allowed(self) -> None:
+        """50x leverage는 허용."""
+        from src.bot_config import BotConfig
+
+        config = BotConfig(
+            bot_name="test-bot",
+            symbol="BTCUSDT",
+            leverage=50,
+            stop_loss_pct=0.0003,
+            max_daily_loss_pct=0.50,
+        )
+        assert config.leverage == 50
+
+    def test_leverage_51_rejected(self) -> None:
+        """51x leverage는 거부."""
+        from pydantic import ValidationError
+
+        from src.bot_config import BotConfig
+
+        with pytest.raises(ValidationError):
+            BotConfig(
+                bot_name="test-bot",
+                symbol="BTCUSDT",
+                leverage=51,
+                stop_loss_pct=0.0003,
+                max_daily_loss_pct=0.50,
+            )
+
+    def test_leverage_125_rejected(self) -> None:
+        """125x leverage는 거부 (이전에 허용)."""
+        from pydantic import ValidationError
+
+        from src.bot_config import BotConfig
+
+        with pytest.raises(ValidationError):
+            BotConfig(
+                bot_name="test-bot",
+                symbol="BTCUSDT",
+                leverage=125,
+                stop_loss_pct=0.0003,
+                max_daily_loss_pct=0.50,
+            )
+
+
+class TestPhase9FeeRate:
+    """Issue F: BotConfig에 estimated_fee_rate 필드 추가."""
+
+    def test_estimated_fee_rate_default(self) -> None:
+        """기본 fee rate 0.0008 (0.08%)."""
+        from src.bot_config import BotConfig
+
+        config = BotConfig(
+            bot_name="test-bot",
+            symbol="BTCUSDT",
+        )
+        assert config.estimated_fee_rate == 0.0008
+
+    def test_estimated_fee_rate_custom(self) -> None:
+        """커스텀 fee rate 설정."""
+        from src.bot_config import BotConfig
+
+        config = BotConfig(
+            bot_name="test-bot",
+            symbol="BTCUSDT",
+            estimated_fee_rate=0.001,
+        )
+        assert config.estimated_fee_rate == 0.001
+
+    def test_estimated_fee_rate_zero(self) -> None:
+        """fee rate 0 허용 (수수료 없는 경우)."""
+        from src.bot_config import BotConfig
+
+        config = BotConfig(
+            bot_name="test-bot",
+            symbol="BTCUSDT",
+            estimated_fee_rate=0.0,
+        )
+        assert config.estimated_fee_rate == 0.0
+
+    def test_estimated_fee_rate_max(self) -> None:
+        """fee rate 최대값 0.01 (1%) 허용."""
+        from src.bot_config import BotConfig
+
+        config = BotConfig(
+            bot_name="test-bot",
+            symbol="BTCUSDT",
+            estimated_fee_rate=0.01,
+        )
+        assert config.estimated_fee_rate == 0.01
+
+    def test_estimated_fee_rate_over_max_rejected(self) -> None:
+        """fee rate > 0.01 거부."""
+        from pydantic import ValidationError
+
+        from src.bot_config import BotConfig
+
+        with pytest.raises(ValidationError):
+            BotConfig(
+                bot_name="test-bot",
+                symbol="BTCUSDT",
+                estimated_fee_rate=0.02,
+            )
+
+
+class TestPhase9ExposureConsistency:
+    """Issue H: position_value에 leverage 포함 필요."""
+
+    def test_exposure_value_includes_leverage(self) -> None:
+        """position_value = price * pct * leverage 임을 확인."""
+        from src.bot_config import BotConfig
+
+        config = BotConfig(
+            bot_name="test-bot",
+            symbol="BTCUSDT",
+            risk_level="medium",  # leverage=5
+        )
+        pct = config.get_effective_position_size_pct()  # 0.05
+        leverage = config.get_effective_leverage()  # 5
+        current_price = 50000.0
+
+        # Before fix: position_value = 50000 * 0.05 = 2500
+        # After fix:  position_value = 50000 * 0.05 * 5 = 12500
+        position_value = current_price * pct * leverage
+        assert position_value == 12500.0

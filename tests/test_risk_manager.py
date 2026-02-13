@@ -321,3 +321,649 @@ class TestGetStats:
         risk_manager._current_drawdown = 0.08
 
         assert risk_manager.get_current_drawdown() == 0.08
+
+class TestDailyRiskReset:
+    """check_and_reset_if_new_day 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_first_call_resets(self):
+        """최초 호출 시 리셋 수행"""
+        rm = RiskManager()
+        assert rm._daily_reset_time is None
+
+        result = await rm.check_and_reset_if_new_day(5000.0)
+
+        assert result is True
+        assert rm._daily_start_balance == 5000.0
+        assert rm._daily_reset_time is not None
+
+    @pytest.mark.asyncio
+    async def test_same_day_no_reset(self):
+        """같은 날 재호출 시 리셋 안 함"""
+        rm = RiskManager()
+        await rm.reset_daily_stats(5000.0)
+
+        # PnL을 일부 기록
+        await rm.track_trade_pnl(-50.0)
+        assert rm._daily_pnl == -50.0
+
+        result = await rm.check_and_reset_if_new_day(4950.0)
+
+        assert result is False
+        # PnL이 리셋되지 않아야 함
+        assert rm._daily_pnl == -50.0
+
+    @pytest.mark.asyncio
+    async def test_midnight_crossing_resets(self):
+        """UTC 자정 경과 시 리셋 수행"""
+        rm = RiskManager()
+        await rm.reset_daily_stats(5000.0)
+
+        # 리셋 시간을 어제로 조작
+        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+        rm._daily_reset_time = yesterday
+
+        # PnL 기록
+        await rm.track_trade_pnl(-100.0)
+        assert rm._daily_pnl == -100.0
+
+        result = await rm.check_and_reset_if_new_day(4900.0)
+
+        assert result is True
+        assert rm._daily_pnl == 0.0
+        assert rm._daily_start_balance == 4900.0
+
+class TestUnrealizedPnlIntegration:
+    """미실현 PnL 통합 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_halt_with_unrealized_loss_triggers(self, risk_manager):
+        """실현 손실 + 미실현 손실 합산으로 한도 초과"""
+        await risk_manager.reset_daily_stats(10000.0)
+        await risk_manager.track_trade_pnl(-200.0)  # -2% 실현 손실
+
+        # 미실현 손실 -300 추가 → 합산 500 = 5% → 한도 도달
+        halt, reason = await risk_manager.should_halt_trading(unrealized_pnl=-300.0)
+
+        assert halt is True
+        assert "일일 손실 한도" in reason
+
+    @pytest.mark.asyncio
+    async def test_halt_without_unrealized_backward_compatible(self, risk_manager):
+        """unrealized_pnl=0 (기본값)일 때 기존 동작 유지"""
+        await risk_manager.reset_daily_stats(10000.0)
+        await risk_manager.track_trade_pnl(-200.0)  # -2%
+
+        halt, reason = await risk_manager.should_halt_trading()
+
+        assert halt is False
+        assert reason == ""
+
+    @pytest.mark.asyncio
+    async def test_halt_positive_unrealized_ignored(self, risk_manager):
+        """미실현 이익은 손실 계산에 포함되지 않음"""
+        await risk_manager.reset_daily_stats(10000.0)
+        await risk_manager.track_trade_pnl(-300.0)  # -3% 실현 손실
+
+        # 미실현 이익 +500은 무시됨 → 실현 손실만 3%
+        halt, reason = await risk_manager.should_halt_trading(unrealized_pnl=500.0)
+
+        assert halt is False
+        assert reason == ""
+
+    @pytest.mark.asyncio
+    async def test_skip_trade_forwards_unrealized_pnl(self, risk_manager):
+        """should_skip_trade가 unrealized_pnl을 should_halt_trading에 전달"""
+        await risk_manager.reset_daily_stats(10000.0)
+        await risk_manager.track_trade_pnl(-200.0)  # -2% 실현
+
+        # 미실현 -300 → 합산 500 = 5% → 스킵
+        should_skip, reason = await risk_manager.should_skip_trade(unrealized_pnl=-300.0)
+
+        assert should_skip is True
+        assert "일일 손실" in reason
+
+    @pytest.mark.asyncio
+    async def test_skip_trade_no_unrealized_backward_compatible(self, risk_manager):
+        """should_skip_trade 기본값(0) 시 기존 동작 유지"""
+        await risk_manager.reset_daily_stats(10000.0)
+        await risk_manager.track_trade_pnl(-200.0)  # -2%
+
+        should_skip, reason = await risk_manager.should_skip_trade()
+
+        assert should_skip is False
+        assert reason == ""
+
+
+# =============================================================================
+# Issue 8: Daily Loss Formula Bug Fix
+# =============================================================================
+
+
+class TestDailyLossFormulaBugFix:
+    """Issue 8: daily_pnl이 양수(이익)일 때 손실로 잘못 처리되는 버그 수정"""
+
+    @pytest.mark.asyncio
+    async def test_positive_pnl_not_treated_as_loss(self):
+        """양수 PnL은 손실로 계산되지 않아야 함"""
+        rm = RiskManager(max_daily_loss_pct=0.05)
+        await rm.reset_daily_stats(10000.0)
+
+        # +300 이익 기록
+        await rm.track_trade_pnl(300.0)
+
+        # 미실현 손실 -100
+        halt, reason = await rm.should_halt_trading(unrealized_pnl=-100.0)
+
+        # net_pnl = 300 + (-100) = 200 > 0 -> 손실 아님 -> halt=False
+        assert halt is False
+        assert reason == ""
+
+    @pytest.mark.asyncio
+    async def test_net_pnl_negative_triggers_halt(self):
+        """실현+미실현 합산이 음수이고 한도 초과 시 halt"""
+        rm = RiskManager(max_daily_loss_pct=0.05)
+        await rm.reset_daily_stats(10000.0)
+
+        # -300 손실 기록
+        await rm.track_trade_pnl(-300.0)
+
+        # 미실현 손실 -300 -> net_pnl = -300 + (-300) = -600 = 6%
+        halt, reason = await rm.should_halt_trading(unrealized_pnl=-300.0)
+
+        assert halt is True
+        assert "일일 손실 한도" in reason
+
+    @pytest.mark.asyncio
+    async def test_net_pnl_positive_no_halt(self):
+        """합산이 양수면 halt 안 함 (이전 버그: abs로 이익도 손실 처리)"""
+        rm = RiskManager(max_daily_loss_pct=0.05)
+        await rm.reset_daily_stats(10000.0)
+
+        # +1000 큰 이익 기록
+        await rm.track_trade_pnl(1000.0)
+
+        # 미실현 손실 -200 -> net_pnl = 1000 + (-200) = 800 > 0
+        halt, reason = await rm.should_halt_trading(unrealized_pnl=-200.0)
+
+        # BUG 수정 전: abs(1000) + abs(-200) = 1200 = 12% -> halt!
+        # BUG 수정 후: net_pnl = 800 > 0 -> no halt
+        assert halt is False
+        assert reason == ""
+
+    @pytest.mark.asyncio
+    async def test_only_unrealized_loss_under_limit(self):
+        """실현 PnL=0, 미실현 손실만 한도 미만"""
+        rm = RiskManager(max_daily_loss_pct=0.05)
+        await rm.reset_daily_stats(10000.0)
+
+        # 미실현 손실 -300 -> net_pnl = -300 = 3% < 5%
+        halt, reason = await rm.should_halt_trading(unrealized_pnl=-300.0)
+
+        assert halt is False
+        assert reason == ""
+
+    @pytest.mark.asyncio
+    async def test_only_unrealized_loss_at_limit(self):
+        """실현 PnL=0, 미실현 손실만 한도 도달"""
+        rm = RiskManager(max_daily_loss_pct=0.05)
+        await rm.reset_daily_stats(10000.0)
+
+        # 미실현 손실 -500 -> net_pnl = -500 = 5% >= 5%
+        halt, reason = await rm.should_halt_trading(unrealized_pnl=-500.0)
+
+        assert halt is True
+        assert "일일 손실 한도" in reason
+
+
+# =============================================================================
+# Issue 11: Carry Over Unrealized Losses on Daily Reset
+# =============================================================================
+
+
+class TestCarryOverUnrealizedLossesOnReset:
+    """Issue 11: 일일 리셋 시 미실현 손실 이월"""
+
+    @pytest.mark.asyncio
+    async def test_reset_with_unrealized_loss_carries_over(self):
+        """미실현 손실 있는 상태에서 리셋 -> daily_pnl에 이월"""
+        rm = RiskManager()
+        await rm.reset_daily_stats(10000.0)
+        await rm.track_trade_pnl(-100.0)
+
+        # Reset with unrealized loss
+        await rm.reset_daily_stats(9500.0, unrealized_pnl=-200.0)
+
+        # daily_pnl should carry over the unrealized loss
+        assert rm._daily_pnl == -200.0
+        assert rm._daily_start_balance == 9500.0
+
+    @pytest.mark.asyncio
+    async def test_reset_with_unrealized_profit_no_carry(self):
+        """미실현 이익 있는 상태에서 리셋 -> daily_pnl=0"""
+        rm = RiskManager()
+        await rm.reset_daily_stats(10000.0)
+
+        # Reset with unrealized profit
+        await rm.reset_daily_stats(10500.0, unrealized_pnl=300.0)
+
+        # Should not carry over profits
+        assert rm._daily_pnl == 0.0
+
+    @pytest.mark.asyncio
+    async def test_reset_with_zero_unrealized(self):
+        """미실현 PnL=0 -> 기존 동작(daily_pnl=0)"""
+        rm = RiskManager()
+        await rm.reset_daily_stats(10000.0)
+        await rm.track_trade_pnl(-50.0)
+
+        # Reset without unrealized PnL
+        await rm.reset_daily_stats(9950.0, unrealized_pnl=0.0)
+
+        assert rm._daily_pnl == 0.0
+
+    @pytest.mark.asyncio
+    async def test_check_and_reset_if_new_day_carries_loss(self):
+        """check_and_reset_if_new_day에서도 미실현 손실 이월"""
+        rm = RiskManager()
+        await rm.reset_daily_stats(10000.0)
+
+        # Set reset time to yesterday
+        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+        rm._daily_reset_time = yesterday
+
+        result = await rm.check_and_reset_if_new_day(
+            9800.0, unrealized_pnl=-150.0
+        )
+
+        assert result is True
+        assert rm._daily_pnl == -150.0
+        assert rm._daily_start_balance == 9800.0
+
+    @pytest.mark.asyncio
+    async def test_check_and_reset_same_day_no_carry(self):
+        """같은 날 재호출 시 이월 없음"""
+        rm = RiskManager()
+        await rm.reset_daily_stats(10000.0)
+        await rm.track_trade_pnl(-50.0)
+
+        result = await rm.check_and_reset_if_new_day(
+            9950.0, unrealized_pnl=-100.0
+        )
+
+        assert result is False
+        # PnL should remain as-is (no reset happened)
+        assert rm._daily_pnl == -50.0
+
+    @pytest.mark.asyncio
+    async def test_backward_compatible_without_unrealized_pnl(self):
+        """unrealized_pnl 인자 없이 호출 시 기존 동작 유지"""
+        rm = RiskManager()
+        await rm.reset_daily_stats(10000.0)
+        await rm.track_trade_pnl(-100.0)
+
+        # Reset without unrealized_pnl parameter (default=0.0)
+        await rm.reset_daily_stats(9900.0)
+
+        assert rm._daily_pnl == 0.0
+
+
+# =============================================================================
+# Scenario 5: add_exit() False → PnL tracking skipped
+# (Relocated from test_phase8_audit_integration.py)
+# =============================================================================
+
+
+class TestAddExitFalseSkipsPnl:
+    """이슈 5/9: add_exit() False 반환 시 PnL 추적 건너뜀."""
+
+    @pytest.mark.asyncio
+    async def test_add_exit_false_skips_pnl_tracking(self):
+        """add_exit() False → PnL 추적 건너뜀 (이슈 9 연동)."""
+        risk_manager = RiskManager()
+        await risk_manager.reset_daily_stats(10000.0)
+        initial_pnl = risk_manager._daily_pnl
+
+        # add_exit가 False를 반환하면 track_trade_pnl을 호출하지 않아야 함
+        # (bot_instance에서 처리하므로 여기서는 RiskManager 상태만 확인)
+        assert risk_manager._daily_pnl == initial_pnl  # 변경 없음
+
+
+# =============================================================================
+# Scenario 6: Unrealized PnL scenarios
+# (Relocated from test_phase8_audit_integration.py)
+# =============================================================================
+
+
+class TestUnrealizedLossScenarios:
+    """이슈 8: 미실현 손실 시나리오 테스트."""
+
+    @pytest.mark.asyncio
+    async def test_unrealized_loss_affects_should_halt(self):
+        """실현 +200, 미실현 -600: net = -400, 잔고 10k → 4% → 중단하지 않음."""
+        rm = RiskManager(max_daily_loss_pct=0.05)  # 5% 한도
+        await rm.reset_daily_stats(10000.0)
+
+        # 실현 이익 +200
+        await rm.track_trade_pnl(200.0)
+
+        # 미실현 손실 -600으로 확인
+        halt, reason = await rm.should_halt_trading(unrealized_pnl=-600.0)
+
+        # net_pnl = 200 + (-600) = -400, 4% < 5% → 중단하지 않음
+        assert not halt
+
+    @pytest.mark.asyncio
+    async def test_unrealized_pnl_carried_over_at_midnight(self):
+        """자정 리셋 시 미실현 -300 → 다음 날 daily_pnl = -300."""
+        rm = RiskManager(max_daily_loss_pct=0.05)
+        await rm.reset_daily_stats(10000.0)
+
+        # 당일 실현 이익 +100
+        await rm.track_trade_pnl(100.0)
+        assert rm._daily_pnl == 100.0
+
+        # 자정 리셋 with 미실현 손실 -300
+        await rm.reset_daily_stats(10000.0, unrealized_pnl=-300.0)
+
+        # 이월됨
+        assert rm._daily_pnl == -300.0
+
+
+# =============================================================================
+# Phase 9 WS2: Risk Manager Hardening (merged from test_ws2_risk_hardening.py)
+# =============================================================================
+
+
+class TestPhase9RiskSerialization:
+    """Issue G: RiskManager to_dict()/from_dict() 직렬화."""
+
+    @pytest.fixture
+    def risk_manager_serializable(self):
+        return RiskManager(
+            max_daily_loss_pct=0.05,
+            max_drawdown_pct=0.10,
+            max_consecutive_losses=3,
+            cooldown_minutes=30,
+        )
+
+    @pytest.mark.asyncio
+    async def test_to_dict_contains_all_fields(self, risk_manager_serializable):
+        """to_dict()가 모든 필수 필드를 포함."""
+        rm = risk_manager_serializable
+        await rm.reset_daily_stats(10000.0)
+        await rm.track_trade_pnl(-100.0)
+        await rm.track_trade_result(is_win=False)
+
+        state = rm.to_dict()
+
+        assert "daily_pnl" in state
+        assert "daily_start_balance" in state
+        assert "daily_reset_time" in state
+        assert "consecutive_losses" in state
+        assert "cooldown_until" in state
+        assert "peak_balance" in state
+        assert "current_drawdown" in state
+        assert "total_trades" in state
+        assert "winning_trades" in state
+        assert "losing_trades" in state
+
+    @pytest.mark.asyncio
+    async def test_to_dict_values_correct(self, risk_manager_serializable):
+        """to_dict()가 올바른 값을 반환."""
+        rm = risk_manager_serializable
+        await rm.reset_daily_stats(10000.0)
+        await rm.track_trade_pnl(-100.0)
+        await rm.track_trade_pnl(50.0)
+
+        state = rm.to_dict()
+
+        assert state["daily_pnl"] == -50.0
+        assert state["daily_start_balance"] == 10000.0
+        assert state["total_trades"] == 2
+        assert state["winning_trades"] == 1
+        assert state["losing_trades"] == 1
+        assert state["peak_balance"] == 10000.0
+
+    @pytest.mark.asyncio
+    async def test_from_dict_restores_state(self, risk_manager_serializable):
+        """from_dict()가 상태를 올바르게 복원."""
+        rm = risk_manager_serializable
+        await rm.reset_daily_stats(10000.0)
+        await rm.track_trade_pnl(-200.0)
+        await rm.track_trade_result(is_win=False)
+        await rm.track_trade_result(is_win=False)
+
+        # Serialize
+        state = rm.to_dict()
+
+        # Create new instance and restore
+        new_rm = RiskManager()
+        new_rm.from_dict(state)
+
+        assert new_rm._daily_pnl == -200.0
+        assert new_rm._daily_start_balance == 10000.0
+        assert new_rm._consecutive_losses == 2
+        assert new_rm._total_trades == 1
+        assert new_rm._winning_trades == 0
+        assert new_rm._losing_trades == 1
+        assert new_rm._peak_balance == 10000.0
+
+    @pytest.mark.asyncio
+    async def test_from_dict_restores_cooldown(self, risk_manager_serializable):
+        """from_dict()가 쿨다운 상태를 복원."""
+        rm = risk_manager_serializable
+        # Trigger cooldown
+        for _ in range(3):
+            await rm.track_trade_result(is_win=False)
+
+        assert rm._cooldown_until is not None
+
+        state = rm.to_dict()
+
+        new_rm = RiskManager()
+        new_rm.from_dict(state)
+
+        assert new_rm._cooldown_until is not None
+        assert new_rm._consecutive_losses == 3
+
+    @pytest.mark.asyncio
+    async def test_roundtrip_preserves_halt_behavior(self, risk_manager_serializable):
+        """직렬화/역직렬화 후 halt 판단이 동일."""
+        rm = risk_manager_serializable
+        await rm.reset_daily_stats(10000.0)
+        await rm.track_trade_pnl(-600.0)  # -6% > 5%
+
+        halt_before, _ = await rm.should_halt_trading()
+
+        state = rm.to_dict()
+        new_rm = RiskManager(max_daily_loss_pct=0.05)
+        new_rm.from_dict(state)
+
+        halt_after, _ = await new_rm.should_halt_trading()
+        assert halt_before is True
+        assert halt_after is True
+
+    def test_to_dict_with_no_cooldown(self, risk_manager_serializable):
+        """쿨다운 없을 때 to_dict."""
+        state = risk_manager_serializable.to_dict()
+        assert state["cooldown_until"] is None
+
+    def test_from_dict_with_none_cooldown(self, risk_manager_serializable):
+        """cooldown_until=None인 상태 복원."""
+        state = {
+            "daily_pnl": 0.0,
+            "daily_start_balance": 5000.0,
+            "daily_reset_time": datetime.now(timezone.utc).isoformat(),
+            "consecutive_losses": 0,
+            "cooldown_until": None,
+            "peak_balance": 5000.0,
+            "current_drawdown": 0.0,
+            "total_trades": 0,
+            "winning_trades": 0,
+            "losing_trades": 0,
+        }
+        risk_manager_serializable.from_dict(state)
+        assert risk_manager_serializable._cooldown_until is None
+
+    def test_from_dict_empty_dict_no_crash(self, risk_manager_serializable):
+        """빈 dict로 from_dict 호출 시 크래시 없음 (기본값 유지)."""
+        risk_manager_serializable.from_dict({})
+        # Should keep defaults
+        assert risk_manager_serializable._daily_pnl == 0.0
+
+
+class TestPhase9HaltChecksDrawdown:
+    """Issue J: should_halt_trading()에 드로다운 체크 추가."""
+
+    @pytest.mark.asyncio
+    async def test_halt_on_drawdown_exceeded(self):
+        """드로다운 한도 초과 시 halt."""
+        rm = RiskManager(max_daily_loss_pct=0.05, max_drawdown_pct=0.10)
+        await rm.reset_daily_stats(10000.0)
+        rm._current_drawdown = 0.12  # 12% > 10%
+
+        halt, reason = await rm.should_halt_trading()
+
+        assert halt is True
+        assert "드로다운" in reason
+
+    @pytest.mark.asyncio
+    async def test_no_halt_drawdown_under_limit(self):
+        """드로다운이 한도 이내이면 halt 안 함."""
+        rm = RiskManager(max_daily_loss_pct=0.05, max_drawdown_pct=0.10)
+        await rm.reset_daily_stats(10000.0)
+        rm._current_drawdown = 0.05  # 5% < 10%
+
+        halt, reason = await rm.should_halt_trading()
+
+        assert halt is False
+        assert reason == ""
+
+    @pytest.mark.asyncio
+    async def test_halt_daily_loss_before_drawdown(self):
+        """일일 손실이 먼저 한도 초과하면 일일 손실 사유 반환."""
+        rm = RiskManager(max_daily_loss_pct=0.05, max_drawdown_pct=0.10)
+        await rm.reset_daily_stats(10000.0)
+        await rm.track_trade_pnl(-600.0)  # -6% > 5%
+        rm._current_drawdown = 0.12  # 12% > 10%
+
+        halt, reason = await rm.should_halt_trading()
+
+        assert halt is True
+        assert "일일 손실" in reason  # Daily loss checked first
+
+    @pytest.mark.asyncio
+    async def test_drawdown_halt_with_positive_pnl(self):
+        """일일 PnL이 양수여도 드로다운으로 halt 가능."""
+        rm = RiskManager(max_daily_loss_pct=0.05, max_drawdown_pct=0.10)
+        await rm.reset_daily_stats(10000.0)
+        await rm.track_trade_pnl(100.0)  # +1% profit today
+        rm._current_drawdown = 0.15  # 15% drawdown from peak
+
+        halt, reason = await rm.should_halt_trading()
+
+        assert halt is True
+        assert "드로다운" in reason
+
+
+class TestPhase9ReserveExposureInCanOpen:
+    """Issue I: can_open_position()에 reserve_exposure() 통합."""
+
+    @pytest.mark.asyncio
+    async def test_can_open_position_creates_reservation(self):
+        """can_open_position() 허용 시 자동 예약."""
+        from src.bot_manager import MultiBotManager
+
+        manager = MultiBotManager(
+            binance_api_key="test",
+            binance_secret_key="test",
+            max_total_exposure=100000.0,
+        )
+
+        can_open, reason = await manager.can_open_position("btc-bot", 50000.0)
+
+        assert can_open is True
+        assert reason == ""
+        # Reservation should be created
+        assert "btc-bot" in manager._pending_reservations
+        assert manager._pending_reservations["btc-bot"] == 50000.0
+
+    @pytest.mark.asyncio
+    async def test_can_open_position_reject_no_reservation(self):
+        """can_open_position() 거부 시 예약 없음."""
+        from src.bot_manager import MultiBotManager
+
+        manager = MultiBotManager(
+            binance_api_key="test",
+            binance_secret_key="test",
+            max_total_exposure=10000.0,
+        )
+
+        can_open, reason = await manager.can_open_position("btc-bot", 50000.0)
+
+        assert can_open is False
+        assert "btc-bot" not in manager._pending_reservations
+
+    @pytest.mark.asyncio
+    async def test_can_open_no_limit_no_reservation(self):
+        """노출도 제한 없으면 예약 불필요."""
+        from src.bot_manager import MultiBotManager
+
+        manager = MultiBotManager(
+            binance_api_key="test",
+            binance_secret_key="test",
+            max_total_exposure=0.0,  # no limit
+        )
+
+        can_open, reason = await manager.can_open_position("btc-bot", 50000.0)
+
+        assert can_open is True
+        # No reservation needed when no limit
+        assert "btc-bot" not in manager._pending_reservations
+
+
+class TestPhase9ExposureReservation:
+    """이슈 10: 노출도 예약 패턴."""
+
+    @pytest.mark.asyncio
+    async def test_reserve_and_release_cycle(self):
+        """예약 → 사용 → 해제 사이클."""
+        from src.bot_manager import MultiBotManager
+
+        manager = MultiBotManager(
+            binance_api_key="test",
+            binance_secret_key="test",
+            max_total_exposure=10000.0,
+        )
+
+        # 예약 성공
+        ok = await manager.reserve_exposure("bot-1", 5000.0)
+        assert ok is True
+
+        # 한도 초과 예약 실패
+        ok = await manager.reserve_exposure("bot-2", 6000.0)
+        assert ok is False
+
+        # 예약 해제 후 재시도 성공
+        await manager.release_reservation("bot-1")
+        ok = await manager.reserve_exposure("bot-2", 6000.0)
+        assert ok is True
+
+        await manager.release_reservation("bot-2")
+
+    @pytest.mark.asyncio
+    async def test_total_exposure_includes_pending(self):
+        """총 노출도에 대기 예약 포함."""
+        from src.bot_manager import MultiBotManager
+
+        manager = MultiBotManager(
+            binance_api_key="test",
+            binance_secret_key="test",
+            max_total_exposure=10000.0,
+        )
+
+        await manager.reserve_exposure("bot-1", 3000.0)
+
+        total = await manager.get_total_exposure()
+        assert total >= 3000.0  # 최소 대기 예약 포함

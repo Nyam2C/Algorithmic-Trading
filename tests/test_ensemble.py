@@ -676,3 +676,80 @@ class TestEnsembleGetSignalAsync:
 
         signal = await ensemble.get_signal_async({"rsi": 30}, "test-bot")
         assert signal == "LONG"
+
+
+
+class TestWeightedThresholdAndMinSources:
+    """Issue 15: Raised weighted threshold (0.5) and min 2 sources"""
+
+    def test_weighted_threshold_is_0_3(self):
+        """WEIGHTED_THRESHOLD class var should be 0.3 (aggressive)"""
+        assert EnsembleSignalGenerator.WEIGHTED_THRESHOLD == 0.3
+
+    def test_min_sources_is_1(self):
+        """MIN_SOURCES class var should be 1 (single source allowed)"""
+        assert EnsembleSignalGenerator.MIN_SOURCES == 1
+
+    def test_single_source_long_passes(self):
+        """Single source LONG should pass with MIN_SOURCES=1"""
+        ensemble = EnsembleSignalGenerator()
+        signals = [
+            IndividualSignal(SignalSource.RULE_BASED, "LONG", 1.0, "", 0.3),
+        ]
+        final, score, ratio = ensemble._weighted_vote(signals)
+        assert final == "LONG"
+
+    def test_single_source_short_passes(self):
+        """Single source SHORT should pass with MIN_SOURCES=1"""
+        ensemble = EnsembleSignalGenerator()
+        signals = [
+            IndividualSignal(SignalSource.GEMINI_AI, "SHORT", 1.0, "", 0.4),
+        ]
+        final, score, ratio = ensemble._weighted_vote(signals)
+        assert final == "SHORT"
+
+    def test_two_sources_long_passes(self):
+        """Two sources LONG should pass weighted threshold"""
+        ensemble = EnsembleSignalGenerator()
+        signals = [
+            IndividualSignal(SignalSource.GEMINI_AI, "LONG", 1.0, "", 0.4),
+            IndividualSignal(SignalSource.RULE_BASED, "LONG", 1.0, "", 0.3),
+        ]
+        final, score, ratio = ensemble._weighted_vote(signals)
+        assert final == "LONG"
+
+    def test_two_sources_short_passes(self):
+        """Two sources SHORT should pass weighted threshold"""
+        ensemble = EnsembleSignalGenerator()
+        signals = [
+            IndividualSignal(SignalSource.GEMINI_AI, "SHORT", 1.0, "", 0.4),
+            IndividualSignal(SignalSource.RULE_BASED, "SHORT", 1.0, "", 0.3),
+        ]
+        final, score, ratio = ensemble._weighted_vote(signals)
+        assert final == "SHORT"
+
+    def test_low_confidence_still_passes_with_0_3_threshold(self):
+        """Low confidence score=0.4 passes 0.3 threshold"""
+        ensemble = EnsembleSignalGenerator()
+        # Two sources but low confidence -> weighted score around 0.4
+        signals = [
+            IndividualSignal(SignalSource.GEMINI_AI, "LONG", 0.4, "", 0.4),
+            IndividualSignal(SignalSource.RULE_BASED, "LONG", 0.4, "", 0.3),
+        ]
+        final, score, ratio = ensemble._weighted_vote(signals)
+        # Score is 0.4*0.4/0.7 + 0.4*0.3/0.7 = 0.28/0.7 = 0.4 >= 0.3 threshold
+        assert final == "LONG"
+
+    @pytest.mark.asyncio
+    async def test_single_source_ensemble_returns_signal(self):
+        """Full ensemble with single source should return signal (MIN_SOURCES=1)"""
+        mock_rule = MagicMock()
+        mock_rule.get_signal = MagicMock(return_value="LONG")
+
+        ensemble = EnsembleSignalGenerator(
+            rule_based_generator=mock_rule,
+        )
+
+        result = await ensemble.generate_ensemble_signal({"rsi": 30}, "test")
+        # Single source now passes with MIN_SOURCES=1
+        assert result.final_signal == "LONG"

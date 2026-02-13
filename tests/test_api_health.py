@@ -324,7 +324,7 @@ class TestDependenciesApiKey:
 
     @pytest.mark.asyncio
     async def test_verify_api_key_no_env_key(self):
-        """API_KEY 환경변수 미설정 시 500 에러"""
+        """API_KEY 환경변수 미설정 시 500 에러 (API_DEBUG=true이면 건너뜀)"""
         from fastapi import HTTPException
 
         from src.api.dependencies import verify_api_key
@@ -332,9 +332,15 @@ class TestDependenciesApiKey:
         mock_request = self._make_mock_request()
         with patch.dict(os.environ, {}, clear=True):
             os.environ.pop("API_KEY", None)
+            os.environ.pop("API_DEBUG", None)
             with pytest.raises(HTTPException) as exc_info:
                 await verify_api_key(request=mock_request, x_api_key="some-key")
             assert exc_info.value.status_code == 500
+
+        # API_DEBUG=true이면 통과
+        with patch.dict(os.environ, {"API_DEBUG": "true"}, clear=True):
+            result = await verify_api_key(request=mock_request, x_api_key=None)
+            assert result is None
 
     @pytest.mark.asyncio
     async def test_verify_api_key_invalid(self):

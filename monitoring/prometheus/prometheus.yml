@@ -1,0 +1,18 @@
+# =============================================================================
+# Prometheus Configuration
+# =============================================================================
+# Trading Bot 메트릭 수집 설정
+# =============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Trading Bot 메트릭 (/metrics 엔드포인트)
+  - job_name: 'trading-bot'
+    static_configs:
+      - targets: ['trading-bot:8000']
+        labels:
+          app: trading
+          env: testnet

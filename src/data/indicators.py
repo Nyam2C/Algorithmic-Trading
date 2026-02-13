@@ -11,7 +11,6 @@ RSI_TREND_THRESHOLD = 2
 RSI_TREND_THRESHOLD_NEG = -2
 HIGH_VOLATILITY_THRESHOLD = 1.5
 LOW_VOLATILITY_THRESHOLD = 0.5
-BB_STD_MULTIPLIER = 2
 MIN_RSI_SAMPLES = 2
 
 
@@ -89,6 +88,9 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
 def calculate_volume_ratio(df: pd.DataFrame) -> float:
     """Calculate current volume ratio vs average.
 
+    마지막 캔들은 아직 진행 중(미완성)일 수 있어 거래량이 극단적으로 낮을 수 있음.
+    따라서 마지막 캔들을 제외하고 완성된 캔들들만으로 비율을 계산합니다.
+
     Args:
         df: DataFrame with 'volume' column
 
@@ -96,8 +98,14 @@ def calculate_volume_ratio(df: pd.DataFrame) -> float:
         Volume ratio (current / average)
     """
     try:
-        current_volume = df["volume"].iloc[-1]
-        avg_volume = df["volume"].mean()
+        if len(df) > 1:
+            # 마지막 미완성 캔들 제외, 완성된 캔들들로 계산
+            completed = df.iloc[:-1]
+            current_volume = completed["volume"].iloc[-1]
+            avg_volume = completed["volume"].mean()
+        else:
+            current_volume = df["volume"].iloc[-1]
+            avg_volume = df["volume"].mean()
         ratio = current_volume / avg_volume if avg_volume > 0 else 0
         logger.debug(f"Volume ratio: {ratio:.2f}x")
         return ratio
@@ -141,8 +149,12 @@ def calculate_price_vs_ma(
         ma_value: MA value
 
     Returns:
-        (percentage_diff, "above" or "below")
+        (percentage_diff, "above" or "below"). NaN일 경우 (NaN, "N/A") 반환.
     """
+    import math  # noqa: PLC0415
+
+    if math.isnan(ma_value) or ma_value == 0:
+        return float("nan"), "N/A"
     pct_diff = ((current_price - ma_value) / ma_value) * 100
     position = "above" if pct_diff > 0 else "below"
     return pct_diff, position
@@ -253,6 +265,11 @@ def analyze_market(
         analysis = {
             # Price data
             "current_price": current_price,
+            "prev_close": (
+                float(df["close"].iloc[-2])
+                if len(df) >= 2  # noqa: PLR2004
+                else current_price
+            ),
             "high_24h": ticker_24h["high_24h"],
             "low_24h": ticker_24h["low_24h"],
             "change_24h_pct": ticker_24h["change_24h"],

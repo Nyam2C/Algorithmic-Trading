@@ -20,7 +20,7 @@ class TestGlobalConfig:
         """기본값 테스트"""
         config = GlobalConfig()
         assert config.is_testnet is True
-        assert config.loop_interval_seconds == 300
+        assert config.loop_interval_seconds == 3600
 
     def test_custom_values(self):
         """커스텀 값 테스트"""
@@ -120,7 +120,7 @@ bots:
         assert btc_bot.symbol == "BTCUSDT"
         assert btc_bot.risk_level == "low"
         assert btc_bot.is_active is True
-        assert btc_bot.get_effective_leverage() == 10
+        assert btc_bot.get_effective_leverage() == 3
 
         # ETH 봇
         eth_bot = bot_configs[1]
@@ -128,7 +128,7 @@ bots:
         assert eth_bot.symbol == "ETHUSDT"
         assert eth_bot.risk_level == "medium"
         assert eth_bot.is_active is True
-        assert eth_bot.get_effective_leverage() == 15
+        assert eth_bot.get_effective_leverage() == 5
 
         # SOL 봇
         sol_bot = bot_configs[2]
@@ -136,7 +136,7 @@ bots:
         assert sol_bot.symbol == "SOLUSDT"
         assert sol_bot.risk_level == "high"
         assert sol_bot.is_active is False
-        assert sol_bot.get_effective_leverage() == 20
+        assert sol_bot.get_effective_leverage() == 10
 
     def test_load_yaml_without_global(self, tmp_path):
         """글로벌 설정 없는 YAML 로드 테스트"""
@@ -153,7 +153,7 @@ bots:
 
         # 기본 글로벌 설정
         assert global_config.is_testnet is True
-        assert global_config.loop_interval_seconds == 300
+        assert global_config.loop_interval_seconds == 3600
 
         # 봇 설정
         assert len(bot_configs) == 1
@@ -190,7 +190,7 @@ bots: []
         # 기본값 적용
         assert len(bot_configs) == 0
         assert global_config.is_testnet is True
-        assert global_config.loop_interval_seconds == 300
+        assert global_config.loop_interval_seconds == 3600
 
 
 class TestLoadBotsFromYamlOptional:
@@ -274,26 +274,26 @@ bots:
         bot_configs, _ = load_bots_from_yaml(str(yaml_file))
 
         # 각 봇의 효과적인 설정값 확인
-        # low: leverage=10, position=3%, tp/sl=0.3%
+        # low: leverage=3, position=3%, tp=0.6%, sl=0.3%
         btc = bot_configs[0]
-        assert btc.get_effective_leverage() == 10
+        assert btc.get_effective_leverage() == 3
         assert btc.get_effective_position_size_pct() == 0.03
-        assert btc.get_effective_take_profit_pct() == 0.003
+        assert btc.get_effective_take_profit_pct() == 0.006
         assert btc.get_effective_stop_loss_pct() == 0.003
 
-        # medium: leverage=15, position=5%, tp/sl=0.4%
+        # medium: leverage=5, position=5%, tp=0.8%, sl=0.4%
         eth = bot_configs[1]
-        assert eth.get_effective_leverage() == 15
+        assert eth.get_effective_leverage() == 5
         assert eth.get_effective_position_size_pct() == 0.05
-        assert eth.get_effective_take_profit_pct() == 0.004
+        assert eth.get_effective_take_profit_pct() == 0.008
         assert eth.get_effective_stop_loss_pct() == 0.004
 
-        # high: leverage=20, position=8%, tp/sl=0.6%
+        # high: leverage=10, position=8%, tp=1.2%, sl=0.6%
         sol = bot_configs[2]
-        assert sol.get_effective_leverage() == 20
+        assert sol.get_effective_leverage() == 10
         assert sol.get_effective_position_size_pct() == 0.08
-        assert sol.get_effective_take_profit_pct() == 0.006
-        assert sol.get_effective_stop_loss_pct() == 0.006
+        assert sol.get_effective_take_profit_pct() == 0.012
+        assert sol.get_effective_stop_loss_pct() == 0.004
 
     def test_filter_active_bots(self, tmp_path):
         """활성화된 봇만 필터링 테스트"""

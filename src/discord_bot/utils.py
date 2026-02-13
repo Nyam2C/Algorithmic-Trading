@@ -5,9 +5,20 @@
 import re
 from datetime import datetime
 
+from src.utils.pnl import calculate_pnl_pct as _calc_pnl_pct
+from src.utils.pnl import calculate_pnl_usd as _calc_pnl_usd
+
 # Discord 옵션/시간 상수
 MAX_OPTION_LENGTH = 64
 SECONDS_PER_MINUTE = 60
+
+# 기간 매핑 (수익 리포트용)
+PERIOD_MAP: dict[str, int] = {"일간": 24, "주간": 168, "월간": 720}
+PERIOD_LABELS: dict[str, str] = {
+    "일간": "일간 (24시간)",
+    "주간": "주간 (7일)",
+    "월간": "월간 (30일)",
+}
 
 
 
@@ -163,12 +174,8 @@ def calculate_pnl(
     Returns:
         (pnl_pct, pnl_usd) 튜플
     """
-    if side == "LONG":
-        pnl_pct = ((current_price - entry_price) / entry_price) * 100 * leverage
-        pnl_usd = (current_price - entry_price) * size
-    else:  # SHORT
-        pnl_pct = ((entry_price - current_price) / entry_price) * 100 * leverage
-        pnl_usd = (entry_price - current_price) * size
+    pnl_pct = _calc_pnl_pct(entry_price, current_price, side) * leverage
+    pnl_usd = _calc_pnl_usd(entry_price, current_price, side, size)
 
     return pnl_pct, pnl_usd
 

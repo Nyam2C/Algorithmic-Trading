@@ -47,6 +47,7 @@ class TradeApprovalRequest:
     rejection_reason: str | None = None
     rsi: float | None = None
     atr: float | None = None
+    original_signal: str = ""  # Signal at creation time for consistency check
 
     def approve(self, user_id: str) -> None:
         """승인."""
@@ -65,6 +66,16 @@ class TradeApprovalRequest:
         """시간 초과."""
         self.status = ApprovalStatus.TIMEOUT
         logger.info(f"거래 승인 시간 초과: {self.request_id}")
+
+    def validate_signal_consistency(self, current_signal: str) -> bool:
+        """Check if current signal matches the original signal at approval time.
+
+        Returns:
+            True if signals match, False if changed
+        """
+        if not self.original_signal:
+            return True  # No original recorded, skip check
+        return current_signal == self.original_signal
 
     def to_dict(self) -> dict[str, Any]:
         """딕셔너리 변환."""
@@ -191,6 +202,7 @@ class TradeApprovalManager:
             quantity=quantity,
             rsi=rsi,
             atr=atr,
+            original_signal=signal,
         )
 
         self._requests[request.request_id] = request

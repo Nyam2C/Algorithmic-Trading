@@ -171,7 +171,10 @@ class JSONFormatter:
             log_entry["message"] = mask_sensitive_data(str(log_entry["message"]))
             log_entry = mask_dict_sensitive_data(log_entry)  # type: ignore[assignment]
 
-        return json.dumps(log_entry, ensure_ascii=False, default=str) + "\n"
+        # loguru가 format 반환값에 str.format_map()을 호출하므로
+        # JSON 내의 {} 를 {{}}로 이스케이프해야 KeyError 방지
+        raw = json.dumps(log_entry, ensure_ascii=False, default=str)
+        return raw.replace("{", "{{").replace("}", "}}") + "\n"
 
 
 # loguru 기본 핸들러 ID (초기 설정 시 기록)
@@ -251,6 +254,34 @@ def setup_json_logging(
             retention="30 days",
             compression="zip",
             serialize=False,
+        )
+
+        # 거래 전용 파일 로깅 (TRADE_OPEN / TRADE_CLOSE 이벤트만)
+        logger.add(
+            f"{log_dir}/trade.json.log",
+            format=json_formatter,  # type: ignore[arg-type]
+            level="INFO",
+            rotation="50 MB",
+            retention="90 days",
+            compression="zip",
+            serialize=False,
+            filter=lambda record: record["extra"].get("event_type") in (
+                "TRADE_OPEN", "TRADE_CLOSE",
+            ),
+        )
+
+        # AI 시그널 전용 파일 로깅 (AI_SIGNAL / ENSEMBLE_SIGNAL 이벤트만)
+        logger.add(
+            f"{log_dir}/ai_signal.json.log",
+            format=json_formatter,  # type: ignore[arg-type]
+            level="INFO",
+            rotation="50 MB",
+            retention="90 days",
+            compression="zip",
+            serialize=False,
+            filter=lambda record: record["extra"].get("event_type") in (
+                "AI_SIGNAL", "ENSEMBLE_SIGNAL",
+            ),
         )
 
     logger.info(

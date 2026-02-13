@@ -33,7 +33,7 @@
 | 전략 | 마켓 레짐 감지, 다중 타임프레임 분석, ATR 기반 TP/SL |
 | 모니터링 | Prometheus 메트릭, Grafana 대시보드, 감사 로그 |
 | 제어 | Discord 봇, REST API, 수동 승인 모드 |
-| 검증 | 백테스트 엔진, 1560개 테스트 |
+| 검증 | 백테스트 엔진, 1860+ 테스트 |
 
 ---
 
@@ -49,7 +49,7 @@
 | REST API | FastAPI | 0.109.0+ |
 | 알림/제어 | Discord Bot | discord.py |
 | 모니터링 | Grafana + Loki | Docker Compose |
-| 테스트 | pytest | 1560개 테스트 |
+| 테스트 | pytest | 1860+ 테스트 |
 | 코드 품질 | ruff, mypy | 린트 + 타입 체크 ✅ 통과 |
 | CI/CD | GitHub Actions | 자동 테스트 |
 
@@ -105,11 +105,15 @@ Algorithmic-Trading/
 │   │   ├── redis_state.py        # Redis 상태 관리
 │   │   └── audit_log.py          # 감사 로그
 │   ├── discord_bot/              # Discord 봇
-│   │   └── bot.py                # 원격 제어 UI + 멀티봇 지원
+│   │   ├── client.py             # 봇 클라이언트
+│   ├── commands/             # 슬래시 명령어 (11개 한글)
+│   ├── permissions.py        # 권한 시스템
+│   ├── embeds.py             # UI 컴포넌트
+│   └── views.py              # Discord Views
 │   └── utils/                    # 유틸리티
 │       ├── retry.py              # 재시도 데코레이터
 │       └── logging.py            # JSON 구조화 로깅
-├── tests/                        # 테스트 코드 (1560개)
+├── tests/                        # 테스트 코드 (1860+)
 ├── workflows/                    # n8n 워크플로우 템플릿
 ├── scripts/                      # 운영 스크립트
 ├── deploy/                       # Docker Compose 파일
@@ -173,6 +177,19 @@ Algorithmic-Trading/
 | 감사 로그 | `src/storage/audit_log.py` | 모든 이벤트 기록 |
 | JSON 로깅 | `src/utils/logging.py` | CloudWatch/Loki 호환 |
 
+### Phase 5: 통합 완료 (2026-02-12 구현)
+| 기능 | 파일 | 설명 |
+|------|------|------|
+| SHORT PnL 수정 (P1) | `src/bot_instance.py` | abs() + side별 PnL 계산 |
+| update_balance 연결 (P1) | `src/bot_instance.py` | 매 루프 드로다운 추적 |
+| ATR 환경변수 매핑 | `src/config.py` | USE_ATR_TP_SL, ATR_*_MULTIPLIER |
+| SignalTracker 통합 | `src/bot_instance.py` | 인메모리 신호 추적 |
+| Prometheus 통합 | `src/bot_instance.py` | 거래/PnL 메트릭 기록 |
+| MTF 통합 | `src/bot_instance.py`, `src/bot_config.py` | 15분봉 필터 (use_mtf_filter) |
+| Ensemble 통합 | `src/bot_instance.py`, `src/bot_config.py` | 앙상블 시그널 (use_ensemble) |
+| TradeApproval 통합 | `src/bot_instance.py`, `src/bot_config.py` | 비차단 수동 승인 |
+| Exposure Check 연결 | `src/bot_manager.py`, `src/bot_instance.py` | 콜백 기반 노출도 제한 |
+
 ### Phase 6: 개선 시스템 (2026-02-04 구현)
 | 기능 | 파일 | 설명 |
 |------|------|------|
@@ -186,8 +203,29 @@ Algorithmic-Trading/
 |------|------|------|
 | 권한 모듈 | `src/discord_bot/permissions.py` | 권한 레벨 정의 및 체크 |
 | 제어 명령어 권한 | `src/discord_bot/commands/control.py` | TRADER/ADMIN 권한 적용 |
-| 멀티봇 명령어 권한 | `src/discord_bot/commands/multibot.py` | TRADER/ADMIN 권한 적용 |
 | UI 권한 체크 | `src/discord_bot/views.py` | 버튼 클릭 시 권한 검증 |
+
+### Observability & Monitoring 개선 (2026-02-12 구현)
+| 기능 | 파일 | 설명 |
+|------|------|------|
+| 로그 파이프라인 수리 | `monitoring/promtail/promtail-config.yml` | .json.log 경로 수정 |
+| 거래 전용 로그 | `src/utils/logging.py` | trade.json.log 필터 싱크 |
+| AI 시그널 전용 로그 | `src/utils/logging.py` | ai_signal.json.log 필터 싱크 |
+| 거래 이벤트 로깅 | `src/bot_instance.py` | TRADE_OPEN/TRADE_CLOSE event_type |
+| Prometheus 서버 추가 | `monitoring/docker-compose.yml` | prom/prometheus:v2.49.1 컨테이너 |
+| Prometheus 설정 | `monitoring/prometheus/prometheus.yml` | 15초 스크래핑 |
+| Prometheus 데이터소스 | `monitoring/grafana/provisioning/datasources/prometheus.yml` | Grafana 자동 연결 |
+| 루프 메트릭 | `src/metrics/prometheus.py` | loop_duration, loop_total |
+| 시그널 메트릭 | `src/metrics/prometheus.py` | signal_total (source별) |
+| AI 응답시간 메트릭 | `src/metrics/prometheus.py` | ai_latency_seconds |
+| API 지연시간 계측 | `src/exchange/binance.py` | get_current_price, get_klines 등 |
+| 루프 타이밍 | `src/bot_instance.py` | _last_loop_duration, _last_loop_time |
+| AI 의사결정 로거 | `src/ai/ai_logger.py` | AIDecisionLogger 클래스 |
+| Gemini 계측 | `src/ai/gemini.py` | 프롬프트/응답/지연시간 로깅 |
+| Enhanced Gemini 계측 | `src/ai/enhanced_gemini.py` | 메모리 컨텍스트 로깅 |
+| Ensemble 계측 | `src/ai/ensemble.py` | 컴포넌트 신호 로깅 |
+| 봇 상태 엔드포인트 | `src/api/routes/health.py` | GET /health/bots |
+| Grafana 대시보드 개선 | `monitoring/grafana/dashboards/*.json` | Prometheus 패널 추가 |
 
 ---
 
@@ -444,9 +482,9 @@ Discord 봇 명령어에 권한 레벨을 적용하여 보안을 강화합니다
 **권한 레벨:**
 | 레벨 | 값 | 명령어 |
 |------|-----|--------|
-| VIEWER | 1 | /상태, /포지션, /통계, /내역, /계정, /핑, /봇목록, /봇상태 |
-| TRADER | 2 | 위 + /일시정지, /재시작, /봇일시정지, /봇재개 |
-| ADMIN | 3 | 위 + /긴급청산, /봇시작, /봇정지, /전체시작, /전체정지 |
+| VIEWER | 1 | /대시보드, /상태, /포지션, /수익, /내역, /계정, /프롬프트, /핑 |
+| TRADER | 2 | 위 + /제어 (일시정지/재개), /알림 |
+| ADMIN | 3 | 위 + /제어 (시작/정지), /긴급청산 |
 
 **환경변수:**
 | 환경변수 | 설명 | 예시 |
@@ -484,7 +522,7 @@ async def trader_command(interaction):
 ## 검증 상태
 - **Ruff**: ✅ All checks passed!
 - **MyPy**: ✅ Success: no issues found
-- **테스트**: ✅ 1560 passed (Discord 권한 시스템 포함)
+- **테스트**: ✅ 1860+ passed (Phase 5 통합 테스트 포함)
 
 ### 검증 방법
 ```bash
@@ -519,4 +557,4 @@ curl http://localhost:8000/health | jq .
 
 ---
 
-*문서 작성일: 2026-02-11*
+*문서 작성일: 2026-02-14*

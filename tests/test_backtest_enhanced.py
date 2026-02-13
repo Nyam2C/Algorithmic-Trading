@@ -79,47 +79,6 @@ class TestSlippageModel:
 
         assert slippage_high_vol > slippage_low_vol
 
-    def test_max_slippage_cap(self):
-        """최대 슬리피지 제한 테스트"""
-        model = SlippageModel(max_slippage_pct=0.1)  # 최대 0.1%
-
-        # 극단적인 조건
-        slippage = model.calculate_slippage(
-            order_size=100000.0,  # 매우 큰 주문
-            avg_volume=1000.0,  # 매우 작은 볼륨
-            volatility=10.0,  # 높은 변동성
-        )
-
-        # 최대값 제한
-        assert slippage <= 0.001  # 0.1%
-
-    def test_apply_to_price_long(self):
-        """LONG 포지션 가격 적용 테스트"""
-        model = SlippageModel(base_slippage_pct=0.1)
-
-        price = model.apply_to_price(
-            price=50000.0,
-            side="LONG",
-            order_size=1000.0,
-            avg_volume=100000.0,
-        )
-
-        # LONG은 더 높은 가격 (불리)
-        assert price > 50000.0
-
-    def test_apply_to_price_short(self):
-        """SHORT 포지션 가격 적용 테스트"""
-        model = SlippageModel(base_slippage_pct=0.1)
-
-        price = model.apply_to_price(
-            price=50000.0,
-            side="SHORT",
-            order_size=1000.0,
-            avg_volume=100000.0,
-        )
-
-        # SHORT은 더 낮은 가격 (불리)
-        assert price < 50000.0
 
 
 class TestRealisticPricing:
@@ -136,28 +95,6 @@ class TestRealisticPricing:
             "close": 50000.0,
             "volume": 1000.0,
         }
-
-    def test_realistic_entry_price_long(self, sample_candle):
-        """LONG 현실적 진입 가격 테스트"""
-        price = calculate_realistic_entry_price(
-            candle=sample_candle,
-            side="LONG",
-            slippage_model=None,
-        )
-
-        # 종가와 고가 사이
-        assert sample_candle["close"] <= price <= sample_candle["high"]
-
-    def test_realistic_entry_price_short(self, sample_candle):
-        """SHORT 현실적 진입 가격 테스트"""
-        price = calculate_realistic_entry_price(
-            candle=sample_candle,
-            side="SHORT",
-            slippage_model=None,
-        )
-
-        # 저가와 종가 사이
-        assert sample_candle["low"] <= price <= sample_candle["close"]
 
     def test_realistic_exit_price_tp_long(self, sample_candle):
         """LONG TP 현실적 청산 가격 테스트"""

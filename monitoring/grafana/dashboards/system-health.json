@@ -25,7 +25,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "P8E80F9AEF21F6940"
       },
       "fieldConfig": {
         "defaults": {
@@ -80,10 +80,10 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({app=\"trading\", level=\"error\"} [1h]))",
+          "expr": "sum(count_over_time({job=\"trading-bot\", level=\"ERROR\"} [1h]))",
           "queryType": "range",
           "refId": "A"
         }
@@ -93,8 +93,8 @@
     },
     {
       "datasource": {
-        "type": "loki",
-        "uid": "loki"
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -156,12 +156,11 @@
       "targets": [
         {
           "datasource": {
-            "type": "loki",
-            "uid": "loki"
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
           },
-          "editorMode": "code",
-          "expr": "sum(count_over_time({app=\"trading\"} |= \"HEARTBEAT\" [10m]))",
-          "queryType": "range",
+          "expr": "sum(increase(trading_loop_total[10m]))",
+          "legendFormat": "loops",
           "refId": "A"
         }
       ],
@@ -170,8 +169,8 @@
     },
     {
       "datasource": {
-        "type": "loki",
-        "uid": "loki"
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -179,26 +178,24 @@
             "mode": "thresholds"
           },
           "mappings": [],
-          "max": 100,
-          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "green",
                 "value": null
               },
               {
                 "color": "yellow",
-                "value": 90
+                "value": 1
               },
               {
-                "color": "green",
-                "value": 95
+                "color": "red",
+                "value": 5
               }
             ]
           },
-          "unit": "percent"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -227,22 +224,21 @@
       "targets": [
         {
           "datasource": {
-            "type": "loki",
-            "uid": "loki"
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
           },
-          "editorMode": "code",
-          "expr": "(sum(count_over_time({app=\"trading\"} |= \"API_SUCCESS\" [1h])) / sum(count_over_time({app=\"trading\"} |= \"API_CALL\" [1h]))) * 100",
-          "queryType": "range",
+          "expr": "avg(rate(trading_api_latency_seconds_sum[1h]) / rate(trading_api_latency_seconds_count[1h]))",
+          "legendFormat": "avg latency",
           "refId": "A"
         }
       ],
-      "title": "API 성공률 (1h)",
+      "title": "API 평균 지연시간",
       "type": "stat"
     },
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "P8E80F9AEF21F6940"
       },
       "fieldConfig": {
         "defaults": {
@@ -289,10 +285,10 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({app=\"trading\"} |= \"DISCORD\" |= \"SUCCESS\" [1h]))",
+          "expr": "sum(count_over_time({job=\"trading-bot\"} |= \"Discord\" [1h]))",
           "queryType": "range",
           "refId": "A"
         }
@@ -303,7 +299,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "P8E80F9AEF21F6940"
       },
       "gridPos": {
         "h": 10,
@@ -326,10 +322,10 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "{app=\"trading\", level=\"error\"}",
+          "expr": "{job=\"trading-bot\", level=\"ERROR\"}",
           "queryType": "range",
           "refId": "A"
         }
@@ -340,7 +336,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "P8E80F9AEF21F6940"
       },
       "fieldConfig": {
         "defaults": {
@@ -415,10 +411,10 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "sum by (level) (count_over_time({app=\"trading\"} [5m]))",
+          "expr": "sum by (level) (count_over_time({job=\"trading-bot\"} [5m]))",
           "queryType": "range",
           "refId": "A"
         }
@@ -429,7 +425,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "P8E80F9AEF21F6940"
       },
       "fieldConfig": {
         "defaults": {
@@ -504,10 +500,10 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "rate({app=\"trading\", level=\"error\"} [5m])",
+          "expr": "sum(rate({job=\"trading-bot\", level=\"ERROR\"} [5m]))",
           "queryType": "range",
           "refId": "A"
         }
@@ -518,7 +514,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "P8E80F9AEF21F6940"
       },
       "gridPos": {
         "h": 8,
@@ -541,21 +537,241 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "{app=\"trading\"} |= \"API_CALL\" or \"API_SUCCESS\" or \"API_ERROR\"",
+          "expr": "{job=\"trading-bot\"} | json | file=\"binance.py\"",
           "queryType": "range",
           "refId": "A"
         }
       ],
       "title": "API 호출 로그",
       "type": "logs"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "id": 30,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, endpoint) (rate(trading_api_latency_seconds_bucket[5m])))",
+          "legendFormat": "{{endpoint}} p95",
+          "refId": "A"
+        }
+      ],
+      "title": "API 지연시간 p95",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "id": 31,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "sum by (bot_name) (rate(trading_loop_total[5m]))",
+          "legendFormat": "{{bot_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "루프 실행 빈도",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "id": 32,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "editorMode": "code",
+          "expr": "{job=\"trading-error\"} | json",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "에러 로그 상세",
+      "type": "logs"
     }
   ],
   "refresh": "30s",
   "schemaVersion": 38,
-  "tags": ["trading", "health", "system"],
+  "tags": [
+    "trading",
+    "health",
+    "system"
+  ],
   "templating": {
     "list": []
   },

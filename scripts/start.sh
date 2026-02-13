@@ -23,7 +23,25 @@ warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 # Compose 파일 경로 (통합: Bot + API 단일 프로세스)
-COMPOSE_FILES="-f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml -f deploy/docker-compose.n8n.yml -f deploy/docker-compose.monitoring.yml"
+COMPOSE_FILES="--env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml -f deploy/docker-compose.n8n.yml -f deploy/docker-compose.monitoring.yml"
+# 단독 monitoring compose (별도 프로젝트로 실행됐을 수 있음)
+MONITORING_COMPOSE="-f monitoring/docker-compose.yml"
+
+# -----------------------------------------------------------------------------
+# 다른 compose 프로젝트의 충돌 컨테이너 정리
+# -----------------------------------------------------------------------------
+cleanup_conflicting_containers() {
+    local containers="trading-loki trading-promtail trading-grafana trading-prometheus"
+    for name in $containers; do
+        # deploy 프로젝트가 아닌 다른 프로젝트 소속 컨테이너가 있으면 제거
+        local project
+        project=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$name" 2>/dev/null || true)
+        if [ -n "$project" ] && [ "$project" != "deploy" ]; then
+            warn "충돌 컨테이너 제거: $name (project=$project)"
+            docker rm -f "$name" > /dev/null 2>&1 || true
+        fi
+    done
+}
 
 # -----------------------------------------------------------------------------
 # 명령어 처리
@@ -45,6 +63,9 @@ case "${1:-start}" in
         if [ ! -f .env ]; then
             error ".env 파일이 없습니다. ./scripts/setup.sh를 먼저 실행하세요"
         fi
+
+        info "충돌 컨테이너 확인 중..."
+        cleanup_conflicting_containers
 
         info "전체 스택 시작 중..."
         docker compose $COMPOSE_FILES up -d --build
@@ -69,6 +90,11 @@ case "${1:-start}" in
     --stop|-s|stop)
         info "모든 서비스 중지 중..."
         docker compose $COMPOSE_FILES down
+        # 단독 monitoring 프로젝트도 함께 정리
+        if docker compose $MONITORING_COMPOSE ps -q 2>/dev/null | grep -q .; then
+            warn "단독 monitoring 프로젝트 컨테이너도 정리 중..."
+            docker compose $MONITORING_COMPOSE down
+        fi
         success "중지 완료"
         ;;
 

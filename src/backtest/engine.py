@@ -25,10 +25,6 @@ from src.backtest.slippage import (
 from src.data.indicators import calculate_rsi as _indicators_calculate_rsi
 
 # 백테스트 상수
-DEFAULT_RISK_PCT = 0.02
-DEFAULT_SL_PCT = 0.015
-MAX_SLIPPAGE = 0.001
-PNL_PRECISION = 8
 PCT_MULTIPLIER = 100
 MA_PERIOD_SHORT = 7
 MA_PERIOD_MEDIUM = 25

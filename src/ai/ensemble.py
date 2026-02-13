@@ -11,6 +11,8 @@ from typing import Any
 
 from loguru import logger
 
+from src.ai.ai_logger import AIDecisionLogger
+
 
 class SignalSource(Enum):
     """신호 소스 종류."""
@@ -110,7 +112,8 @@ class EnsembleSignalGenerator:
 
     # 합의 임계값
     CONSENSUS_THRESHOLD = 2 / 3  # 2/3 합의 필요
-    WEIGHTED_THRESHOLD = 0.3  # 가중 점수 임계값
+    WEIGHTED_THRESHOLD = 0.3  # 가중 점수 임계값 (공격적 시그널)
+    MIN_SOURCES = 1  # 최소 소스 수 (단일 소스 허용)
 
     def __init__(
         self,
@@ -140,6 +143,7 @@ class EnsembleSignalGenerator:
         self._rule_based = rule_based_generator
         self._scoring = scoring_generator
 
+        self._ai_logger = AIDecisionLogger()
         self._log = logger.bind(module="ensemble")
         self._log.info(
             f"EnsembleSignalGenerator 초기화: weights={self.weights}"
@@ -228,6 +232,23 @@ class EnsembleSignalGenerator:
             f"(합의율={consensus_ratio:.1%}, 가중점수={weighted_score:.3f})"
         )
 
+        # AI 의사결정 로깅
+        self._ai_logger.log_ensemble_decision(
+            bot_name=bot_id,
+            component_signals=[
+                {
+                    "source": s.source.value,
+                    "signal": s.signal,
+                    "confidence": round(s.confidence, 3),
+                    "weight": s.weight,
+                }
+                for s in individual_signals
+            ],
+            final_signal=final_signal,
+            consensus_ratio=consensus_ratio,
+            weighted_score=weighted_score,
+        )
+
         return result
 
     async def _get_gemini_signal(
@@ -243,10 +264,16 @@ class EnsembleSignalGenerator:
             signal = await self._gemini.get_signal(market_data)
             reason = "Gemini AI 분석"
 
+        # Phase 9: 파싱된 신뢰도 사용, 없으면 0.6 기본값
+        confidence = 0.6
+        raw_conf = getattr(self._gemini, 'last_confidence', None)
+        if isinstance(raw_conf, (int, float)) and 0 < raw_conf <= 1:
+            confidence = float(raw_conf)
+
         return IndividualSignal(
             source=SignalSource.GEMINI_AI,
             signal=signal,
-            confidence=0.8,  # AI 신뢰도
+            confidence=confidence,
             reason=reason,
             weight=self.weights.get(SignalSource.GEMINI_AI, 0.4),
         )
@@ -326,17 +353,19 @@ class EnsembleSignalGenerator:
         consensus_ratio = max_count / total_count if total_count > 0 else 0
 
         # 최종 신호 결정
-        # 1. 가중 점수 기준
-        if abs(weighted_score) >= self.weighted_threshold:
+        # 1. 가중 점수 기준 (최소 2개 소스 필요)
+        has_enough_sources = len(signals) >= self.MIN_SOURCES
+        if abs(weighted_score) >= self.weighted_threshold and has_enough_sources:
             if weighted_score > 0:
                 return "LONG", weighted_score, consensus_ratio
             return "SHORT", weighted_score, consensus_ratio
 
-        # 2. 합의 기준 (2/3 이상)
-        if long_count / total_count >= self.consensus_threshold:
-            return "LONG", weighted_score, consensus_ratio
-        if short_count / total_count >= self.consensus_threshold:
-            return "SHORT", weighted_score, consensus_ratio
+        # 2. 합의 기준 (2/3 이상, 최소 2개 소스)
+        if has_enough_sources:
+            if long_count / total_count >= self.consensus_threshold:
+                return "LONG", weighted_score, consensus_ratio
+            if short_count / total_count >= self.consensus_threshold:
+                return "SHORT", weighted_score, consensus_ratio
 
         # 3. 합의 실패 -> WAIT
         return "WAIT", weighted_score, consensus_ratio

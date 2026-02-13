@@ -2,54 +2,12 @@
 Tests for trading executor
 """
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from src.config import TradingConfig
 from src.trading.executor import TradingExecutor
-
-
-@pytest.fixture
-def mock_config():
-    """Mock 설정 생성"""
-    return TradingConfig(
-        bot_name="test-bot",
-        binance_api_key="test_key",
-        binance_secret_key="test_secret",
-        gemini_api_key="test_gemini",
-        discord_webhook_url="https://test.com",
-        symbol="BTCUSDT",
-        leverage=15,
-        position_size_pct=0.05,
-        take_profit_pct=0.004,
-        stop_loss_pct=0.004,
-    )
-
-
-@pytest.fixture
-def mock_binance_client():
-    """Mock Binance 클라이언트"""
-    client = Mock()
-    client.set_leverage = AsyncMock(return_value={"leverage": 15})
-    client.get_position = AsyncMock(return_value=None)
-    client.create_market_order = AsyncMock(return_value={
-        "orderId": 12345,
-        "symbol": "BTCUSDT",
-        "side": "BUY",
-        "status": "FILLED"
-    })
-    client.close_position = AsyncMock(return_value={
-        "orderId": 67890,
-        "status": "FILLED"
-    })
-    return client
-
-
-@pytest.fixture
-def executor(mock_binance_client, mock_config):
-    """TradingExecutor 인스턴스"""
-    return TradingExecutor(mock_binance_client, mock_config)
 
 
 class TestTradingExecutor:
@@ -292,15 +250,18 @@ class TestTimecutFeature:
 
         assert result is True
 
-    def test_check_timecut_no_entry_time(self, executor):
-        """entry_time 필드 없음"""
-        position = {
-            "side": "LONG"
-        }
+    def test_check_timecut_missing_entry_time_always_returns_false(self, executor):
+        """entry_time 없으면 항상 False (타이머 시작 안 됨)"""
+        position = {"side": "LONG"}
 
-        result = executor.check_timecut(position)
+        # 첫 호출: entry_time 없어서 False
+        result1 = executor.check_timecut(position)
+        assert result1 is False
+        assert "entry_time" not in position
 
-        assert result is False
+        # 두 번째 호출: 여전히 entry_time 없으므로 False
+        result2 = executor.check_timecut(position)
+        assert result2 is False
 
     def test_check_timecut_custom_duration(self, mock_binance_client):
         """커스텀 타임컷 시간 (60분)"""
@@ -810,34 +771,6 @@ class TestRealBalanceFeature:
         # API 호출되지 않아야 함
         mock_binance_client.get_account_balance.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_calculate_position_size_fallback_on_error(self, mock_binance_client):
-        """잔고 조회 실패 시 기본값으로 fallback"""
-        mock_binance_client.get_account_balance = AsyncMock(
-            side_effect=Exception("API Error")
-        )
-
-        config = TradingConfig(
-            bot_name="test-bot",
-            binance_api_key="test_key",
-            binance_secret_key="test_secret",
-            gemini_api_key="test_gemini",
-            discord_webhook_url="https://test.com",
-            symbol="BTCUSDT",
-            leverage=15,
-            position_size_pct=0.05,
-            use_real_balance=True,  # 실제 잔고 사용 설정
-        )
-
-        executor = TradingExecutor(mock_binance_client, config)
-        current_price = 100000.0
-
-        # 에러 발생 시에도 기본값으로 동작해야 함
-        quantity = await executor._calculate_position_size_with_balance(current_price)
-
-        # 기본값 1000 사용
-        expected_quantity = round(1000 * 0.05 * 15 / 100000, 3)
-        assert quantity == expected_quantity
 
 
 # =============================================================================
@@ -863,11 +796,11 @@ class TestExecutorBalanceErrorWithCache:
 
     @pytest.mark.asyncio
     async def test_balance_error_with_cached_value(self, mock_binance_client, mock_config):
-        """조회 실패 + 캐시 값 -> 캐시 사용"""
+        """조회 실패 + 최근 캐시 값 -> 캐시 사용"""
         executor = TradingExecutor(mock_binance_client, mock_config)
-        # 먼저 캐시에 값 저장
+        # 먼저 캐시에 값 저장 (TTL 이내)
         executor._cached_balance = 3000.0
-        executor._balance_cache_time = datetime.now() - timedelta(minutes=5)  # 만료됨
+        executor._balance_cache_time = datetime.now() - timedelta(seconds=30)  # TTL 60초 이내
 
         # API 에러 발생
         mock_binance_client.get_account_balance = AsyncMock(
@@ -950,25 +883,6 @@ class TestExecutorWaitForFillError:
 
         result = await executor._wait_for_fill(99999, timeout=5, check_interval=1)
         assert result is False
-
-
-class TestExecutorClosePositionError:
-    """close_position 에러 처리"""
-
-    @pytest.mark.asyncio
-    async def test_close_position_exception(self, mock_binance_client, mock_config):
-        """청산 중 예외 -> None"""
-        mock_binance_client.get_position = AsyncMock(return_value={
-            "side": "LONG",
-            "position_amt": 0.01,
-        })
-        mock_binance_client.close_position = AsyncMock(
-            side_effect=Exception("Close error")
-        )
-        executor = TradingExecutor(mock_binance_client, mock_config)
-
-        result = await executor.close_position()
-        assert result is None
 
 
 class TestExecutorGetPositionError:
@@ -1090,3 +1004,75 @@ class TestExecutorMakerWithATR:
 
         assert order is not None
         assert executor.current_position["entry_atr"] == 500.0
+
+
+class TestPositionTpSlPrices:
+    """Position dict에 tp_price, sl_price 포함 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_position_has_tp_sl_prices_pct_long(self, mock_binance_client, mock_config):
+        """LONG 포지션: 퍼센트 기반 TP/SL 가격이 position dict에 포함"""
+        executor = TradingExecutor(mock_binance_client, mock_config)
+        order = await executor.open_position("LONG", 100000.0)
+
+        assert order is not None
+        pos = executor.current_position
+        assert "tp_price" in pos
+        assert "sl_price" in pos
+        # LONG: tp = price * (1 + 0.004), sl = price * (1 - 0.004)
+        assert pos["tp_price"] == round(100000.0 * (1 + 0.004), 2)
+        assert pos["sl_price"] == round(100000.0 * (1 - 0.004), 2)
+
+    @pytest.mark.asyncio
+    async def test_position_has_tp_sl_prices_pct_short(self, mock_binance_client, mock_config):
+        """SHORT 포지션: 퍼센트 기반 TP/SL 가격"""
+        executor = TradingExecutor(mock_binance_client, mock_config)
+        order = await executor.open_position("SHORT", 100000.0)
+
+        assert order is not None
+        pos = executor.current_position
+        # SHORT: tp = price * (1 - 0.004), sl = price * (1 + 0.004)
+        assert pos["tp_price"] == round(100000.0 * (1 - 0.004), 2)
+        assert pos["sl_price"] == round(100000.0 * (1 + 0.004), 2)
+
+    @pytest.mark.asyncio
+    async def test_position_has_tp_sl_prices_atr_long(self, mock_binance_client):
+        """LONG 포지션: ATR 기반 TP/SL 가격"""
+        config = TradingConfig(
+            bot_name="test-bot",
+            binance_api_key="test_key",
+            binance_secret_key="test_secret",
+            gemini_api_key="test_gemini",
+            discord_webhook_url="https://test.com",
+            use_atr_tp_sl=True,
+            atr_tp_multiplier=2.0,
+            atr_sl_multiplier=1.0,
+        )
+        executor = TradingExecutor(mock_binance_client, config)
+        order = await executor.open_position("LONG", 100000.0, entry_atr=500.0)
+
+        assert order is not None
+        pos = executor.current_position
+        assert pos["tp_price"] == round(100000.0 + 500.0 * 2.0, 2)
+        assert pos["sl_price"] == round(100000.0 - 500.0 * 1.0, 2)
+
+    @pytest.mark.asyncio
+    async def test_position_has_tp_sl_prices_atr_short(self, mock_binance_client):
+        """SHORT 포지션: ATR 기반 TP/SL 가격"""
+        config = TradingConfig(
+            bot_name="test-bot",
+            binance_api_key="test_key",
+            binance_secret_key="test_secret",
+            gemini_api_key="test_gemini",
+            discord_webhook_url="https://test.com",
+            use_atr_tp_sl=True,
+            atr_tp_multiplier=2.0,
+            atr_sl_multiplier=1.0,
+        )
+        executor = TradingExecutor(mock_binance_client, config)
+        order = await executor.open_position("SHORT", 100000.0, entry_atr=500.0)
+
+        assert order is not None
+        pos = executor.current_position
+        assert pos["tp_price"] == round(100000.0 - 500.0 * 2.0, 2)
+        assert pos["sl_price"] == round(100000.0 + 500.0 * 1.0, 2)

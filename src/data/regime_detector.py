@@ -4,9 +4,12 @@ Phase 6.2: 마켓 레짐 감지 (횡보 vs 추세)
 - MA 정렬과 ATR로 시장 상태 분류
 - 횡보장에서는 진입 회피
 """
+import math
 from enum import Enum
 
 from loguru import logger
+
+from src.utils.validation import sanitize_nan_values
 
 
 class MarketRegime(Enum):
@@ -44,15 +47,18 @@ class RegimeDetector:
         self,
         atr_strong_threshold: float = 1.0,  # 1%
         atr_weak_threshold: float = 0.5,    # 0.5%
+        partial_trend_mode: bool = True,
     ) -> None:
         """레짐 감지기 초기화.
 
         Args:
             atr_strong_threshold: 강한 추세 ATR 비율 임계값 (%)
             atr_weak_threshold: 약한 추세 ATR 비율 임계값 (%)
+            partial_trend_mode: MA7/MA25만으로 부분 추세 감지 여부
         """
         self.atr_strong_threshold = atr_strong_threshold
         self.atr_weak_threshold = atr_weak_threshold
+        self.partial_trend_mode = partial_trend_mode
 
         logger.debug(
             f"RegimeDetector 초기화: strong_threshold={atr_strong_threshold}%, "
@@ -69,6 +75,14 @@ class RegimeDetector:
             MarketRegime enum
         """
         try:
+            # atr, price 등 수치 필드의 NaN/None 정제
+            sanitized = sanitize_nan_values(
+                {"atr": market_data.get("atr"), "price": market_data.get("price"),
+                 "current_price": market_data.get("current_price")},
+                default=0.0,
+            )
+            market_data = {**market_data, **sanitized}
+
             # 필수 데이터 추출
             ma_7 = market_data.get("ma_7")
             ma_25 = market_data.get("ma_25")
@@ -79,6 +93,12 @@ class RegimeDetector:
             # 데이터 검증
             if not all([ma_7, ma_25, ma_99]):
                 logger.warning("MA 데이터 부족, UNKNOWN 반환")
+                return MarketRegime.UNKNOWN
+
+            # NaN 체크 (캔들 수 부족 시 MA25/MA99가 NaN)
+            ma_values = [ma_7, ma_25, ma_99]
+            if any(math.isnan(v) for v in ma_values if isinstance(v, float)):
+                logger.warning("MA 데이터 부족 (캔들 수 부족), UNKNOWN 반환")
                 return MarketRegime.UNKNOWN
 
             # ATR 비율 계산 (%)
@@ -95,9 +115,17 @@ class RegimeDetector:
             is_bullish_aligned = ma_7 > ma_25 > ma_99  # 상승 정렬
             is_bearish_aligned = ma_7 < ma_25 < ma_99  # 하락 정렬
 
+            # 부분 추세 (MA7/MA25만 비교, MA99 무시)
+            is_bullish_partial = ma_7 > ma_25
+            is_bearish_partial = ma_7 < ma_25
+
             # 레짐 결정
             regime = self._determine_regime(
-                is_bullish_aligned, is_bearish_aligned, atr_pct
+                is_bullish_aligned,
+                is_bearish_aligned,
+                atr_pct,
+                is_bullish_partial=is_bullish_partial,
+                is_bearish_partial=is_bearish_partial,
             )
 
             logger.info(
@@ -117,6 +145,9 @@ class RegimeDetector:
         is_bullish_aligned: bool,
         is_bearish_aligned: bool,
         atr_pct: float,
+        *,
+        is_bullish_partial: bool = False,
+        is_bearish_partial: bool = False,
     ) -> MarketRegime:
         """레짐 결정 로직.
 
@@ -124,6 +155,8 @@ class RegimeDetector:
             is_bullish_aligned: MA 상승 정렬 여부
             is_bearish_aligned: MA 하락 정렬 여부
             atr_pct: ATR 비율 (%)
+            is_bullish_partial: MA7 > MA25 (MA99 무시) 여부
+            is_bearish_partial: MA7 < MA25 (MA99 무시) 여부
 
         Returns:
             MarketRegime
@@ -139,6 +172,16 @@ class RegimeDetector:
             if is_strong:
                 return MarketRegime.STRONG_DOWNTREND
             return MarketRegime.WEAK_DOWNTREND
+
+        # 부분 추세 모드: MA7/MA25만으로 약한 추세 감지
+        if self.partial_trend_mode:
+            # Phase 9: 낮은 변동성 + 비정렬 = RANGING (횡보)
+            if atr_pct < self.atr_weak_threshold:
+                return MarketRegime.RANGING
+            if is_bullish_partial:
+                return MarketRegime.WEAK_UPTREND
+            if is_bearish_partial:
+                return MarketRegime.WEAK_DOWNTREND
 
         # MA가 혼재된 상태 (정렬 안 됨)
         return MarketRegime.RANGING
@@ -167,10 +210,10 @@ class RegimeDetector:
             logger.info(f"횡보장 - {signal} 시그널 무시 → WAIT")
             return "WAIT"
 
-        # 알 수 없는 상태에서도 보수적으로
+        # UNKNOWN: 데이터 부족 시 필터 건너뜀 (경고 로그)
         if regime == MarketRegime.UNKNOWN:
-            logger.info(f"레짐 불명 - {signal} 시그널 무시 → WAIT")
-            return "WAIT"
+            logger.warning(f"레짐 데이터 부족으로 필터 건너뜀 - {signal} 시그널 허용")
+            return signal
 
         # 약한 추세 허용 여부
         if not allow_weak_trend and regime in (

@@ -6,7 +6,11 @@ Phase 4.1: API 키 인증 추가
 from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 
-from src.api.dependencies import get_bot_manager, verify_n8n_api_key
+from src.api.dependencies import (
+    check_critical_rate_limit,
+    get_bot_manager,
+    verify_n8n_api_key,
+)
 from src.api.schemas.common import SuccessResponse
 from src.api.schemas.n8n import N8NCommandPayload, N8NSignalPayload
 from src.bot_manager import MultiBotManager
@@ -39,7 +43,6 @@ async def receive_signal(
     )
 
     # 시그널 데이터 구조 (Pydantic에서 이미 검증됨)
-    # TODO: BotInstance.inject_signal() 구현 시 이 데이터를 전달
     _signal_data = {
         "signal": payload.signal,
         "source": payload.source,
@@ -57,9 +60,7 @@ async def receive_signal(
                 detail=f"Bot '{payload.bot_name}' not found",
             )
 
-        # TODO: BotInstance에 inject_signal(signal_data) 메서드 구현 필요
-        # bot.inject_signal(signal_data) 호출로 실제 시그널 주입
-        # 현재는 시그널 데이터를 검증하고 로그 기록
+        bot.inject_signal(_signal_data)
         logger.info(
             f"시그널 주입: {payload.bot_name} <- {payload.signal} "
             f"(confidence={payload.confidence}, source={payload.source})"
@@ -69,7 +70,7 @@ async def receive_signal(
     else:
         # 전체 봇에 시그널 주입
         for bot_name, _bot in manager.bots.items():
-            # TODO: bot.inject_signal(signal_data) 호출로 실제 시그널 주입
+            _bot.inject_signal(_signal_data)
             logger.info(
                 f"시그널 주입: {bot_name} <- {payload.signal} "
                 f"(confidence={payload.confidence}, source={payload.source})"
@@ -94,6 +95,7 @@ async def receive_command(  # noqa: PLR0912
     payload: N8NCommandPayload,
     manager: MultiBotManager = Depends(get_bot_manager),
     _: str = Depends(verify_n8n_api_key),
+    _rate_limit: None = Depends(check_critical_rate_limit),  # Phase 7: 레이트 리밋
 ) -> SuccessResponse:
     """외부 명령 수신.
 

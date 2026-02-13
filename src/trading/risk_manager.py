@@ -80,13 +80,22 @@ class RiskManager:
     # 일일 손실 관리 (Phase 5.2)
     # =========================================================================
 
-    async def reset_daily_stats(self, current_balance: float) -> None:
+    async def reset_daily_stats(
+        self, current_balance: float, unrealized_pnl: float = 0.0
+    ) -> None:
         """일일 통계 리셋 (매일 UTC 00:00 또는 봇 시작 시 호출).
+
+        Phase 8: 미실현 손실이 있으면 다음 날로 이월합니다.
 
         Args:
             current_balance: 현재 잔고
+            unrealized_pnl: 미실현 손익 (음수=미실현 손실, 이월됨)
         """
-        self._daily_pnl = 0.0
+        # Phase 8: 미실현 손실 이월
+        if unrealized_pnl < 0:
+            self._daily_pnl = unrealized_pnl
+        else:
+            self._daily_pnl = 0.0
         self._daily_start_balance = current_balance
         self._daily_reset_time = datetime.now(timezone.utc)
 
@@ -95,8 +104,44 @@ class RiskManager:
 
         logger.info(
             f"일일 통계 리셋: 시작 잔고=${current_balance:,.2f}, "
+            f"이월 PnL=${self._daily_pnl:+,.2f}, "
             f"리셋 시간={self._daily_reset_time.isoformat()}"
         )
+
+
+    async def check_and_reset_if_new_day(
+        self, current_balance: float, unrealized_pnl: float = 0.0
+    ) -> bool:
+        """UTC 자정 경과 시 일일 통계 자동 리셋.
+
+        매 루프 반복마다 호출하여, 마지막 리셋 이후 UTC 자정을 넘었으면
+        자동으로 일일 통계를 리셋합니다.
+
+        Phase 8: 미실현 손실 이월 지원.
+
+        Args:
+            current_balance: 현재 잔고
+            unrealized_pnl: 미실현 손익 (음수=미실현 손실, 이월됨)
+
+        Returns:
+            리셋 수행 여부 (True = 리셋함)
+        """
+        now = datetime.now(timezone.utc)
+
+        if self._daily_reset_time is None:
+            # 최초 호출: 리셋 수행
+            await self.reset_daily_stats(current_balance, unrealized_pnl)
+            return True
+
+        # 마지막 리셋 날짜와 현재 날짜 비교
+        if now.date() > self._daily_reset_time.date():
+            logger.info(
+                f"새로운 거래일 감지 (UTC {now.date()}), 일일 통계 리셋"
+            )
+            await self.reset_daily_stats(current_balance, unrealized_pnl)
+            return True
+
+        return False
 
     async def track_trade_pnl(self, pnl: float) -> None:
         """거래 PnL 추적.
@@ -139,27 +184,64 @@ class RiskManager:
                     f"쿨다운 시작: {self._cooldown_until.isoformat()} 까지"
                 )
 
-    async def should_halt_trading(self) -> tuple[bool, str]:
+    async def validate_position_risk(
+        self,
+        stop_loss_pct: float,
+        leverage: int,
+        max_loss_per_trade_pct: float = 0.02,
+    ) -> tuple[bool, str]:
+        """단일 거래 리스크 검증.
+
+        진입 전 단일 거래의 예상 최대 손실이 허용 범위 내인지 확인합니다.
+
+        Args:
+            stop_loss_pct: 손절 비율 (0.004 = 0.4%)
+            leverage: 레버리지
+            max_loss_per_trade_pct: 최대 허용 단일 거래 손실률
+
+        Returns:
+            (허용 여부, 사유)
+        """
+        potential_loss = stop_loss_pct * leverage
+        if potential_loss > max_loss_per_trade_pct:
+            reason = (
+                f"단일 거래 리스크 초과: SL({stop_loss_pct:.2%}) x "
+                f"레버리지({leverage}x) = {potential_loss:.2%} > "
+                f"한도({max_loss_per_trade_pct:.2%})"
+            )
+            logger.warning(reason)
+            return False, reason
+        return True, ""
+
+    async def should_halt_trading(
+        self, unrealized_pnl: float = 0.0
+    ) -> tuple[bool, str]:
         """거래 중단 여부 확인.
+
+        Args:
+            unrealized_pnl: 미실현 손익 (음수=미실현 손실)
 
         Returns:
             (중단 여부, 중단 사유)
         """
-        # 시작 잔고가 설정되지 않은 경우
-        if self._daily_start_balance <= 0:
-            return False, ""
+        # 일일 손실 한도 체크 (시작 잔고가 설정된 경우만)
+        if self._daily_start_balance > 0:
+            # Phase 8: 순 PnL 기반 일일 손실 판단
+            net_pnl = self._daily_pnl + min(unrealized_pnl, 0.0)
+            if net_pnl < 0:
+                daily_loss_pct = abs(net_pnl) / self._daily_start_balance
+                if daily_loss_pct >= self.max_daily_loss_pct:
+                    reason = (
+                        f"일일 손실 한도 도달: {daily_loss_pct:.2%} "
+                        f">= {self.max_daily_loss_pct:.2%}"
+                    )
+                    logger.warning(reason)
+                    return True, reason
 
-        # 일일 손실률 계산
-        daily_loss_pct = abs(self._daily_pnl) / self._daily_start_balance
-
-        # 일일 손실 한도 체크
-        if self._daily_pnl < 0 and daily_loss_pct >= self.max_daily_loss_pct:
-            reason = (
-                f"일일 손실 한도 도달: {daily_loss_pct:.2%} "
-                f">= {self.max_daily_loss_pct:.2%}"
-            )
-            logger.warning(reason)
-            return True, reason
+        # Phase 9: 드로다운 체크 (PnL 양수여도 전체 드로다운은 초과 가능)
+        dd_exceeded, dd_reason = await self.check_max_drawdown()
+        if dd_exceeded:
+            return True, dd_reason
 
         return False, ""
 
@@ -220,6 +302,77 @@ class RiskManager:
         return False, ""
 
     # =========================================================================
+    # 상태 직렬화 (Phase 9: 재시작 시 복구용)
+    # =========================================================================
+
+    def to_dict(self) -> dict:
+        """리스크 매니저 상태를 딕셔너리로 직렬화.
+
+        Returns:
+            상태 딕셔너리 (Redis 저장용)
+        """
+        return {
+            "daily_pnl": self._daily_pnl,
+            "daily_start_balance": self._daily_start_balance,
+            "daily_reset_time": (
+                self._daily_reset_time.isoformat()
+                if self._daily_reset_time
+                else None
+            ),
+            "consecutive_losses": self._consecutive_losses,
+            "cooldown_until": (
+                self._cooldown_until.isoformat()
+                if self._cooldown_until
+                else None
+            ),
+            "peak_balance": self._peak_balance,
+            "current_drawdown": self._current_drawdown,
+            "total_trades": self._total_trades,
+            "winning_trades": self._winning_trades,
+            "losing_trades": self._losing_trades,
+        }
+
+    def from_dict(self, state: dict) -> None:
+        """딕셔너리에서 리스크 매니저 상태 복원.
+
+        Args:
+            state: to_dict()로 저장된 상태 딕셔너리
+        """
+        self._daily_pnl = state.get("daily_pnl", self._daily_pnl)
+        self._daily_start_balance = state.get(
+            "daily_start_balance", self._daily_start_balance
+        )
+
+        reset_time = state.get("daily_reset_time")
+        if reset_time and isinstance(reset_time, str):
+            self._daily_reset_time = datetime.fromisoformat(reset_time)
+        elif reset_time is None:
+            self._daily_reset_time = None
+
+        self._consecutive_losses = state.get(
+            "consecutive_losses", self._consecutive_losses
+        )
+
+        cooldown = state.get("cooldown_until")
+        if cooldown and isinstance(cooldown, str):
+            self._cooldown_until = datetime.fromisoformat(cooldown)
+        elif cooldown is None:
+            self._cooldown_until = None
+
+        self._peak_balance = state.get("peak_balance", self._peak_balance)
+        self._current_drawdown = state.get(
+            "current_drawdown", self._current_drawdown
+        )
+        self._total_trades = state.get("total_trades", self._total_trades)
+        self._winning_trades = state.get("winning_trades", self._winning_trades)
+        self._losing_trades = state.get("losing_trades", self._losing_trades)
+
+        logger.info(
+            f"RiskManager 상태 복원: daily_pnl={self._daily_pnl:+,.2f}, "
+            f"trades={self._total_trades}, drawdown={self._current_drawdown:.2%}"
+        )
+
+    # =========================================================================
     # 상태 조회
     # =========================================================================
 
@@ -278,10 +431,15 @@ class RiskManager:
         self._cooldown_until = None
         logger.info("연속 손실 카운터 수동 리셋")
 
-    async def should_skip_trade(self) -> tuple[bool, str]:
+    async def should_skip_trade(
+        self, unrealized_pnl: float = 0.0
+    ) -> tuple[bool, str]:
         """거래 스킵 여부 확인 (통합 체크).
 
         쿨다운 및 일일 손실 한도를 한번에 체크합니다.
+
+        Args:
+            unrealized_pnl: 미실현 손익 (음수=미실현 손실)
 
         Returns:
             (스킵 여부, 사유)
@@ -295,8 +453,8 @@ class RiskManager:
                 ).total_seconds() / 60
             return True, f"쿨다운 중 (잔여 {remaining:.1f}분)"
 
-        # 일일 손실 한도 체크
-        halt, reason = await self.should_halt_trading()
+        # 일일 손실 한도 체크 (미실현 손익 포함)
+        halt, reason = await self.should_halt_trading(unrealized_pnl)
         if halt:
             return True, reason
 

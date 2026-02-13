@@ -9,6 +9,7 @@
 """
 import asyncio
 import contextlib
+import logging
 import os
 import signal
 import sys
@@ -109,7 +110,7 @@ async def send_discord_embed(
         True if successful
     """
     if not webhook_url:
-        logger.warning("DISCORD_WEBHOOK_URL not set")
+        logger.warning("[DISCORD] WEBHOOK_URL not set")
         return False
 
     embed = {
@@ -130,13 +131,23 @@ async def send_discord_embed(
         ) as resp:
                 http_no_content = 204
                 if resp.status == http_no_content:
-                    logger.debug("Discord embed sent successfully")
+                    logger.info(f"[DISCORD] embed sent: {title}")
                     return True
-                logger.error(f"Discord webhook failed: {resp.status}")
+                logger.error(f"[DISCORD] webhook failed: {resp.status}")
                 return False
     except Exception as e:
-        logger.error(f"Discord webhook error: {e}")
+        logger.error(f"[DISCORD] webhook error: {e}")
         return False
+
+
+class _EndpointLogFilter(logging.Filter):
+    """Uvicorn access log에서 반복 엔드포인트 필터링."""
+
+    _excluded = ("/health", "/metrics")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(ep in msg for ep in self._excluded)
 
 
 async def run_embedded_api(
@@ -151,6 +162,7 @@ async def run_embedded_api(
     """
     import uvicorn  # noqa: PLC0415
 
+    logging.getLogger("uvicorn.access").addFilter(_EndpointLogFilter())
     config = uvicorn.Config(app, host=host, port=port, log_level="info")
     server = uvicorn.Server(config)
     await server.serve()
@@ -283,9 +295,9 @@ async def main() -> None:
             discord_task = asyncio.create_task(
                 start_discord_bot(
                     token=config.discord_bot_token,
-                    bot_state=bot_state,
-                    trade_db=trade_db,
                     bot_manager=manager,
+                    trade_db=trade_db,
+                    bot_state=bot_state,
                 ),
                 name="discord_bot",
             )

@@ -3,6 +3,9 @@
 Phase 4: AsyncClient 마이그레이션 - 비동기 클라이언트 사용
 """
 import asyncio
+import contextlib
+import time
+from typing import Any
 
 import pandas as pd
 from binance import AsyncClient
@@ -16,7 +19,9 @@ from binance.enums import (
 from binance.exceptions import BinanceAPIException
 from loguru import logger
 
+from src.utils.circuit_breaker import circuit_breaker
 from src.utils.retry import async_retry
+from src.utils.validation import validate_ohlcv_dataframe
 
 
 class BinanceTestnetClient:
@@ -40,6 +45,18 @@ class BinanceTestnetClient:
         self._secret_key = secret_key
         self._testnet = testnet
         self._client: AsyncClient | None = None
+        self._metrics: Any | None = None
+        try:
+            from src.metrics.prometheus import _get_metrics  # noqa: PLC0415
+            self._metrics = _get_metrics()
+        except Exception:  # noqa: S110
+            pass  # prometheus_client 미설치 시 스킵
+
+    def _record_latency(self, endpoint: str, start: float) -> None:
+        """API 지연시간 메트릭 기록."""
+        if self._metrics:
+            with contextlib.suppress(Exception):
+                self._metrics.record_api_latency(endpoint, time.monotonic() - start)
 
     async def connect(self) -> None:
         """AsyncClient 초기화 (비동기).
@@ -82,6 +99,12 @@ class BinanceTestnetClient:
         """Testnet 사용 여부."""
         return self._testnet
 
+    @circuit_breaker(
+        name="binance_market_data",
+        failure_threshold=5,
+        recovery_timeout=60,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     @async_retry(
         max_attempts=3,
         delay=1.0,
@@ -97,6 +120,7 @@ class BinanceTestnetClient:
         Returns:
             Current price as float
         """
+        t0 = time.monotonic()
         try:
             ticker = await self.client.futures_symbol_ticker(symbol=symbol)
             price = float(ticker["price"])
@@ -105,7 +129,15 @@ class BinanceTestnetClient:
         except Exception as e:
             logger.error(f"Failed to get current price for {symbol}: {e}")
             raise
+        finally:
+            self._record_latency("get_current_price", t0)
 
+    @circuit_breaker(
+        name="binance_market_data",
+        failure_threshold=5,
+        recovery_timeout=60,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     @async_retry(
         max_attempts=3,
         delay=1.0,
@@ -128,6 +160,7 @@ class BinanceTestnetClient:
         Returns:
             DataFrame with OHLCV data
         """
+        t0 = time.monotonic()
         try:
             klines = await self.client.futures_klines(
                 symbol=symbol, interval=interval, limit=limit
@@ -160,12 +193,21 @@ class BinanceTestnetClient:
             logger.debug(
                 f"Fetched {len(df)} candles for {symbol} ({interval})"
             )
-            return df[["timestamp", "open", "high", "low", "close", "volume"]]
+            result_df = df[["timestamp", "open", "high", "low", "close", "volume"]]
+            return validate_ohlcv_dataframe(result_df, min_rows=5)
 
         except Exception as e:
             logger.error(f"Failed to get klines for {symbol}: {e}")
             raise
+        finally:
+            self._record_latency("get_klines", t0)
 
+    @circuit_breaker(
+        name="binance_market_data",
+        failure_threshold=5,
+        recovery_timeout=60,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     @async_retry(
         max_attempts=3,
         delay=1.0,
@@ -196,6 +238,12 @@ class BinanceTestnetClient:
             logger.error(f"Failed to get 24h ticker for {symbol}: {e}")
             raise
 
+    @circuit_breaker(
+        name="binance_trading",
+        failure_threshold=5,
+        recovery_timeout=60,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     @async_retry(
         max_attempts=3,
         delay=1.0,
@@ -222,6 +270,12 @@ class BinanceTestnetClient:
             logger.error(f"Failed to set leverage for {symbol}: {e}")
             raise
 
+    @circuit_breaker(
+        name="binance_trading",
+        failure_threshold=5,
+        recovery_timeout=60,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     @async_retry(
         max_attempts=3,
         delay=1.0,
@@ -241,6 +295,7 @@ class BinanceTestnetClient:
         Returns:
             Order details
         """
+        t0 = time.monotonic()
         try:
             order = await self.client.futures_create_order(
                 symbol=symbol,
@@ -256,7 +311,15 @@ class BinanceTestnetClient:
         except Exception as e:
             logger.error(f"Failed to create market order: {e}")
             raise
+        finally:
+            self._record_latency("create_market_order", t0)
 
+    @circuit_breaker(
+        name="binance_trading",
+        failure_threshold=5,
+        recovery_timeout=60,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     @async_retry(
         max_attempts=3,
         delay=1.0,
@@ -345,6 +408,12 @@ class BinanceTestnetClient:
             logger.error(f"Failed to cancel order {order_id}: {e}")
             raise
 
+    @async_retry(
+        max_attempts=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     async def get_position(self, symbol: str) -> dict | None:
         """Get current position for a symbol.
 
@@ -600,6 +669,12 @@ class BinanceTestnetClient:
         )
         return sentiment
 
+    @circuit_breaker(
+        name="binance_account",
+        failure_threshold=5,
+        recovery_timeout=60,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     async def get_account_balance(self) -> dict:
         """Get account balance.
 
@@ -631,4 +706,108 @@ class BinanceTestnetClient:
 
         except Exception as e:
             logger.error(f"Failed to get account balance: {e}")
+            raise
+
+    @async_retry(
+        max_attempts=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
+    async def create_stop_market_order(
+        self, symbol: str, side: str, quantity: float, stop_price: float
+    ) -> dict:
+        """거래소 측 STOP_MARKET 주문 생성 (스톱로스).
+
+        Args:
+            symbol: 거래쌍 (예: "BTCUSDT")
+            side: 청산 방향 ("BUY" or "SELL")
+            quantity: 주문 수량
+            stop_price: 스톱 가격
+
+        Returns:
+            주문 응답 딕셔너리
+        """
+        t0 = time.monotonic()
+        try:
+            order = await self.client.futures_create_order(
+                symbol=symbol,
+                side=side,
+                type="STOP_MARKET",
+                stopPrice=stop_price,
+                quantity=quantity,
+                closePosition="true",
+            )
+            logger.info(
+                f"STOP_MARKET 주문 생성: {side} {symbol} @ stop={stop_price:,.2f}"
+            )
+            return order
+        except Exception as e:
+            logger.error(f"STOP_MARKET 주문 실패: {e}")
+            raise
+        finally:
+            self._record_latency("create_stop_market_order", t0)
+
+    @async_retry(
+        max_attempts=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
+    async def create_take_profit_market_order(
+        self, symbol: str, side: str, quantity: float, stop_price: float
+    ) -> dict:
+        """거래소 측 TAKE_PROFIT_MARKET 주문 생성 (익절).
+
+        Args:
+            symbol: 거래쌍 (예: "BTCUSDT")
+            side: 청산 방향 ("BUY" or "SELL")
+            quantity: 주문 수량
+            stop_price: 트리거 가격
+
+        Returns:
+            주문 응답 딕셔너리
+        """
+        t0 = time.monotonic()
+        try:
+            order = await self.client.futures_create_order(
+                symbol=symbol,
+                side=side,
+                type="TAKE_PROFIT_MARKET",
+                stopPrice=stop_price,
+                quantity=quantity,
+                closePosition="true",
+            )
+            logger.info(
+                f"TAKE_PROFIT_MARKET 주문 생성: {side} {symbol} "
+                f"@ stop={stop_price:,.2f}"
+            )
+            return order
+        except Exception as e:
+            logger.error(f"TAKE_PROFIT_MARKET 주문 실패: {e}")
+            raise
+        finally:
+            self._record_latency("create_take_profit_market_order", t0)
+
+    @async_retry(
+        max_attempts=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
+    async def cancel_all_open_orders(self, symbol: str) -> dict:
+        """심볼의 모든 미체결 주문 취소.
+
+        Args:
+            symbol: 거래쌍 (예: "BTCUSDT")
+
+        Returns:
+            취소 응답 딕셔너리
+        """
+        try:
+            result = await self.client.futures_cancel_all_open_orders(symbol=symbol)
+            logger.info(f"{symbol} 모든 미체결 주문 취소 완료")
+            return result
+        except Exception as e:
+            logger.error(f"{symbol} 미체결 주문 취소 실패: {e}")
             raise

@@ -20,12 +20,6 @@ class Colors:
     LONG = 0x00FF00     # 녹색 - 롱 포지션
     SHORT = 0xFF0000    # 빨간색 - 숏 포지션
 
-    # 권한 색상
-    PERMISSION_DENIED = 0xFF6B6B  # 연한 빨간색 - 권한 거부
-    PERMISSION_ADMIN = 0xFFD700   # 금색 - 관리자
-    PERMISSION_TRADER = 0x4169E1  # 로열 블루 - 트레이더
-    PERMISSION_VIEWER = 0x808080  # 회색 - 조회자
-
 
 # =============================================================================
 # 타임아웃
@@ -36,7 +30,6 @@ class Timeouts:
 
     # View 타임아웃
     DASHBOARD_VIEW = 180     # 대시보드 버튼 타임아웃 (3분)
-    CONFIRMATION_VIEW = 30   # 확인 대화상자 타임아웃 (30초)
 
     # API 호출 타임아웃
     API_CALL = 10            # REST API 호출 타임아웃
@@ -49,50 +42,9 @@ class Timeouts:
 class Emojis:
     """이모지 상수."""
 
-    # 상태
-    RUNNING = "✅"
-    PAUSED = "⏸️"
-    STOPPED = "🛑"
-    BOT = "🤖"
-
-    # 트래픽 라이트
-    GREEN = "🟢"
-    YELLOW = "🟡"
-    RED = "🔴"
-
     # 포지션
     LONG = "🟢"
     SHORT = "🔴"
-
-    # 액션
-    CONFIRM = "✅"
-    CANCEL = "❌"
-    WARNING = "⚠️"
-    EMERGENCY = "🚨"
-
-    # 정보
-    STATUS = "📊"
-    POSITION = "📍"
-    STATS = "📈"
-    HISTORY = "📜"
-    ACCOUNT = "💼"
-    BALANCE = "💰"
-    PRICE = "💵"
-    TIME = "⏰"
-    USER = "👤"
-
-    # 거래
-    PROFIT = "💰"
-    LOSS = "📉"
-    SIGNAL = "🔄"
-
-    # 봇 목록
-    BOT_LIST = "📋"
-
-    # 기타
-    PING = "🏓"
-    INFO = "ℹ️"  # noqa: RUF001
-    SEPARATOR = "─"
 
 
 # =============================================================================
@@ -105,20 +57,11 @@ class Messages:
     # 에러 메시지
     NO_DATABASE = "❌ 데이터베이스 연결 안 됨"
     NO_BINANCE = "❌ Binance 클라이언트 연결 안 됨"
-    NO_POSITION = "❌ 청산할 포지션이 없습니다"
-    ALREADY_PAUSED = "⚠️ 봇이 이미 일시정지 상태입니다"
-    ALREADY_RUNNING = "⚠️ 봇이 이미 실행 중입니다"
-
-    # 성공 메시지
-    BOT_PAUSED = "⏸️ 봇이 일시정지되었습니다"
-    BOT_RESUMED = "▶️ 봇이 재시작되었습니다"
-    EMERGENCY_REQUESTED = "🚨 긴급 청산 요청"
-
-    # 확인 메시지
-    CANCELLED = "취소되었습니다"
 
     # 권한 메시지
-    PERMISSION_DENIED = (
-        "🚫 권한이 없습니다. 이 명령어는 **{level}** 이상의 권한이 필요합니다."
-    )
     PERMISSION_DENIED_BUTTON = "🚫 이 버튼을 사용할 권한이 없습니다."
+
+    # 멀티봇 제어 메시지
+    BOT_NOT_FOUND = "❌ 봇 '{name}'을(를) 찾을 수 없습니다."
+    ALL_BOTS_TARGET = "전체"
+    ALERT_UPDATED = "🔔 알림 설정: {alert_type} → {state}"

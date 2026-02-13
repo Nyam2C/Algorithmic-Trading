@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from loguru import logger
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # =============================================================================
 # 위험도별 기본값 상수
@@ -15,22 +15,22 @@ from pydantic import BaseModel, Field, field_validator
 
 RISK_LEVEL_DEFAULTS: dict[str, dict[str, Any]] = {
     "low": {
-        "leverage": 10,
+        "leverage": 3,
         "position_size_pct": 0.03,
-        "take_profit_pct": 0.003,
+        "take_profit_pct": 0.006,
         "stop_loss_pct": 0.003,
     },
     "medium": {
-        "leverage": 15,
+        "leverage": 5,
         "position_size_pct": 0.05,
-        "take_profit_pct": 0.004,
+        "take_profit_pct": 0.008,
         "stop_loss_pct": 0.004,
     },
     "high": {
-        "leverage": 20,
+        "leverage": 10,
         "position_size_pct": 0.08,
-        "take_profit_pct": 0.006,
-        "stop_loss_pct": 0.006,
+        "take_profit_pct": 0.012,
+        "stop_loss_pct": 0.004,
     },
 }
 
@@ -78,7 +78,7 @@ class BotConfig(BaseModel):
     risk_level: str = Field(default="medium")
 
     # 트레이딩 파라미터 (None이면 risk_level 기본값 사용)
-    leverage: int | None = Field(default=None, ge=1, le=125)
+    leverage: int | None = Field(default=None, ge=1, le=50)
     position_size_pct: float | None = Field(default=None, gt=0, le=1)
     take_profit_pct: float | None = Field(default=None, gt=0)
     stop_loss_pct: float | None = Field(default=None, gt=0)
@@ -97,8 +97,17 @@ class BotConfig(BaseModel):
     # Phase 5: 드로다운 관리
     max_drawdown_pct: float = Field(default=0.10, gt=0, le=1)  # 10%
 
+    # Phase 7: 단일 거래 최대 손실률
+    max_loss_per_trade_pct: float = Field(default=0.02, gt=0, le=1)  # 2%
+
+    # Phase 9: 추정 수수료율 (PnL 계산 시 차감)
+    estimated_fee_rate: float = Field(default=0.0008, ge=0, le=0.01)  # 0.08%
+
+    # Phase 7: 리스크 한도 시 포지션 청산
+    close_on_risk_halt: bool = Field(default=True)
+
     # Phase 6.1: ATR 기반 동적 TP/SL
-    use_atr_tp_sl: bool = Field(default=False)  # True면 ATR 기반 TP/SL 사용
+    use_atr_tp_sl: bool = Field(default=True)  # ATR 기반 TP/SL 사용 (기본 활성화)
     atr_tp_multiplier: float = Field(default=2.0, gt=0)  # TP = entry ± ATR x multiplier
     atr_sl_multiplier: float = Field(default=1.0, gt=0)  # SL = entry ± ATR x multiplier
 
@@ -106,10 +115,24 @@ class BotConfig(BaseModel):
     use_regime_filter: bool = Field(default=False)  # True면 횡보장 진입 회피
     allow_weak_trend: bool = Field(default=True)  # 약한 추세에서 거래 허용
 
+    # Phase 5 통합: 다중 타임프레임 필터
+    use_mtf_filter: bool = Field(default=False)  # True면 상위 TF 추세 필터 적용
+
+    # Phase 5 통합: 앙상블 시그널
+    use_ensemble: bool = Field(default=False)  # True면 앙상블 시그널 사용
+
+    # Phase 5 통합: 수동 승인
+    manual_approval_enabled: bool = Field(default=False)
+    manual_approval_trades: int = Field(default=5, ge=1)
+    approval_timeout: int = Field(default=60, ge=1)
+
     # 신호 파라미터
-    rsi_oversold: float = Field(default=35.0, ge=0, le=100)
-    rsi_overbought: float = Field(default=65.0, ge=0, le=100)
-    volume_threshold: float = Field(default=1.2, ge=0)
+    rsi_oversold: float = Field(default=30.0, ge=0, le=100)
+    rsi_overbought: float = Field(default=70.0, ge=0, le=100)
+    volume_threshold: float = Field(default=0.5, ge=0)  # 테스트넷 호환 (프로덕션: 1.2)
+
+    # 신호 전략
+    signal_strategy: str = Field(default="trend_following")
 
     # API 키 참조 (Secrets Manager 또는 환경변수 참조용)
     binance_api_key_ref: str | None = None
@@ -148,6 +171,20 @@ class BotConfig(BaseModel):
         if v is not None and v > max_position_size:
             logger.warning(f"Position size {v*100}%가 높습니다. 권장: <=10%")
         return v
+
+    @model_validator(mode="after")
+    def check_risk_consistency(self) -> "BotConfig":
+        """SL x leverage가 일일 손실 한도를 초과하면 거부."""
+        sl = self.get_effective_stop_loss_pct()
+        leverage = self.get_effective_leverage()
+        single_trade_loss = sl * leverage
+        if single_trade_loss > self.max_daily_loss_pct:
+            raise ValueError(
+                f"리스크 불일치: SL({sl:.2%}) x 레버리지({leverage}x) = "
+                f"{single_trade_loss:.2%} > 일일한도({self.max_daily_loss_pct:.2%}). "
+                f"SL 또는 레버리지를 줄이세요."
+            )
+        return self
 
     def get_effective_leverage(self) -> int:
         """실제 적용될 레버리지 반환.
@@ -234,6 +271,13 @@ class BotConfig(BaseModel):
             use_atr_tp_sl=self.use_atr_tp_sl,  # Phase 6.1
             atr_tp_multiplier=self.atr_tp_multiplier,  # Phase 6.1
             atr_sl_multiplier=self.atr_sl_multiplier,  # Phase 6.1
+            use_regime_filter=self.use_regime_filter,  # Phase 6.2
+            allow_weak_trend=self.allow_weak_trend,  # Phase 6.2
+            use_mtf_filter=self.use_mtf_filter,  # Phase 5 통합
+            use_ensemble=self.use_ensemble,  # Phase 5 통합
+            manual_approval_enabled=self.manual_approval_enabled,  # Phase 5 통합
+            manual_approval_trades=self.manual_approval_trades,  # Phase 5 통합
+            approval_timeout=self.approval_timeout,  # Phase 5 통합
             gemini_api_key=gemini_api_key,
             discord_webhook_url=discord_webhook_url,
             discord_bot_token=discord_bot_token,
@@ -269,9 +313,10 @@ class BotConfig(BaseModel):
             use_atr_tp_sl=row.get("use_atr_tp_sl", False),  # Phase 6.1
             atr_tp_multiplier=row.get("atr_tp_multiplier", 2.0),  # Phase 6.1
             atr_sl_multiplier=row.get("atr_sl_multiplier", 1.0),  # Phase 6.1
-            rsi_oversold=row.get("rsi_oversold", 35.0),
-            rsi_overbought=row.get("rsi_overbought", 65.0),
-            volume_threshold=row.get("volume_threshold", 1.2),
+            rsi_oversold=row.get("rsi_oversold", 30.0),
+            rsi_overbought=row.get("rsi_overbought", 70.0),
+            volume_threshold=row.get("volume_threshold", 0.5),
+            signal_strategy=row.get("signal_strategy", "trend_pullback"),
             binance_api_key_ref=row.get("binance_api_key_ref"),
             binance_secret_key_ref=row.get("binance_secret_key_ref"),
             is_testnet=row.get("is_testnet", True),
@@ -306,6 +351,7 @@ class BotConfig(BaseModel):
             "rsi_oversold": self.rsi_oversold,
             "rsi_overbought": self.rsi_overbought,
             "volume_threshold": self.volume_threshold,
+            "signal_strategy": self.signal_strategy,
             "binance_api_key_ref": self.binance_api_key_ref,
             "binance_secret_key_ref": self.binance_secret_key_ref,
             "is_testnet": self.is_testnet,

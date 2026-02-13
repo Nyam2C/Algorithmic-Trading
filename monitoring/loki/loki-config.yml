@@ -6,7 +6,10 @@
 
 auth_enabled: false
 
+# 로그 레벨 (info 쿼리 로그 → 피드백 루프 방지)
+
 server:
+  log_level: warn
   http_listen_port: 3100
   grpc_listen_port: 9096
 
@@ -50,6 +53,7 @@ compactor:
 
 # 보관 기간 설정 (30일)
 limits_config:
+  query_timeout: 5m
   retention_period: 720h  # 30 days
   enforce_metric_name: false
   reject_old_samples: true
@@ -60,6 +64,11 @@ limits_config:
 # 청크 설정
 chunk_store_config:
   max_look_back_period: 0s
+  chunk_cache_config:
+    embedded_cache:
+      enabled: true
+      max_size_mb: 100
+      ttl: 24h
 
 # 테이블 관리자
 table_manager:
@@ -73,10 +82,10 @@ query_range:
   cache_results: true
   results_cache:
     cache:
-      enable_fifocache: true
-      fifocache:
-        max_size_items: 1024
-        validity: 24h
+      embedded_cache:
+        enabled: true
+        max_size_mb: 100
+        ttl: 24h
 
 # 인덱서
 ingester:
