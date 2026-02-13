@@ -246,13 +246,13 @@ class TestDiscordAuditLogging:
         client.set_audit_log(mock_audit)
 
         interaction = self._make_interaction()
-        await client._emergency_command(interaction)
+        await client._emergency_command(interaction, "test-bot")
 
         mock_audit.log_event.assert_called_once()
         call_kwargs = mock_audit.log_event.call_args
         assert call_kwargs.kwargs["event_type"] == "DISCORD_COMMAND"
         assert call_kwargs.kwargs["details"]["command"] == "긴급청산"
-        assert "LONG" in call_kwargs.kwargs["details"]["details"]
+        assert call_kwargs.kwargs["bot_name"] == "test-bot"
 
     @pytest.mark.asyncio
     async def test_audit_log_on_pause(self):
@@ -264,12 +264,13 @@ class TestDiscordAuditLogging:
         client.set_audit_log(mock_audit)
 
         interaction = self._make_interaction()
-        await client._stop_command(interaction)
+        client._call_bot_api = AsyncMock(return_value={"status": "ok"})
+        await client._control_command(interaction, "test-bot", "pause")
 
         mock_audit.log_event.assert_called_once()
         call_kwargs = mock_audit.log_event.call_args
         assert call_kwargs.kwargs["event_type"] == "DISCORD_COMMAND"
-        assert call_kwargs.kwargs["details"]["command"] == "일시정지"
+        assert call_kwargs.kwargs["details"]["command"] == "제어/일시정지"
 
     @pytest.mark.asyncio
     async def test_audit_log_on_resume(self):
@@ -281,12 +282,13 @@ class TestDiscordAuditLogging:
         client.set_audit_log(mock_audit)
 
         interaction = self._make_interaction()
-        await client._start_command(interaction)
+        client._call_bot_api = AsyncMock(return_value={"status": "ok"})
+        await client._control_command(interaction, "test-bot", "resume")
 
         mock_audit.log_event.assert_called_once()
         call_kwargs = mock_audit.log_event.call_args
         assert call_kwargs.kwargs["event_type"] == "DISCORD_COMMAND"
-        assert call_kwargs.kwargs["details"]["command"] == "재시작"
+        assert call_kwargs.kwargs["details"]["command"] == "제어/재개"
 
     @pytest.mark.asyncio
     async def test_no_audit_log_no_error(self):
@@ -300,7 +302,7 @@ class TestDiscordAuditLogging:
 
         interaction = self._make_interaction()
         # Should not raise any error
-        await client._emergency_command(interaction)
+        await client._emergency_command(interaction, "test-bot")
 
     @pytest.mark.asyncio
     async def test_audit_log_failure_does_not_propagate(self):
@@ -312,8 +314,9 @@ class TestDiscordAuditLogging:
         client.set_audit_log(mock_audit)
 
         interaction = self._make_interaction()
+        client._call_bot_api = AsyncMock(return_value={"status": "ok"})
         # Should not raise even though audit log fails
-        await client._stop_command(interaction)
+        await client._control_command(interaction, "test-bot", "pause")
 
     @pytest.mark.asyncio
     async def test_set_audit_log(self):

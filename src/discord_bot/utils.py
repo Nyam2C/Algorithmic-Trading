@@ -12,6 +12,14 @@ from src.utils.pnl import calculate_pnl_usd as _calc_pnl_usd
 MAX_OPTION_LENGTH = 64
 SECONDS_PER_MINUTE = 60
 
+# 기간 매핑 (수익 리포트용)
+PERIOD_MAP: dict[str, int] = {"일간": 24, "주간": 168, "월간": 720}
+PERIOD_LABELS: dict[str, str] = {
+    "일간": "일간 (24시간)",
+    "주간": "주간 (7일)",
+    "월간": "월간 (30일)",
+}
+
 
 
 def validate_bot_name(bot_name: str) -> str:

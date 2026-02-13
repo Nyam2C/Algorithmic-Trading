@@ -1,17 +1,20 @@
 """모니터링 관련 슬래시 명령어.
 
-상태, 포지션, 통계, 내역, 계정 조회 명령어를 제공합니다.
+8개 한글 명령어: 대시보드, 상태, 포지션, 수익, 내역, 계정, 프롬프트, 핑
 """
 from typing import TYPE_CHECKING
 
 import discord
+from discord import app_commands
 from loguru import logger
+
+from src.discord_bot.utils import PERIOD_LABELS, PERIOD_MAP
 
 if TYPE_CHECKING:
     from src.discord_bot.client import TradingBotClient
 
 
-def register_monitoring_commands(client: "TradingBotClient") -> None:  # noqa: PLR0915
+def register_monitoring_commands(client: "TradingBotClient") -> None:
     """모니터링 슬래시 명령어 등록.
 
     Args:
@@ -19,127 +22,79 @@ def register_monitoring_commands(client: "TradingBotClient") -> None:  # noqa: P
     """
     tree = client.tree
 
-    # =========================================================================
-    # /대시보드 (Dashboard)
-    # =========================================================================
-
-    @tree.command(name="대시보드", description="📊 트레이딩 봇 대시보드 (버튼 UI)")
-    async def dashboard_korean(interaction: discord.Interaction):
-        """대시보드 명령어 (한글)."""
+    # /대시보드
+    @tree.command(name="대시보드", description="트레이딩 봇 대시보드 (버튼 UI)")
+    async def dashboard_cmd(interaction: discord.Interaction):
         await client._dashboard_command(interaction)
 
-    @tree.command(name="dashboard", description="📊 Trading Bot Dashboard (Button UI)")
-    async def dashboard_english(interaction: discord.Interaction):
-        """Dashboard command (English)."""
-        await client._dashboard_command(interaction)
+    # /상태 [봇이름?]
+    @tree.command(name="상태", description="봇 상태 조회 (이름 생략 시 전체)")
+    @app_commands.describe(봇이름="조회할 봇 (생략 시 전체 봇 목록)")
+    async def status_cmd(
+        interaction: discord.Interaction, 봇이름: str = ""  # noqa: N803, PLC2401
+    ):
+        if 봇이름:
+            await client._status_bot_command(interaction, 봇이름)
+        else:
+            await client._status_all_command(interaction)
 
-    # =========================================================================
-    # /상태 (Status)
-    # =========================================================================
-
-    @tree.command(name="상태", description="봇 실행 상태 및 현재 포지션 확인")
-    async def status_korean(interaction: discord.Interaction):
-        """상태 조회 (한글)."""
-        await client._status_command(interaction)
-
-    @tree.command(name="status", description="Show bot status and current position")
-    async def status_english(interaction: discord.Interaction):
-        """Status command (English)."""
-        await client._status_command(interaction)
-
-    # =========================================================================
-    # /포지션 (Position)
-    # =========================================================================
-
+    # /포지션 [봇이름?]
     @tree.command(name="포지션", description="현재 포지션 상세 정보")
-    async def position_korean(interaction: discord.Interaction):
-        """포지션 조회 (한글)."""
-        await client._position_command(interaction)
+    @app_commands.describe(봇이름="조회할 봇 (생략 시 전체)")
+    async def position_cmd(
+        interaction: discord.Interaction, 봇이름: str = ""  # noqa: N803, PLC2401
+    ):
+        await client._position_command(interaction, 봇이름)
 
-    @tree.command(name="position", description="Show detailed position information")
-    async def position_english(interaction: discord.Interaction):
-        """Position command (English)."""
-        await client._position_command(interaction)
+    # /수익 [기간] [봇이름?]
+    @tree.command(name="수익", description="거래 수익 리포트")
+    @app_commands.describe(
+        기간="조회 기간 (기본: 일간)",
+        봇이름="조회할 봇 (생략 시 전체)",
+    )
+    @app_commands.choices(
+        기간=[
+            app_commands.Choice(name="일간 (24시간)", value="일간"),
+            app_commands.Choice(name="주간 (7일)", value="주간"),
+            app_commands.Choice(name="월간 (30일)", value="월간"),
+        ]
+    )
+    async def pnl_cmd(
+        interaction: discord.Interaction,
+        기간: app_commands.Choice[str] | None = None,  # noqa: N803, PLC2401
+        봇이름: str = "",  # noqa: N803, PLC2401
+    ):
+        period_key = 기간.value if 기간 else "일간"
+        hours = PERIOD_MAP.get(period_key, 24)
+        period_label = PERIOD_LABELS.get(period_key, "일간 (24시간)")
+        await client._pnl_command(interaction, hours, period_label, 봇이름)
 
-    # =========================================================================
-    # /통계 (Stats)
-    # =========================================================================
-
-    @tree.command(name="통계", description="거래 통계 (최근 N시간)")
-    async def stats_korean(interaction: discord.Interaction, hours: int = 24):
-        """통계 조회 (한글)."""
-        await client._stats_command(interaction, hours)
-
-    @tree.command(name="stats", description="Trading statistics (recent N hours)")
-    async def stats_english(interaction: discord.Interaction, hours: int = 24):
-        """Stats command (English)."""
-        await client._stats_command(interaction, hours)
-
-    # =========================================================================
-    # /내역 (History)
-    # =========================================================================
-
+    # /내역 [봇이름?] [개수]
     @tree.command(name="내역", description="최근 거래 내역")
-    async def history_korean(interaction: discord.Interaction, count: int = 5):
-        """내역 조회 (한글)."""
-        await client._history_command(interaction, count)
+    @app_commands.describe(개수="표시할 거래 수 (기본 5, 최대 10)")
+    async def history_cmd(
+        interaction: discord.Interaction,
+        개수: int = 5,  # noqa: N803, PLC2401
+    ):
+        await client._history_command(interaction, 개수)
 
-    @tree.command(name="history", description="Recent trade history")
-    async def history_english(interaction: discord.Interaction, count: int = 5):
-        """History command (English)."""
-        await client._history_command(interaction, count)
-
-    # =========================================================================
-    # /계정 (Account)
-    # =========================================================================
-
-    @tree.command(name="계정", description="💼 계정 전체 포지션 및 잔고 조회")
-    async def account_korean(interaction: discord.Interaction):
-        """계정 조회 (한글)."""
+    # /계정
+    @tree.command(name="계정", description="계정 전체 포지션 및 잔고 조회")
+    async def account_cmd(interaction: discord.Interaction):
         await client._account_command(interaction)
 
-    @tree.command(
-        name="account",
-        description="💼 View all account positions and balance",
-    )
-    async def account_english(interaction: discord.Interaction):
-        """Account command (English)."""
-        await client._account_command(interaction)
-
-    # =========================================================================
-    # /프롬프트 (Prompt - AI Debug)
-    # =========================================================================
-
-    @tree.command(name="프롬프트", description="🤖 마지막 AI 프롬프트 및 응답 조회")
-    async def prompt_korean(
-        interaction: discord.Interaction, bot_name: str = ""
+    # /프롬프트 [봇이름]
+    @tree.command(name="프롬프트", description="마지막 AI 프롬프트 및 응답 조회")
+    @app_commands.describe(봇이름="조회할 봇 (생략 시 첫 번째 봇)")
+    async def prompt_cmd(
+        interaction: discord.Interaction, 봇이름: str = ""  # noqa: N803, PLC2401
     ):
-        """AI 프롬프트 조회 (한글)."""
-        await client._prompt_command(interaction, bot_name)
+        await client._prompt_command(interaction, 봇이름)
 
-    @tree.command(
-        name="prompt", description="🤖 View last AI prompt and response"
-    )
-    async def prompt_english(
-        interaction: discord.Interaction, bot_name: str = ""
-    ):
-        """Prompt command (English)."""
-        await client._prompt_command(interaction, bot_name)
-
-    # =========================================================================
-    # /핑 (Ping)
-    # =========================================================================
-
+    # /핑
     @tree.command(name="핑", description="봇 응답 확인")
-    async def ping_korean(interaction: discord.Interaction):
-        """핑 (한글)."""
+    async def ping_cmd(interaction: discord.Interaction):
         await interaction.response.send_message("🏓 퐁!", ephemeral=True)
         logger.info(f"Discord 명령어 /핑 실행: {interaction.user}")
 
-    @tree.command(name="ping", description="Check if bot is responding")
-    async def ping_english(interaction: discord.Interaction):
-        """Ping command (English)."""
-        await interaction.response.send_message("🏓 Pong!", ephemeral=True)
-        logger.info(f"Discord command /ping executed by {interaction.user}")
-
-    logger.debug("모니터링 명령어 등록 완료")
+    logger.debug("모니터링 명령어 등록 완료 (8개)")

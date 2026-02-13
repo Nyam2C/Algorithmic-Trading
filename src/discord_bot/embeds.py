@@ -167,28 +167,35 @@ def create_position_embed(bot_state: dict) -> discord.Embed:
     return embed
 
 
-def create_stats_embed(stats_data: dict[str, Any], hours: int = 24) -> discord.Embed:
-    """거래 통계 임베드 생성.
+def create_pnl_embed(
+    stats_data: dict[str, Any],
+    period_label: str = "일간 (24시간)",
+    bot_name: str = "",
+) -> discord.Embed:
+    """거래 수익 리포트 임베드 생성.
 
     Args:
         stats_data: 통계 데이터
-        hours: 조회 기간 (시간)
+        period_label: 기간 라벨 (예: "일간 (24시간)")
+        bot_name: 봇 이름 (빈 문자열이면 전체)
 
     Returns:
-        통계 임베드
+        수익 리포트 임베드
     """
+    title_suffix = f" — {bot_name}" if bot_name else ""
+
     if stats_data["total_trades"] == 0:
         return discord.Embed(
-            title=f"📊 거래 없음 (최근 {hours}시간)",
-            description="이 기간에 완료된 거래가 없습니다",
+            title=f"💰 거래 없음{title_suffix}",
+            description=f"{period_label} 기간에 완료된 거래가 없습니다",
             color=Colors.WARNING
         )
 
     color = Colors.SUCCESS if stats_data["total_pnl"] > 0 else Colors.ERROR
 
     embed = discord.Embed(
-        title="📊 거래 통계",
-        description=f"최근 {hours}시간",
+        title=f"💰 수익 리포트{title_suffix}",
+        description=period_label,
         color=color
     )
 
@@ -234,6 +241,35 @@ def create_stats_embed(stats_data: dict[str, Any], hours: int = 24) -> discord.E
         value=f"{stats_data['short_trades']}회",
         inline=True
     )
+
+    return embed
+
+
+def create_alert_settings_embed(settings: dict[str, bool]) -> discord.Embed:
+    """알림 설정 임베드 생성.
+
+    Args:
+        settings: 알림 유형별 ON/OFF 상태
+
+    Returns:
+        알림 설정 임베드
+    """
+    alert_labels = {
+        "entry": "진입 알림",
+        "exit": "청산 알림",
+        "pnl_daily": "일간 리포트",
+        "error": "에러 알림",
+    }
+
+    embed = discord.Embed(
+        title="🔔 알림 설정",
+        color=Colors.INFO
+    )
+
+    for key, label in alert_labels.items():
+        is_on = settings.get(key, True)
+        status = "✅ 켜짐" if is_on else "❌ 꺼짐"
+        embed.add_field(name=label, value=status, inline=True)
 
     return embed
 

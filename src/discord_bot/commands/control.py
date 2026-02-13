@@ -1,14 +1,17 @@
 """제어 관련 슬래시 명령어.
 
-일시정지, 재시작, 긴급청산 명령어를 제공합니다.
+3개 한글 명령어: 제어, 긴급청산, 알림
 
 권한 레벨:
-- /일시정지, /재시작: TRADER 이상
+- /제어 (시작/정지): ADMIN 이상
+- /제어 (일시정지/재개): TRADER 이상
 - /긴급청산: ADMIN 이상
+- /알림: TRADER 이상
 """
 from typing import TYPE_CHECKING
 
 import discord
+from discord import app_commands
 from loguru import logger
 
 from src.discord_bot.permissions import (
@@ -30,74 +33,55 @@ def register_control_commands(client: "TradingBotClient") -> None:
     tree = client.tree
     config = get_permission_config()
 
-    # =========================================================================
-    # /일시정지 (Stop) - TRADER 권한 필요
-    # =========================================================================
+    # 동작별 필요 권한
+    action_permissions = {
+        "start": PermissionLevel.ADMIN,
+        "stop": PermissionLevel.ADMIN,
+        "pause": PermissionLevel.TRADER,
+        "resume": PermissionLevel.TRADER,
+    }
 
-    @tree.command(name="일시정지", description="봇 일시 정지 (새 포지션 진입 중지)")
-    async def stop_korean(interaction: discord.Interaction):
-        """일시정지 (한글) - TRADER 권한 필요."""
-        if not check_permission(interaction, PermissionLevel.TRADER, config):
+    # /제어
+    @tree.command(name="제어", description="봇 제어 (시작/정지/일시정지/재개)")
+    @app_commands.describe(
+        대상="봇 이름 또는 '전체'",
+        동작="실행할 동작",
+    )
+    @app_commands.choices(
+        동작=[
+            app_commands.Choice(name="시작", value="start"),
+            app_commands.Choice(name="정지", value="stop"),
+            app_commands.Choice(name="일시정지", value="pause"),
+            app_commands.Choice(name="재개", value="resume"),
+        ]
+    )
+    async def control_cmd(
+        interaction: discord.Interaction,
+        대상: str,  # noqa: N803, PLC2401
+        동작: app_commands.Choice[str],  # noqa: N803, PLC2401
+    ):
+        action = 동작.value
+        required_level = action_permissions.get(action, PermissionLevel.ADMIN)
+        if not check_permission(interaction, required_level, config):
             await interaction.response.send_message(
-                "🚫 권한이 없습니다. 이 명령어는 **TRADER** 이상의 권한이 필요합니다.",
+                f"🚫 권한이 없습니다. 이 동작은 **{required_level.name}** "
+                "이상의 권한이 필요합니다.",
                 ephemeral=True,
             )
-            logger.warning(f"권한 부족 (일시정지): {interaction.user}")
+            logger.warning(f"권한 부족 (제어/{action}): {interaction.user}")
             return
-        await client._stop_command(interaction)
+        await client._control_command(interaction, 대상, action)
 
-    @tree.command(name="stop", description="Pause the trading bot (stop new positions)")
-    async def stop_english(interaction: discord.Interaction):
-        """Stop command (English) - TRADER permission required."""
-        if not check_permission(interaction, PermissionLevel.TRADER, config):
-            await interaction.response.send_message(
-                "🚫 Permission denied. This command requires"
-                " **TRADER** or higher permission.",
-                ephemeral=True,
-            )
-            logger.warning(f"Permission denied (stop): {interaction.user}")
-            return
-        await client._stop_command(interaction)
-
-    # =========================================================================
-    # /재시작 (Start) - TRADER 권한 필요
-    # =========================================================================
-
-    @tree.command(name="재시작", description="봇 재시작 (정상 거래 재개)")
-    async def start_korean(interaction: discord.Interaction):
-        """재시작 (한글) - TRADER 권한 필요."""
-        if not check_permission(interaction, PermissionLevel.TRADER, config):
-            await interaction.response.send_message(
-                "🚫 권한이 없습니다. 이 명령어는 **TRADER** 이상의 권한이 필요합니다.",
-                ephemeral=True,
-            )
-            logger.warning(f"권한 부족 (재시작): {interaction.user}")
-            return
-        await client._start_command(interaction)
-
-    @tree.command(name="start", description="Resume the trading bot (normal trading)")
-    async def start_english(interaction: discord.Interaction):
-        """Start command (English) - TRADER permission required."""
-        if not check_permission(interaction, PermissionLevel.TRADER, config):
-            await interaction.response.send_message(
-                "🚫 Permission denied. This command requires"
-                " **TRADER** or higher permission.",
-                ephemeral=True,
-            )
-            logger.warning(f"Permission denied (start): {interaction.user}")
-            return
-        await client._start_command(interaction)
-
-    # =========================================================================
-    # /긴급청산 (Emergency) - ADMIN 권한 필요
-    # =========================================================================
-
+    # /긴급청산
     @tree.command(
         name="긴급청산",
-        description="🚨 긴급 청산 (현재 포지션 즉시 청산 + 봇 정지)",
+        description="긴급 청산 (포지션 즉시 청산 + 봇 정지)",
     )
-    async def emergency_korean(interaction: discord.Interaction):
-        """긴급청산 (한글) - ADMIN 권한 필요."""
+    @app_commands.describe(대상="봇 이름 또는 '전체'")
+    async def emergency_cmd(
+        interaction: discord.Interaction,
+        대상: str,  # noqa: N803, PLC2401
+    ):
         if not check_permission(interaction, PermissionLevel.ADMIN, config):
             await interaction.response.send_message(
                 "🚫 권한이 없습니다. 이 명령어는 **ADMIN** 이상의 권한이 필요합니다.",
@@ -105,21 +89,41 @@ def register_control_commands(client: "TradingBotClient") -> None:
             )
             logger.warning(f"권한 부족 (긴급청산): {interaction.user}")
             return
-        await client._emergency_command(interaction)
+        await client._emergency_command(interaction, 대상)
 
-    @tree.command(
-        name="emergency",
-        description="🚨 Emergency close (close position + pause bot)",
+    # /알림
+    @tree.command(name="알림", description="알림 설정 관리")
+    @app_commands.describe(
+        유형="알림 유형",
+        설정="켜기 또는 끄기",
     )
-    async def emergency_english(interaction: discord.Interaction):
-        """Emergency command (English) - ADMIN permission required."""
-        if not check_permission(interaction, PermissionLevel.ADMIN, config):
+    @app_commands.choices(
+        유형=[
+            app_commands.Choice(name="진입 알림", value="entry"),
+            app_commands.Choice(name="청산 알림", value="exit"),
+            app_commands.Choice(name="일간 리포트", value="pnl_daily"),
+            app_commands.Choice(name="에러 알림", value="error"),
+        ],
+        설정=[
+            app_commands.Choice(name="켜기", value="on"),
+            app_commands.Choice(name="끄기", value="off"),
+        ],
+    )
+    async def alert_cmd(
+        interaction: discord.Interaction,
+        유형: app_commands.Choice[str] | None = None,  # noqa: N803, PLC2401
+        설정: app_commands.Choice[str] | None = None,  # noqa: N803, PLC2401
+    ):
+        if not check_permission(interaction, PermissionLevel.TRADER, config):
             await interaction.response.send_message(
-                "🚫 Permission denied. This command requires **ADMIN** permission.",
+                "🚫 권한이 없습니다. 이 명령어는 **TRADER** 이상의 권한이 필요합니다.",
                 ephemeral=True,
             )
-            logger.warning(f"Permission denied (emergency): {interaction.user}")
+            logger.warning(f"권한 부족 (알림): {interaction.user}")
             return
-        await client._emergency_command(interaction)
 
-    logger.debug("제어 명령어 등록 완료 (권한 시스템 적용)")
+        alert_type = 유형.value if 유형 else None
+        state = 설정.value if 설정 else None
+        await client._alert_command(interaction, alert_type, state)
+
+    logger.debug("제어 명령어 등록 완료 (3개)")

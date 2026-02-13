@@ -295,9 +295,9 @@ async def main() -> None:
             discord_task = asyncio.create_task(
                 start_discord_bot(
                     token=config.discord_bot_token,
-                    bot_state=bot_state,
-                    trade_db=trade_db,
                     bot_manager=manager,
+                    trade_db=trade_db,
+                    bot_state=bot_state,
                 ),
                 name="discord_bot",
             )

@@ -122,3 +122,9 @@ class Messages:
         "🚫 권한이 없습니다. 이 명령어는 **{level}** 이상의 권한이 필요합니다."
     )
     PERMISSION_DENIED_BUTTON = "🚫 이 버튼을 사용할 권한이 없습니다."
+
+    # 멀티봇 제어 메시지
+    BOT_NOT_FOUND = "❌ 봇 '{name}'을(를) 찾을 수 없습니다."
+    ALL_BOTS_TARGET = "전체"
+    CONTROL_SUCCESS = "✅ {action} 완료: {target}"
+    ALERT_UPDATED = "🔔 알림 설정: {alert_type} → {state}"
