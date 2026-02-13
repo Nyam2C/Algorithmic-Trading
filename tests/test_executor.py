@@ -10,51 +10,6 @@ from src.config import TradingConfig
 from src.trading.executor import TradingExecutor
 
 
-@pytest.fixture
-def mock_config():
-    """Mock 설정 생성"""
-    return TradingConfig(
-        bot_name="test-bot",
-        binance_api_key="test_key",
-        binance_secret_key="test_secret",
-        gemini_api_key="test_gemini",
-        discord_webhook_url="https://test.com",
-        symbol="BTCUSDT",
-        leverage=15,
-        position_size_pct=0.05,
-        take_profit_pct=0.004,
-        stop_loss_pct=0.004,
-    )
-
-
-@pytest.fixture
-def mock_binance_client():
-    """Mock Binance 클라이언트"""
-    client = Mock()
-    client.set_leverage = AsyncMock(return_value={"leverage": 15})
-    client.get_position = AsyncMock(return_value=None)
-    client.create_market_order = AsyncMock(return_value={
-        "orderId": 12345,
-        "symbol": "BTCUSDT",
-        "side": "BUY",
-        "status": "FILLED"
-    })
-    client.close_position = AsyncMock(return_value={
-        "orderId": 67890,
-        "status": "FILLED"
-    })
-    client.create_stop_market_order = AsyncMock(return_value={"orderId": 10001})
-    client.create_take_profit_market_order = AsyncMock(return_value={"orderId": 10002})
-    client.cancel_all_open_orders = AsyncMock(return_value=None)
-    return client
-
-
-@pytest.fixture
-def executor(mock_binance_client, mock_config):
-    """TradingExecutor 인스턴스"""
-    return TradingExecutor(mock_binance_client, mock_config)
-
-
 class TestTradingExecutor:
     """TradingExecutor 테스트"""
 
@@ -294,31 +249,6 @@ class TestTimecutFeature:
         result = executor.check_timecut(position)
 
         assert result is True
-
-    def test_check_timecut_no_entry_time_returns_false(self, executor):
-        """entry_time 필드 없으면 False 반환 (dict 변경 없음)"""
-        position = {
-            "side": "LONG"
-        }
-
-        result = executor.check_timecut(position)
-
-        assert result is False
-        # entry_time should NOT be set (no mutation)
-        assert "entry_time" not in position
-
-    def test_check_timecut_none_entry_time_returns_false(self, executor):
-        """entry_time이 None이면 False 반환 (dict 변경 없음)"""
-        position = {
-            "side": "LONG",
-            "entry_time": None,
-        }
-
-        result = executor.check_timecut(position)
-
-        assert result is False
-        # entry_time should still be None (no mutation)
-        assert position["entry_time"] is None
 
     def test_check_timecut_missing_entry_time_always_returns_false(self, executor):
         """entry_time 없으면 항상 False (타이머 시작 안 됨)"""
@@ -841,31 +771,6 @@ class TestRealBalanceFeature:
         # API 호출되지 않아야 함
         mock_binance_client.get_account_balance.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_calculate_position_size_raises_on_error_no_cache(self, mock_binance_client):
-        """잔고 조회 실패 + 캐시 없음 -> RuntimeError (안전장치)"""
-        mock_binance_client.get_account_balance = AsyncMock(
-            side_effect=Exception("API Error")
-        )
-
-        config = TradingConfig(
-            bot_name="test-bot",
-            binance_api_key="test_key",
-            binance_secret_key="test_secret",
-            gemini_api_key="test_gemini",
-            discord_webhook_url="https://test.com",
-            symbol="BTCUSDT",
-            leverage=15,
-            position_size_pct=0.05,
-            use_real_balance=True,  # 실제 잔고 사용 설정
-        )
-
-        executor = TradingExecutor(mock_binance_client, config)
-        current_price = 100000.0
-
-        # P1 안전장치: 잔고 조회 실패 + 캐시 없음 -> 거래 중단
-        with pytest.raises(RuntimeError, match="잔고 조회 실패"):
-            await executor._calculate_position_size_with_balance(current_price)
 
 
 # =============================================================================
@@ -978,25 +883,6 @@ class TestExecutorWaitForFillError:
 
         result = await executor._wait_for_fill(99999, timeout=5, check_interval=1)
         assert result is False
-
-
-class TestExecutorClosePositionError:
-    """close_position 에러 처리"""
-
-    @pytest.mark.asyncio
-    async def test_close_position_exception(self, mock_binance_client, mock_config):
-        """청산 중 예외 -> None"""
-        mock_binance_client.get_position = AsyncMock(return_value={
-            "side": "LONG",
-            "position_amt": 0.01,
-        })
-        mock_binance_client.close_position = AsyncMock(
-            side_effect=Exception("Close error")
-        )
-        executor = TradingExecutor(mock_binance_client, mock_config)
-
-        result = await executor.close_position()
-        assert result is None
 
 
 class TestExecutorGetPositionError:

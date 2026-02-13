@@ -73,12 +73,6 @@ class TestEmergencyCloseImmediate:
 class TestEmergencyEventThreadSafety:
     """Event 기반 긴급 청산의 스레드 안전성 테스트"""
 
-    def test_event_is_thread_safe_type(self):
-        """asyncio.Event는 코루틴 안전한 타입인지 확인"""
-        bot = _make_bot()
-        # asyncio.Event is coroutine-safe within the same event loop
-        assert isinstance(bot._emergency_event, asyncio.Event)
-
     @pytest.mark.asyncio
     async def test_multiple_emergency_requests_idempotent(self):
         """여러 번 긴급 청산 요청해도 Event는 한번만 설정됨"""

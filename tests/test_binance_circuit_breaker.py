@@ -193,3 +193,109 @@ class TestBinanceCircuitBreakerIntegration:
         for _ in range(6):
             with pytest.raises(ValueError):
                 await client.get_current_price("BTCUSDT")
+
+
+
+class TestIssueLSplitCircuitBreakers:
+    """API methods should use separate circuit breakers by category."""
+
+    @pytest.mark.asyncio
+    async def test_market_data_circuit_separate_from_trading(self, client):
+        """Market data failures should not block trading operations."""
+        # Fail get_current_price 5 times to open market_data CB
+        # (CB wraps retry, so each outer call = 1 CB failure)
+        client._client.futures_symbol_ticker = AsyncMock(
+            side_effect=ConnectionError("fail")
+        )
+        for _ in range(5):
+            with pytest.raises(ConnectionError):
+                await client.get_current_price("BTCUSDT")
+
+        # Market data CB is open
+        with pytest.raises(CircuitBreakerOpen):
+            await client.get_current_price("BTCUSDT")
+
+        # But trading should still work
+        client._client.futures_create_order = AsyncMock(
+            return_value={"orderId": 123, "status": "FILLED"}
+        )
+        order = await client.create_market_order("BTCUSDT", "BUY", 0.001)
+        assert order["orderId"] == 123
+
+    @pytest.mark.asyncio
+    async def test_trading_circuit_separate_from_account(self, client):
+        """Trading failures should not block account queries."""
+        client._client.futures_create_order = AsyncMock(
+            side_effect=ConnectionError("fail")
+        )
+        for _ in range(5):
+            with pytest.raises(ConnectionError):
+                await client.create_market_order("BTCUSDT", "BUY", 0.001)
+
+        # Trading CB is open
+        with pytest.raises(CircuitBreakerOpen):
+            await client.create_market_order("BTCUSDT", "BUY", 0.001)
+
+        # But account should still work
+        client._client.futures_account = AsyncMock(
+            return_value={"assets": [{"asset": "USDT",
+                "walletBalance": "10000", "availableBalance": "9000",
+                "unrealizedProfit": "100"}]}
+        )
+        balance = await client.get_account_balance()
+        assert balance["balance"] == 10000.0
+
+    @pytest.mark.asyncio
+    async def test_klines_and_ticker_share_market_data_circuit(self, client):
+        """get_klines and get_ticker_24h share binance_market_data CB.
+
+        NOTE: CB wraps retry, so each outer call = 1 CB failure count.
+        Need 5 calls total to open the CB (threshold=5).
+        """
+        client._client.futures_klines = AsyncMock(
+            side_effect=ConnectionError("fail")
+        )
+        client._client.futures_ticker = AsyncMock(
+            side_effect=ConnectionError("fail")
+        )
+        client._client.futures_symbol_ticker = AsyncMock(
+            side_effect=ConnectionError("fail")
+        )
+
+        # 3 klines failures
+        for _ in range(3):
+            with pytest.raises(ConnectionError):
+                await client.get_klines("BTCUSDT")
+
+        # 2 ticker failures (total 5 = threshold)
+        for _ in range(2):
+            with pytest.raises(ConnectionError):
+                await client.get_ticker_24h("BTCUSDT")
+
+        # Now market_data CB is open - get_current_price should fail with CB open
+        with pytest.raises(CircuitBreakerOpen):
+            await client.get_current_price("BTCUSDT")
+
+    @pytest.mark.asyncio
+    async def test_market_order_and_limit_order_share_trading_circuit(self, client):
+        """create_market_order and create_limit_order share binance_trading CB.
+
+        NOTE: CB wraps retry, so each outer call = 1 CB failure count.
+        Need 5 calls total to open the CB (threshold=5).
+        """
+        client._client.futures_create_order = AsyncMock(
+            side_effect=ConnectionError("fail")
+        )
+        # 3 market order failures
+        for _ in range(3):
+            with pytest.raises(ConnectionError):
+                await client.create_market_order("BTCUSDT", "BUY", 0.001)
+
+        # 2 limit order failures (total 5 = threshold)
+        for _ in range(2):
+            with pytest.raises(ConnectionError):
+                await client.create_limit_order("BTCUSDT", "BUY", 0.001, 50000.0)
+
+        # Trading CB is now open
+        with pytest.raises(CircuitBreakerOpen):
+            await client.create_market_order("BTCUSDT", "BUY", 0.001)

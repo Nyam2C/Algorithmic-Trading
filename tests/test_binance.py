@@ -1339,3 +1339,61 @@ class TestGetAllPositionsLongPnlPct:
         assert pos["quantity"] == 0.01
         assert pos["margin_type"] == "cross"
         assert pos["liquidation_price"] == 90000.0
+
+
+
+class TestIssueKGetPositionRetry:
+    """get_position() should have @async_retry for transient failures."""
+
+    @pytest.fixture
+    def retry_client(self):
+        """Connected BinanceTestnetClient mock for retry tests."""
+        from src.exchange.binance import BinanceTestnetClient
+        c = BinanceTestnetClient("test_key", "test_secret", testnet=True)
+        c._client = AsyncMock()
+        c._metrics = None
+        return c
+
+    @pytest.mark.asyncio
+    async def test_get_position_retries_on_connection_error(self, retry_client):
+        """get_position retries on ConnectionError and succeeds."""
+        retry_client._client.futures_position_information = AsyncMock(
+            side_effect=[
+                ConnectionError("transient"),
+                [{"symbol": "BTCUSDT", "positionAmt": "0.001",
+                  "entryPrice": "50000.0", "unRealizedProfit": "10.0",
+                  "leverage": "10"}],
+            ]
+        )
+        result = await retry_client.get_position("BTCUSDT")
+        assert result is not None
+        assert result["symbol"] == "BTCUSDT"
+        assert retry_client._client.futures_position_information.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_get_position_retries_on_timeout_error(self, retry_client):
+        """get_position retries on TimeoutError."""
+        retry_client._client.futures_position_information = AsyncMock(
+            side_effect=[
+                TimeoutError("timeout"),
+                [{"symbol": "BTCUSDT", "positionAmt": "0",
+                  "entryPrice": "0", "unRealizedProfit": "0"}],
+            ]
+        )
+        result = await retry_client.get_position("BTCUSDT")
+        assert result is None  # no position
+        assert retry_client._client.futures_position_information.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_get_position_no_circuit_breaker(self, retry_client):
+        """get_position should NOT have circuit breaker (critical for monitoring)."""
+        # Fail 10 times - should NOT trigger CircuitBreakerOpen
+        retry_client._client.futures_position_information = AsyncMock(
+            side_effect=ConnectionError("fail")
+        )
+        for _ in range(10):
+            with pytest.raises(ConnectionError):
+                await retry_client.get_position("BTCUSDT")
+        # Should still raise ConnectionError, NOT CircuitBreakerOpen
+        with pytest.raises(ConnectionError):
+            await retry_client.get_position("BTCUSDT")

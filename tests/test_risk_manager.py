@@ -606,3 +606,65 @@ class TestCarryOverUnrealizedLossesOnReset:
         await rm.reset_daily_stats(9900.0)
 
         assert rm._daily_pnl == 0.0
+
+
+# =============================================================================
+# Scenario 5: add_exit() False → PnL tracking skipped
+# (Relocated from test_phase8_audit_integration.py)
+# =============================================================================
+
+
+class TestAddExitFalseSkipsPnl:
+    """이슈 5/9: add_exit() False 반환 시 PnL 추적 건너뜀."""
+
+    @pytest.mark.asyncio
+    async def test_add_exit_false_skips_pnl_tracking(self):
+        """add_exit() False → PnL 추적 건너뜀 (이슈 9 연동)."""
+        risk_manager = RiskManager()
+        await risk_manager.reset_daily_stats(10000.0)
+        initial_pnl = risk_manager._daily_pnl
+
+        # add_exit가 False를 반환하면 track_trade_pnl을 호출하지 않아야 함
+        # (bot_instance에서 처리하므로 여기서는 RiskManager 상태만 확인)
+        assert risk_manager._daily_pnl == initial_pnl  # 변경 없음
+
+
+# =============================================================================
+# Scenario 6: Unrealized PnL scenarios
+# (Relocated from test_phase8_audit_integration.py)
+# =============================================================================
+
+
+class TestUnrealizedLossScenarios:
+    """이슈 8: 미실현 손실 시나리오 테스트."""
+
+    @pytest.mark.asyncio
+    async def test_unrealized_loss_affects_should_halt(self):
+        """실현 +200, 미실현 -600: net = -400, 잔고 10k → 4% → 중단하지 않음."""
+        rm = RiskManager(max_daily_loss_pct=0.05)  # 5% 한도
+        await rm.reset_daily_stats(10000.0)
+
+        # 실현 이익 +200
+        await rm.track_trade_pnl(200.0)
+
+        # 미실현 손실 -600으로 확인
+        halt, reason = await rm.should_halt_trading(unrealized_pnl=-600.0)
+
+        # net_pnl = 200 + (-600) = -400, 4% < 5% → 중단하지 않음
+        assert not halt
+
+    @pytest.mark.asyncio
+    async def test_unrealized_pnl_carried_over_at_midnight(self):
+        """자정 리셋 시 미실현 -300 → 다음 날 daily_pnl = -300."""
+        rm = RiskManager(max_daily_loss_pct=0.05)
+        await rm.reset_daily_stats(10000.0)
+
+        # 당일 실현 이익 +100
+        await rm.track_trade_pnl(100.0)
+        assert rm._daily_pnl == 100.0
+
+        # 자정 리셋 with 미실현 손실 -300
+        await rm.reset_daily_stats(10000.0, unrealized_pnl=-300.0)
+
+        # 이월됨
+        assert rm._daily_pnl == -300.0

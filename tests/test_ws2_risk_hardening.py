@@ -397,3 +397,55 @@ class TestIssueReserveExposureInCanOpen:
         assert can_open is True
         # No reservation needed when no limit
         assert "btc-bot" not in manager._pending_reservations
+
+
+# =============================================================================
+# Scenario: Exposure Reservation (reserve + release cycle)
+# (Relocated from test_phase8_audit_integration.py)
+# =============================================================================
+
+
+class TestExposureReservation:
+    """이슈 10: 노출도 예약 패턴."""
+
+    @pytest.mark.asyncio
+    async def test_reserve_and_release_cycle(self):
+        """예약 → 사용 → 해제 사이클."""
+        from src.bot_manager import MultiBotManager
+
+        manager = MultiBotManager(
+            binance_api_key="test",
+            binance_secret_key="test",
+            max_total_exposure=10000.0,
+        )
+
+        # 예약 성공
+        ok = await manager.reserve_exposure("bot-1", 5000.0)
+        assert ok is True
+
+        # 한도 초과 예약 실패
+        ok = await manager.reserve_exposure("bot-2", 6000.0)
+        assert ok is False
+
+        # 예약 해제 후 재시도 성공
+        await manager.release_reservation("bot-1")
+        ok = await manager.reserve_exposure("bot-2", 6000.0)
+        assert ok is True
+
+        await manager.release_reservation("bot-2")
+
+    @pytest.mark.asyncio
+    async def test_total_exposure_includes_pending(self):
+        """총 노출도에 대기 예약 포함."""
+        from src.bot_manager import MultiBotManager
+
+        manager = MultiBotManager(
+            binance_api_key="test",
+            binance_secret_key="test",
+            max_total_exposure=10000.0,
+        )
+
+        await manager.reserve_exposure("bot-1", 3000.0)
+
+        total = await manager.get_total_exposure()
+        assert total >= 3000.0  # 최소 대기 예약 포함

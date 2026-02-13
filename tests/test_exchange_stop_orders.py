@@ -265,21 +265,4 @@ class TestPlaceExchangeTpSl:
         tp_call = mock_binance_client.create_take_profit_market_order.call_args[1]
         assert tp_call["stop_price"] == 100800.0
 
-    @pytest.mark.asyncio
-    async def test_place_exchange_tp_sl_error_logged(self, mock_binance_client, mock_config):
-        """TP/SL 주문 실패 시 에러 로깅 (예외 전파 안 함)"""
-        mock_binance_client.create_stop_market_order = AsyncMock(
-            side_effect=Exception("SL order failed")
-        )
 
-        executor = TradingExecutor(mock_binance_client, mock_config)
-
-        # 에러가 발생해도 예외를 전파하지 않음
-        await executor._place_exchange_tp_sl(
-            symbol="BTCUSDT",
-            side="LONG",
-            quantity=0.01,
-            entry_price=100000.0,
-            entry_atr=500.0,
-        )
-        # Should not raise - just log the error

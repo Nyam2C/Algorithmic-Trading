@@ -500,3 +500,46 @@ class TestOpenPositionRiskBlock:
         result = await bot._open_position("LONG", 100000.0)
 
         mock_executor.open_position.assert_called_once()
+
+
+# =============================================================================
+# Scenario 4: BotConfig(sl=0.006, leverage=10) → ValueError
+# (Relocated from test_phase8_audit_integration.py)
+# =============================================================================
+
+
+class TestScenario4DangerousConfigRejection:
+    """이슈 4: 위험한 설정 조합 거부."""
+
+    def test_sl_times_leverage_exceeds_daily_limit_raises(self):
+        """sl(0.006) x leverage(10) = 6% > 5% → ValueError."""
+        with pytest.raises(ValueError, match="리스크 불일치"):
+            BotConfig(
+                bot_name="dangerous-bot",
+                symbol="BTCUSDT",
+                risk_level="medium",
+                stop_loss_pct=0.006,
+                leverage=10,
+            )
+
+    def test_safe_config_accepted(self):
+        """sl(0.004) x leverage(10) = 4% < 5% → 정상 생성."""
+        config = BotConfig(
+            bot_name="safe-bot",
+            symbol="BTCUSDT",
+            risk_level="high",
+            # high 기본값: leverage=10, stop_loss_pct=0.004
+        )
+        assert config.get_effective_leverage() == 10
+        assert config.get_effective_stop_loss_pct() == 0.004
+
+    def test_high_risk_defaults_are_safe(self):
+        """high 위험도 기본값이 안전한지 확인 (0.004 x 10 = 4% < 5%)."""
+        config = BotConfig(
+            bot_name="high-bot",
+            symbol="BTCUSDT",
+            risk_level="high",
+        )
+        sl = config.get_effective_stop_loss_pct()
+        lev = config.get_effective_leverage()
+        assert sl * lev <= 0.05  # 5% 일일 한도 이내

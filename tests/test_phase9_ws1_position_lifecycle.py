@@ -6,7 +6,7 @@ Issue D: close_position() error returns None silently (should re-raise)
 Issue E: Post-close cancel_all_open_orders may cancel other bot's SL
 Issue O: check_timecut() mutates position dict
 """
-from datetime import datetime, timedelta
+from datetime import datetime
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -233,51 +233,6 @@ class TestIssueDClosePositionReRaisesErrors:
 
 
 # =========================================================================
-# Issue E: Post-close cancel_all_open_orders removed
-# =========================================================================
-
-
-class TestIssueENoPostCloseCancel:
-    """Issue E: close_position() should NOT call cancel_all_open_orders
-    after closing (only before, if cancel_orders_first=True).
-
-    Post-close cancel can wipe another bot's SL orders on same symbol.
-    """
-
-    @pytest.mark.asyncio
-    async def test_close_position_no_post_close_cancel(
-        self, mock_binance_client, mock_config
-    ):
-        """Default close_position() should NOT call cancel_all_open_orders."""
-        mock_binance_client.get_position = AsyncMock(return_value={
-            "side": "LONG", "position_amt": 0.01, "entry_price": 100000.0,
-        })
-
-        executor = TradingExecutor(mock_binance_client, mock_config)
-        order = await executor.close_position()
-
-        assert order is not None
-        # cancel_all_open_orders should NOT be called at all
-        mock_binance_client.cancel_all_open_orders.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_close_position_with_cancel_first_only_pre_cancel(
-        self, mock_binance_client, mock_config
-    ):
-        """cancel_orders_first=True should only cancel BEFORE close, not after."""
-        mock_binance_client.get_position = AsyncMock(return_value={
-            "side": "LONG", "position_amt": 0.01, "entry_price": 100000.0,
-        })
-
-        executor = TradingExecutor(mock_binance_client, mock_config)
-        order = await executor.close_position(cancel_orders_first=True)
-
-        assert order is not None
-        # cancel should be called exactly once (pre-close only, not post-close)
-        assert mock_binance_client.cancel_all_open_orders.call_count == 1
-
-
-# =========================================================================
 # Issue O: check_timecut() should NOT mutate position dict
 # =========================================================================
 
@@ -308,14 +263,3 @@ class TestIssueOTimecutNoMutation:
         assert result is False
         # entry_time should still be None (not mutated)
         assert position["entry_time"] is None
-
-    def test_check_timecut_valid_entry_time_still_works(self, executor):
-        """Normal case with valid entry_time should still work."""
-        position = {
-            "side": "LONG",
-            "entry_time": datetime.now() - timedelta(hours=3),
-        }
-
-        result = executor.check_timecut(position)
-
-        assert result is True

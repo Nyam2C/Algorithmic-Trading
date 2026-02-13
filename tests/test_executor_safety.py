@@ -402,6 +402,32 @@ class TestPartialFillHandling:
         assert order is None
         assert executor.current_position is None
 
+    @pytest.mark.asyncio
+    async def test_partial_fill_retry_failure_preserves_position(
+        self, mock_binance_client, mock_config
+    ):
+        """재시도 실패 시 current_position이 None이 되지 않음"""
+        mock_binance_client.get_position = AsyncMock(return_value={
+            'side': 'LONG', 'position_amt': 0.01,
+        })
+        mock_binance_client.close_position = AsyncMock(return_value={
+            'orderId': 67890,
+            'status': 'PARTIALLY_FILLED',
+            'executedQty': '0.005',
+        })
+        mock_binance_client.create_market_order = AsyncMock(
+            side_effect=Exception('Retry failed')
+        )
+
+        executor = TradingExecutor(mock_binance_client, mock_config)
+        executor.current_position = {'signal': 'LONG', 'entry_price': 100000}
+
+        with pytest.raises(RuntimeError):
+            await executor.close_position()
+
+        # Position should NOT be cleared on partial fill failure
+        assert executor.current_position is not None
+
 
 # =============================================================================
 # Issue #1: Exchange TP/SL Placement After Position Open
@@ -546,6 +572,29 @@ class TestClosePositionCancelsOrders:
 
         assert order is None
         mock_binance_client.cancel_all_open_orders.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cancel_orders_first_position_gone(
+        self, mock_binance_client, mock_config
+    ):
+        """주문 취소 후 포지션이 이미 없으면 (SL 체결됨) 바로 반환"""
+        call_count = 0
+        async def get_position_side_effect(symbol):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {'side': 'LONG', 'position_amt': 0.01}
+            return None  # Position gone after cancel (SL already filled)
+
+        mock_binance_client.get_position = AsyncMock(side_effect=get_position_side_effect)
+        mock_binance_client.cancel_all_open_orders = AsyncMock()
+
+        executor = TradingExecutor(mock_binance_client, mock_config)
+        order = await executor.close_position(cancel_orders_first=True)
+
+        # Should return None because position is already gone
+        assert order is None
+        mock_binance_client.cancel_all_open_orders.assert_called_once()
 
 
 # =============================================================================
@@ -903,128 +952,4 @@ class TestSLPlacementFailure:
         assert executor.current_position is not None
 
 
-# =============================================================================
-# Issue #2 (Phase 8): Cancel Orders Before Force Close
-# =============================================================================
 
-
-class TestCancelOrdersBeforeClose:
-    """Issue #2: 강제 청산 전 주문 취소"""
-
-    @pytest.mark.asyncio
-    async def test_close_position_cancel_orders_first(
-        self, mock_binance_client, mock_config
-    ):
-        """cancel_orders_first=True 시 주문 먼저 취소"""
-        mock_binance_client.get_position = AsyncMock(return_value={
-            'side': 'LONG', 'position_amt': 0.01,
-        })
-        mock_binance_client.cancel_all_open_orders = AsyncMock(return_value={
-            'code': 200, 'msg': 'success',
-        })
-
-        executor = TradingExecutor(mock_binance_client, mock_config)
-        order = await executor.close_position(cancel_orders_first=True)
-
-        assert order is not None
-        # cancel_all_open_orders should be called BEFORE close
-        mock_binance_client.cancel_all_open_orders.assert_called()
-
-    @pytest.mark.asyncio
-    async def test_close_position_default_no_cancel_at_all(
-        self, mock_binance_client, mock_config
-    ):
-        """기본값(cancel_orders_first=False) 시 cancel 호출 안 함"""
-        mock_binance_client.get_position = AsyncMock(return_value={
-            'side': 'LONG', 'position_amt': 0.01,
-        })
-        mock_binance_client.cancel_all_open_orders = AsyncMock(return_value={
-            'code': 200, 'msg': 'success',
-        })
-
-        executor = TradingExecutor(mock_binance_client, mock_config)
-        order = await executor.close_position()
-
-        assert order is not None
-        # cancel_all_open_orders should NOT be called at all (no post-close cancel)
-        mock_binance_client.cancel_all_open_orders.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_cancel_orders_first_position_gone(
-        self, mock_binance_client, mock_config
-    ):
-        """주문 취소 후 포지션이 이미 없으면 (SL 체결됨) 바로 반환"""
-        call_count = 0
-        async def get_position_side_effect(symbol):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return {'side': 'LONG', 'position_amt': 0.01}
-            return None  # Position gone after cancel (SL already filled)
-
-        mock_binance_client.get_position = AsyncMock(side_effect=get_position_side_effect)
-        mock_binance_client.cancel_all_open_orders = AsyncMock()
-
-        executor = TradingExecutor(mock_binance_client, mock_config)
-        order = await executor.close_position(cancel_orders_first=True)
-
-        # Should return None because position is already gone
-        assert order is None
-        mock_binance_client.cancel_all_open_orders.assert_called_once()
-
-
-# =============================================================================
-# Issue #3 (Phase 8): Partial Fill Retry Failure -> RuntimeError
-# =============================================================================
-
-
-class TestPartialFillRuntimeError:
-    """Issue #3: 부분 체결 재시도 실패 시 RuntimeError"""
-
-    @pytest.mark.asyncio
-    async def test_partial_fill_retry_failure_raises_runtime_error(
-        self, mock_binance_client, mock_config
-    ):
-        """재시도 실패 시 RuntimeError 발생"""
-        mock_binance_client.get_position = AsyncMock(return_value={
-            'side': 'LONG', 'position_amt': 0.01,
-        })
-        mock_binance_client.close_position = AsyncMock(return_value={
-            'orderId': 67890,
-            'status': 'PARTIALLY_FILLED',
-            'executedQty': '0.005',  # 50% filled
-        })
-        mock_binance_client.create_market_order = AsyncMock(
-            side_effect=Exception('Retry failed')
-        )
-
-        executor = TradingExecutor(mock_binance_client, mock_config)
-
-        with pytest.raises(RuntimeError, match='Partial fill retry failed'):
-            await executor.close_position()
-
-    @pytest.mark.asyncio
-    async def test_partial_fill_retry_failure_preserves_position(
-        self, mock_binance_client, mock_config
-    ):
-        """재시도 실패 시 current_position이 None이 되지 않음"""
-        mock_binance_client.get_position = AsyncMock(return_value={
-            'side': 'LONG', 'position_amt': 0.01,
-        })
-        mock_binance_client.close_position = AsyncMock(return_value={
-            'orderId': 67890,
-            'status': 'PARTIALLY_FILLED',
-            'executedQty': '0.005',
-        })
-        mock_binance_client.create_market_order = AsyncMock(
-            side_effect=Exception('Retry failed')
-        )
-
-        executor = TradingExecutor(mock_binance_client, mock_config)
-        executor.current_position = {'signal': 'LONG', 'entry_price': 100000}
-
-        with pytest.raises(RuntimeError):
-            await executor.close_position()
-
-        # Position should NOT be cleared on partial fill failure
-        assert executor.current_position is not None
