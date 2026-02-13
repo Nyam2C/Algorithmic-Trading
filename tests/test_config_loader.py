@@ -20,7 +20,7 @@ class TestGlobalConfig:
         """기본값 테스트"""
         config = GlobalConfig()
         assert config.is_testnet is True
-        assert config.loop_interval_seconds == 300
+        assert config.loop_interval_seconds == 3600
 
     def test_custom_values(self):
         """커스텀 값 테스트"""
@@ -153,7 +153,7 @@ bots:
 
         # 기본 글로벌 설정
         assert global_config.is_testnet is True
-        assert global_config.loop_interval_seconds == 300
+        assert global_config.loop_interval_seconds == 3600
 
         # 봇 설정
         assert len(bot_configs) == 1
@@ -190,7 +190,7 @@ bots: []
         # 기본값 적용
         assert len(bot_configs) == 0
         assert global_config.is_testnet is True
-        assert global_config.loop_interval_seconds == 300
+        assert global_config.loop_interval_seconds == 3600
 
 
 class TestLoadBotsFromYamlOptional:

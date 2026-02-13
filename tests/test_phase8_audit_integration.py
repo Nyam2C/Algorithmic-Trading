@@ -365,14 +365,14 @@ class TestScenario7MidnightResetCarryOver:
 
 
 # =============================================================================
-# Scenario 8: 단일 AI 소스 LONG → 앙상블 WAIT
+# Scenario 8: 단일 AI 소스 LONG → 앙상블 (MIN_SOURCES=1)
 # =============================================================================
 
 class TestScenario8SingleSourceEnsembleWait:
-    """이슈 15: 단일 소스로는 진입 불가."""
+    """단일 소스 시그널 테스트 (MIN_SOURCES=1, 단일 소스 허용)."""
 
-    def test_single_source_long_returns_wait(self):
-        """1개 소스만 LONG → WAIT."""
+    def test_single_source_long_returns_long(self):
+        """1개 소스 LONG → LONG (MIN_SOURCES=1)."""
         ensemble = EnsembleSignalGenerator()
         signals = [
             IndividualSignal(
@@ -387,7 +387,7 @@ class TestScenario8SingleSourceEnsembleWait:
             signals
         )
 
-        assert final_signal == "WAIT"
+        assert final_signal == "LONG"
 
     def test_two_sources_long_returns_long(self):
         """2개 소스 LONG → LONG (합의 달성)."""
@@ -411,13 +411,13 @@ class TestScenario8SingleSourceEnsembleWait:
 
         assert final_signal == "LONG"
 
-    def test_weighted_threshold_raised_to_0_5(self):
-        """가중 임계값이 0.5로 상향됐는지 확인."""
-        assert EnsembleSignalGenerator.WEIGHTED_THRESHOLD == 0.5
+    def test_weighted_threshold_is_0_3(self):
+        """가중 임계값이 0.3인지 확인 (공격적 시그널)."""
+        assert EnsembleSignalGenerator.WEIGHTED_THRESHOLD == 0.3
 
-    def test_min_sources_is_2(self):
-        """최소 소스 수가 2인지 확인."""
-        assert EnsembleSignalGenerator.MIN_SOURCES == 2
+    def test_min_sources_is_1(self):
+        """최소 소스 수가 1인지 확인 (단일 소스 허용)."""
+        assert EnsembleSignalGenerator.MIN_SOURCES == 1
 
 
 # =============================================================================

@@ -1,7 +1,7 @@
 """Rule-based signal generator (temporary fallback for Gemini API).
 
 Uses technical indicators (RSI, MA, volume) to generate trading signals.
-Supports multiple strategies: trend_pullback (default) and classic.
+Supports multiple strategies: trend_following (default), trend_pullback, and classic.
 """
 from typing import Any
 
@@ -12,7 +12,11 @@ class RuleBasedSignalGenerator:
     """Rule-based trading signal generator using technical indicators.
 
     Strategies:
-    - trend_pullback (default): MA crossover + RSI pullback + volume confirmation
+    - trend_following: MA crossover only (aggressive)
+      - LONG: MA7 > MA25 (uptrend)
+      - SHORT: MA7 < MA25 (downtrend)
+      - WAIT: MAs converged (|MA7 - MA25| / MA25 < 0.05%)
+    - trend_pullback: MA crossover + RSI pullback + volume confirmation
       - LONG: MA7 > MA25 > 0 AND RSI < oversold AND volume > threshold
       - SHORT: MA7 < MA25 AND MA25 > 0 AND RSI > overbought AND volume > threshold
     - classic: RSI + price vs MA7
@@ -72,9 +76,71 @@ class RuleBasedSignalGenerator:
         Returns:
             Signal: 'LONG', 'SHORT', or 'WAIT'
         """
+        if self.strategy == "trend_following":
+            return self._trend_following_signal(market_data)
         if self.strategy == "trend_pullback":
             return self._trend_pullback_signal(market_data)
         return self._classic_signal(market_data)
+
+    def _trend_following_signal(self, market_data: dict[str, Any]) -> str:
+        """Trend following strategy: MA crossover only (aggressive).
+
+        LONG: MA7 > MA25 (uptrend)
+        SHORT: MA7 < MA25 (downtrend)
+        WAIT: MAs converged (|MA7 - MA25| / MA25 < 0.05%)
+
+        Args:
+            market_data: Market data dictionary
+
+        Returns:
+            Signal: 'LONG', 'SHORT', or 'WAIT'
+        """
+        try:
+            ma_7 = market_data.get("ma_7", 0)
+            ma_25 = market_data.get("ma_25", 0)
+
+            logger.debug(
+                f"[trend_following] Analyzing: MA7={ma_7}, MA25={ma_25}"
+            )
+
+            # MA25가 0이면 추세 판단 불가
+            if ma_25 <= 0:
+                logger.debug(
+                    "[trend_following] MA25 <= 0, cannot determine trend"
+                )
+                return "WAIT"
+
+            # MA 수렴 체크: |MA7 - MA25| / MA25 < 0.0005 (0.05%)
+            ma_divergence = abs(ma_7 - ma_25) / ma_25
+            convergence_threshold = 0.0005
+
+            if ma_divergence < convergence_threshold:
+                logger.debug(
+                    f"WAIT signal [trend_following]: MAs converged "
+                    f"(divergence={ma_divergence:.6f} < {convergence_threshold})"
+                )
+                return "WAIT"
+
+            # Uptrend: MA7 above MA25
+            if ma_7 > ma_25:
+                logger.info(
+                    f"LONG signal [trend_following]: "
+                    f"MA7={ma_7:.2f} > MA25={ma_25:.2f} "
+                    f"(divergence={ma_divergence:.4%})"
+                )
+                return "LONG"
+
+            # Downtrend: MA7 below MA25
+            logger.info(
+                f"SHORT signal [trend_following]: "
+                f"MA7={ma_7:.2f} < MA25={ma_25:.2f} "
+                f"(divergence={ma_divergence:.4%})"
+            )
+            return "SHORT"
+
+        except Exception as e:
+            logger.error(f"Error in trend_following signal: {e}")
+            return "WAIT"
 
     def _trend_pullback_signal(self, market_data: dict[str, Any]) -> str:
         """Trend pullback strategy: MA crossover + RSI pullback + volume.
@@ -251,12 +317,14 @@ class RuleBasedSignalGenerator:
             },
         }
 
-        if self.strategy == "trend_pullback":
+        if self.strategy in ("trend_pullback", "trend_following"):
+            ma_divergence = abs(ma_7 - ma_25) / ma_25 if ma_25 > 0 else 0
             diagnostic["trend"] = {
                 "ma_7": ma_7,
                 "ma_25": ma_25,
                 "is_uptrend": ma_7 > ma_25 > 0,
                 "is_downtrend": ma_7 < ma_25 and ma_25 > 0,
+                "ma_divergence": ma_divergence,
             }
         else:
             diagnostic["price"] = {

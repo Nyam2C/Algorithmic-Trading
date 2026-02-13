@@ -132,7 +132,7 @@ class BotConfig(BaseModel):
     volume_threshold: float = Field(default=0.5, ge=0)  # 테스트넷 호환 (프로덕션: 1.2)
 
     # 신호 전략
-    signal_strategy: str = Field(default="trend_pullback")
+    signal_strategy: str = Field(default="trend_following")
 
     # API 키 참조 (Secrets Manager 또는 환경변수 참조용)
     binance_api_key_ref: str | None = None

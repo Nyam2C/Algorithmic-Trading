@@ -1430,8 +1430,8 @@ class BotInstance:
                     )
 
         # WAIT streak tracking and diagnostics
-        _wait_log_interval = 12  # Every hour (12 x 5min)
-        _wait_alert_threshold = 24  # 2 hours
+        _wait_log_interval = 1  # Every loop (1 x 1hour)
+        _wait_alert_threshold = 3  # 3 hours
         if signal == "WAIT":
             self._consecutive_wait_count += 1
             if (

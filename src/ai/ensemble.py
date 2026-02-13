@@ -112,8 +112,8 @@ class EnsembleSignalGenerator:
 
     # 합의 임계값
     CONSENSUS_THRESHOLD = 2 / 3  # 2/3 합의 필요
-    WEIGHTED_THRESHOLD = 0.5  # 가중 점수 임계값 (Phase 8: 0.3 -> 0.5)
-    MIN_SOURCES = 2  # 최소 소스 수 (Phase 8)
+    WEIGHTED_THRESHOLD = 0.3  # 가중 점수 임계값 (공격적 시그널)
+    MIN_SOURCES = 1  # 최소 소스 수 (단일 소스 허용)
 
     def __init__(
         self,

@@ -27,7 +27,7 @@ class GlobalConfig(BaseModel):
     """
 
     is_testnet: bool = Field(default=True)
-    loop_interval_seconds: int = Field(default=300, gt=0)
+    loop_interval_seconds: int = Field(default=3600, gt=0)
 
 
 class BotYamlEntry(BaseModel):

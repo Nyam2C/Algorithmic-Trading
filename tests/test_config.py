@@ -139,7 +139,7 @@ class TestTradingConfig:
         assert config.time_cut_minutes == 120
         assert config.gemini_model == "gemini-2.5-flash"
         assert config.gemini_temperature == 0.1
-        assert config.loop_interval_seconds == 300
+        assert config.loop_interval_seconds == 3600
 
 
 class TestLoadConfig:

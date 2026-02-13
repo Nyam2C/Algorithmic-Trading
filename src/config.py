@@ -79,7 +79,7 @@ class TradingConfig(BaseModel):
     database_url: str | None = None
 
     # Trading Loop
-    loop_interval_seconds: int = Field(default=300, gt=0)  # 5 minutes
+    loop_interval_seconds: int = Field(default=3600, gt=0)  # 1 hour
 
     # Logging Configuration
     enable_json_logging: bool = Field(default=True)
@@ -199,7 +199,7 @@ def load_config() -> TradingConfig:
             discord_webhook_url=os.getenv("DISCORD_WEBHOOK_URL", ""),
             database_url=os.getenv("DATABASE_URL"),
             discord_bot_token=os.getenv("DISCORD_BOT_TOKEN"),
-            loop_interval_seconds=int(os.getenv("LOOP_INTERVAL_SECONDS", "300")),
+            loop_interval_seconds=int(os.getenv("LOOP_INTERVAL_SECONDS", "3600")),
             # Redis Configuration
             redis_url=os.getenv("REDIS_URL"),
             redis_password=os.getenv("REDIS_PASSWORD"),

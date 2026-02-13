@@ -493,6 +493,125 @@ class TestGetSignalErrorHandling:
         assert generator.get_signal(market_data) == "WAIT"
 
 
+class TestTrendFollowingSignal:
+    """trend_following 전략 테스트"""
+
+    @pytest.fixture
+    def generator(self):
+        return RuleBasedSignalGenerator(strategy="trend_following")
+
+    def test_long_signal_uptrend(self, generator):
+        """MA7 > MA25 → LONG"""
+        market_data = {
+            "ma_7": 105000.0,
+            "ma_25": 104000.0,
+        }
+        assert generator.get_signal(market_data) == "LONG"
+
+    def test_short_signal_downtrend(self, generator):
+        """MA7 < MA25 → SHORT"""
+        market_data = {
+            "ma_7": 103000.0,
+            "ma_25": 104000.0,
+        }
+        assert generator.get_signal(market_data) == "SHORT"
+
+    def test_wait_signal_converged_mas(self, generator):
+        """MA 수렴 시 WAIT (|MA7 - MA25| / MA25 < 0.05%)"""
+        market_data = {
+            "ma_7": 104000.0,
+            "ma_25": 104000.0,  # 동일 → divergence = 0
+        }
+        assert generator.get_signal(market_data) == "WAIT"
+
+    def test_wait_signal_near_convergence(self, generator):
+        """MA 거의 수렴 (0.04% divergence) → WAIT"""
+        # 0.04% of 104000 = 41.6 → MA7 = 104041.6
+        market_data = {
+            "ma_7": 104041.0,
+            "ma_25": 104000.0,
+        }
+        assert generator.get_signal(market_data) == "WAIT"
+
+    def test_long_signal_just_above_convergence(self, generator):
+        """MA divergence가 0.05% 이상이면 LONG"""
+        # 0.06% of 104000 = 62.4 → MA7 = 104062.4
+        market_data = {
+            "ma_7": 104063.0,
+            "ma_25": 104000.0,
+        }
+        assert generator.get_signal(market_data) == "LONG"
+
+    def test_short_signal_just_above_convergence(self, generator):
+        """MA divergence가 0.05% 이상이면 SHORT"""
+        market_data = {
+            "ma_7": 103937.0,  # 104000 - 63
+            "ma_25": 104000.0,
+        }
+        assert generator.get_signal(market_data) == "SHORT"
+
+    def test_wait_ma25_zero(self, generator):
+        """MA25가 0이면 WAIT"""
+        market_data = {
+            "ma_7": 105000.0,
+            "ma_25": 0,
+        }
+        assert generator.get_signal(market_data) == "WAIT"
+
+    def test_wait_ma25_missing(self, generator):
+        """MA25 누락 → 기본값 0 → WAIT"""
+        market_data = {
+            "ma_7": 105000.0,
+        }
+        assert generator.get_signal(market_data) == "WAIT"
+
+    def test_rsi_not_required(self, generator):
+        """RSI 없이도 시그널 생성 가능"""
+        market_data = {
+            "ma_7": 105000.0,
+            "ma_25": 104000.0,
+        }
+        # RSI가 없어도 MA만으로 판단
+        assert generator.get_signal(market_data) == "LONG"
+
+    def test_volume_not_required(self, generator):
+        """Volume 없이도 시그널 생성 가능"""
+        market_data = {
+            "ma_7": 103000.0,
+            "ma_25": 104000.0,
+            "volume_ratio": 0.0,  # 볼륨 0이어도 무관
+        }
+        assert generator.get_signal(market_data) == "SHORT"
+
+    def test_error_handling(self, generator):
+        """잘못된 데이터 → WAIT"""
+        market_data = {
+            "ma_7": "invalid",
+            "ma_25": "invalid",
+        }
+        assert generator.get_signal(market_data) == "WAIT"
+
+    def test_empty_data(self, generator):
+        """빈 데이터 → WAIT"""
+        assert generator.get_signal({}) == "WAIT"
+
+    def test_diagnostic(self, generator):
+        """trend_following 진단 정보"""
+        market_data = {
+            "rsi": 55.0,
+            "ma_7": 105000.0,
+            "ma_25": 104000.0,
+            "volume_ratio": 1.0,
+            "current_price": 105000.0,
+        }
+        diag = generator.get_signal_diagnostic(market_data)
+        assert diag["strategy"] == "trend_following"
+        assert diag["signal"] == "LONG"
+        assert "trend" in diag
+        assert diag["trend"]["is_uptrend"] is True
+        assert "ma_divergence" in diag["trend"]
+
+
 class TestSignalDiagnostic:
     """get_signal_diagnostic 테스트"""
 
