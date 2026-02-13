@@ -47,6 +47,10 @@ class TradingConfig(BaseModel):
     atr_tp_multiplier: float = Field(default=2.0, gt=0)
     atr_sl_multiplier: float = Field(default=1.0, gt=0)
 
+    # Slippage protection
+    max_slippage_pct: float = Field(default=0.005)  # 0.5% default
+    close_on_excessive_slippage: bool = Field(default=False)
+
     # Phase 6.2: 마켓 레짐 필터링
     use_regime_filter: bool = Field(default=False)
     allow_weak_trend: bool = Field(default=True)

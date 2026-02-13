@@ -80,13 +80,22 @@ class RiskManager:
     # 일일 손실 관리 (Phase 5.2)
     # =========================================================================
 
-    async def reset_daily_stats(self, current_balance: float) -> None:
+    async def reset_daily_stats(
+        self, current_balance: float, unrealized_pnl: float = 0.0
+    ) -> None:
         """일일 통계 리셋 (매일 UTC 00:00 또는 봇 시작 시 호출).
+
+        Phase 8: 미실현 손실이 있으면 다음 날로 이월합니다.
 
         Args:
             current_balance: 현재 잔고
+            unrealized_pnl: 미실현 손익 (음수=미실현 손실, 이월됨)
         """
-        self._daily_pnl = 0.0
+        # Phase 8: 미실현 손실 이월
+        if unrealized_pnl < 0:
+            self._daily_pnl = unrealized_pnl
+        else:
+            self._daily_pnl = 0.0
         self._daily_start_balance = current_balance
         self._daily_reset_time = datetime.now(timezone.utc)
 
@@ -95,18 +104,24 @@ class RiskManager:
 
         logger.info(
             f"일일 통계 리셋: 시작 잔고=${current_balance:,.2f}, "
+            f"이월 PnL=${self._daily_pnl:+,.2f}, "
             f"리셋 시간={self._daily_reset_time.isoformat()}"
         )
 
 
-    async def check_and_reset_if_new_day(self, current_balance: float) -> bool:
+    async def check_and_reset_if_new_day(
+        self, current_balance: float, unrealized_pnl: float = 0.0
+    ) -> bool:
         """UTC 자정 경과 시 일일 통계 자동 리셋.
 
         매 루프 반복마다 호출하여, 마지막 리셋 이후 UTC 자정을 넘었으면
         자동으로 일일 통계를 리셋합니다.
 
+        Phase 8: 미실현 손실 이월 지원.
+
         Args:
             current_balance: 현재 잔고
+            unrealized_pnl: 미실현 손익 (음수=미실현 손실, 이월됨)
 
         Returns:
             리셋 수행 여부 (True = 리셋함)
@@ -115,7 +130,7 @@ class RiskManager:
 
         if self._daily_reset_time is None:
             # 최초 호출: 리셋 수행
-            await self.reset_daily_stats(current_balance)
+            await self.reset_daily_stats(current_balance, unrealized_pnl)
             return True
 
         # 마지막 리셋 날짜와 현재 날짜 비교
@@ -123,7 +138,7 @@ class RiskManager:
             logger.info(
                 f"새로운 거래일 감지 (UTC {now.date()}), 일일 통계 리셋"
             )
-            await self.reset_daily_stats(current_balance)
+            await self.reset_daily_stats(current_balance, unrealized_pnl)
             return True
 
         return False
@@ -198,8 +213,13 @@ class RiskManager:
             return False, reason
         return True, ""
 
-    async def should_halt_trading(self) -> tuple[bool, str]:
+    async def should_halt_trading(
+        self, unrealized_pnl: float = 0.0
+    ) -> tuple[bool, str]:
         """거래 중단 여부 확인.
+
+        Args:
+            unrealized_pnl: 미실현 손익 (음수=미실현 손실)
 
         Returns:
             (중단 여부, 중단 사유)
@@ -208,11 +228,13 @@ class RiskManager:
         if self._daily_start_balance <= 0:
             return False, ""
 
-        # 일일 손실률 계산
-        daily_loss_pct = abs(self._daily_pnl) / self._daily_start_balance
+        # Phase 8: 순 PnL 기반 일일 손실 판단
+        net_pnl = self._daily_pnl + min(unrealized_pnl, 0.0)
+        if net_pnl >= 0:
+            return False, ""
 
-        # 일일 손실 한도 체크
-        if self._daily_pnl < 0 and daily_loss_pct >= self.max_daily_loss_pct:
+        daily_loss_pct = abs(net_pnl) / self._daily_start_balance
+        if daily_loss_pct >= self.max_daily_loss_pct:
             reason = (
                 f"일일 손실 한도 도달: {daily_loss_pct:.2%} "
                 f">= {self.max_daily_loss_pct:.2%}"
@@ -337,10 +359,15 @@ class RiskManager:
         self._cooldown_until = None
         logger.info("연속 손실 카운터 수동 리셋")
 
-    async def should_skip_trade(self) -> tuple[bool, str]:
+    async def should_skip_trade(
+        self, unrealized_pnl: float = 0.0
+    ) -> tuple[bool, str]:
         """거래 스킵 여부 확인 (통합 체크).
 
         쿨다운 및 일일 손실 한도를 한번에 체크합니다.
+
+        Args:
+            unrealized_pnl: 미실현 손익 (음수=미실현 손실)
 
         Returns:
             (스킵 여부, 사유)
@@ -354,8 +381,8 @@ class RiskManager:
                 ).total_seconds() / 60
             return True, f"쿨다운 중 (잔여 {remaining:.1f}분)"
 
-        # 일일 손실 한도 체크
-        halt, reason = await self.should_halt_trading()
+        # 일일 손실 한도 체크 (미실현 손익 포함)
+        halt, reason = await self.should_halt_trading(unrealized_pnl)
         if halt:
             return True, reason
 

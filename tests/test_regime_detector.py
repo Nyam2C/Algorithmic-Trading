@@ -146,10 +146,10 @@ class TestSignalFiltering:
         assert signal == "WAIT"
 
     def test_filter_signal_unknown(self, detector):
-        """UNKNOWN 레짐에서 필터링"""
+        """UNKNOWN 레짐에서 필터링 - 데이터 부족 시 시그널 허용"""
         signal = detector.filter_signal("LONG", MarketRegime.UNKNOWN)
 
-        assert signal == "WAIT"
+        assert signal == "LONG"
 
     def test_filter_signal_strong_uptrend_long(self, detector):
         """강한 상승 추세에서 LONG 허용"""
@@ -277,3 +277,51 @@ class TestPartialTrendMode:
         }
         regime = detector.detect(market_data)
         assert regime == MarketRegime.STRONG_UPTREND
+
+
+class TestNanMaReturnsUnknown:
+    """Issue 13: NaN MA -> UNKNOWN (not RANGING)"""
+
+    def test_nan_ma_returns_unknown_not_ranging(self):
+        """NaN MA values should return UNKNOWN, not RANGING"""
+        detector = RegimeDetector()
+        market_data = {
+            "ma_7": 100000.0,
+            "ma_25": float("nan"),
+            "ma_99": float("nan"),
+            "atr": 500.0,
+            "price": 100000.0,
+        }
+        regime = detector.detect(market_data)
+        assert regime == MarketRegime.UNKNOWN
+
+    def test_nan_single_ma_returns_unknown(self):
+        """Single NaN MA should return UNKNOWN"""
+        detector = RegimeDetector()
+        market_data = {
+            "ma_7": 100000.0,
+            "ma_25": 99000.0,
+            "ma_99": float("nan"),
+            "atr": 500.0,
+            "price": 100000.0,
+        }
+        regime = detector.detect(market_data)
+        assert regime == MarketRegime.UNKNOWN
+
+    def test_unknown_regime_allows_signal_with_warning(self):
+        """UNKNOWN regime should allow signal (not block like RANGING)"""
+        detector = RegimeDetector()
+        signal = detector.filter_signal("LONG", MarketRegime.UNKNOWN)
+        assert signal == "LONG"
+
+    def test_unknown_regime_allows_short_signal(self):
+        """UNKNOWN regime should allow SHORT signal too"""
+        detector = RegimeDetector()
+        signal = detector.filter_signal("SHORT", MarketRegime.UNKNOWN)
+        assert signal == "SHORT"
+
+    def test_ranging_still_blocks_signal(self):
+        """RANGING should still block signals (existing behavior)"""
+        detector = RegimeDetector()
+        signal = detector.filter_signal("LONG", MarketRegime.RANGING)
+        assert signal == "WAIT"

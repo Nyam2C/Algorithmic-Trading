@@ -4,6 +4,7 @@ Phase 6.4: 다중 타임프레임 확인
 - 상위 TF(15분봉)로 추세 확인
 - 시그널과 상위 TF 추세 정렬 여부 판단
 """
+import math
 from enum import Enum
 
 from loguru import logger
@@ -78,6 +79,13 @@ class MultiTimeframeAnalyzer:
 
         if ma_25 is None or current_price is None:
             logger.warning("상위 TF 데이터 부족 - NEUTRAL 반환")
+            return TimeframeAlignment.NEUTRAL
+
+        # NaN 체크
+        if (isinstance(ma_25, float) and math.isnan(ma_25)) or (
+            isinstance(current_price, float) and math.isnan(current_price)
+        ):
+            logger.warning("상위 TF NaN 데이터 감지 - NEUTRAL 반환")
             return TimeframeAlignment.NEUTRAL
 
         # 가격과 MA25 비교
@@ -183,6 +191,12 @@ class MultiTimeframeAnalyzer:
         )
 
         if ma_25 is None or current_price is None:
+            return "NEUTRAL"
+
+        # NaN 체크
+        if (isinstance(ma_25, float) and math.isnan(ma_25)) or (
+            isinstance(current_price, float) and math.isnan(current_price)
+        ):
             return "NEUTRAL"
 
         price_vs_ma = (current_price - ma_25) / ma_25 * 100

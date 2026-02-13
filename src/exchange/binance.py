@@ -21,6 +21,7 @@ from loguru import logger
 
 from src.utils.circuit_breaker import circuit_breaker
 from src.utils.retry import async_retry
+from src.utils.validation import validate_ohlcv_dataframe
 
 
 class BinanceTestnetClient:
@@ -192,7 +193,8 @@ class BinanceTestnetClient:
             logger.debug(
                 f"Fetched {len(df)} candles for {symbol} ({interval})"
             )
-            return df[["timestamp", "open", "high", "low", "close", "volume"]]
+            result_df = df[["timestamp", "open", "high", "low", "close", "volume"]]
+            return validate_ohlcv_dataframe(result_df, min_rows=5)
 
         except Exception as e:
             logger.error(f"Failed to get klines for {symbol}: {e}")

@@ -239,7 +239,7 @@ class TestMain:
         config.discord_bot_token = None
         config.bot_name = "test-bot"
         config.symbol = "BTCUSDT"
-        config.leverage = 15
+        config.leverage = 10
         config.position_size_pct = 0.05
         config.take_profit_pct = 0.004
         config.stop_loss_pct = 0.004

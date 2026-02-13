@@ -51,6 +51,15 @@ def mock_binance():
     )
     client.close_position = AsyncMock(return_value={"orderId": "12346"})
     client.get_account_balance = AsyncMock(return_value={"available": 10000.0})
+    client.create_stop_market_order = AsyncMock(return_value={
+        "orderId": "77777", "type": "STOP_MARKET", "status": "NEW",
+    })
+    client.create_take_profit_market_order = AsyncMock(return_value={
+        "orderId": "88888", "type": "TAKE_PROFIT_MARKET", "status": "NEW",
+    })
+    client.cancel_all_open_orders = AsyncMock(return_value={
+        "code": 200, "msg": "success",
+    })
     return client
 
 
@@ -241,7 +250,7 @@ class TestAuditLogIntegration:
 
         instance._audit_log = MagicMock()
         instance._audit_log.log_emergency_close = AsyncMock()
-        instance._emergency_close = True
+        instance._emergency_event.set()  # Use Event instead of boolean
         instance._close_position = AsyncMock(return_value=None)
 
         with patch("src.bot_instance.analyze_market") as mock_analyze:

@@ -30,7 +30,7 @@ RISK_LEVEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "leverage": 10,
         "position_size_pct": 0.08,
         "take_profit_pct": 0.012,
-        "stop_loss_pct": 0.006,
+        "stop_loss_pct": 0.004,
     },
 }
 
@@ -171,15 +171,15 @@ class BotConfig(BaseModel):
 
     @model_validator(mode="after")
     def check_risk_consistency(self) -> "BotConfig":
-        """SL x leverage가 일일 손실 한도를 초과하면 경고."""
+        """SL x leverage가 일일 손실 한도를 초과하면 거부."""
         sl = self.get_effective_stop_loss_pct()
         leverage = self.get_effective_leverage()
         single_trade_loss = sl * leverage
         if single_trade_loss > self.max_daily_loss_pct:
-            logger.warning(
+            raise ValueError(
                 f"리스크 불일치: SL({sl:.2%}) x 레버리지({leverage}x) = "
                 f"{single_trade_loss:.2%} > 일일한도({self.max_daily_loss_pct:.2%}). "
-                f"max_loss_per_trade_pct={self.max_loss_per_trade_pct:.2%}로 제한됨."
+                f"SL 또는 레버리지를 줄이세요."
             )
         return self
 

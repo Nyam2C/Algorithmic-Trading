@@ -43,7 +43,7 @@ class TestBotConfig:
                 leverage=20,
                 position_size_pct=0.08,
                 take_profit_pct=0.006,
-                stop_loss_pct=0.006,
+                stop_loss_pct=0.002,
                 time_cut_minutes=90,
                 rsi_oversold=40.0,
                 rsi_overbought=60.0,
@@ -51,6 +51,7 @@ class TestBotConfig:
                 is_testnet=True,
                 is_active=True,
                 description="공격적 BTC 전략",
+                max_daily_loss_pct=0.05,
             )
 
             assert config.bot_name == "btc-aggressive"
@@ -163,11 +164,11 @@ class TestBotConfig:
                 risk_level="high",
             )
 
-            # high risk 기본값: leverage=10, position_size=0.08, tp=0.012/sl=0.006
+            # high risk 기본값: leverage=10, position_size=0.08, tp=0.012/sl=0.004
             assert config.get_effective_leverage() == 10
             assert config.get_effective_position_size_pct() == 0.08
             assert config.get_effective_take_profit_pct() == 0.012
-            assert config.get_effective_stop_loss_pct() == 0.006
+            assert config.get_effective_stop_loss_pct() == 0.004
 
         def test_명시적_값이_기본값_오버라이드(self) -> None:
             """명시적으로 지정한 값이 risk_level 기본값을 오버라이드"""
@@ -177,12 +178,12 @@ class TestBotConfig:
                 bot_name="custom-bot",
                 symbol="BTCUSDT",
                 risk_level="low",  # low risk
-                leverage=25,  # 명시적 지정
+                leverage=10,  # 명시적 지정 (0.003 * 10 = 3% < 5%)
                 position_size_pct=0.1,  # 명시적 지정
             )
 
             # 명시적 값 사용
-            assert config.get_effective_leverage() == 25
+            assert config.get_effective_leverage() == 10
             assert config.get_effective_position_size_pct() == 0.1
             # 미지정 값은 risk_level 기본값 사용
             assert config.get_effective_take_profit_pct() == 0.006
@@ -227,6 +228,8 @@ class TestBotConfig:
                     bot_name="test-bot",
                     symbol="BTCUSDT",
                     leverage=leverage,
+                    stop_loss_pct=0.0003,  # 매우 낮은 SL로 리스크 검증 통과
+                    max_daily_loss_pct=0.50,  # 50% 높은 한도
                 )
                 assert config.leverage == leverage
 
@@ -301,7 +304,7 @@ class TestBotConfig:
                 bot_name="test-bot",
                 symbol="BTCUSDT",
                 risk_level="medium",
-                leverage=15,
+                leverage=10,
             )
 
             trading_config = bot_config.to_trading_config(
@@ -313,7 +316,7 @@ class TestBotConfig:
 
             assert trading_config.bot_name == "test-bot"
             assert trading_config.symbol == "BTCUSDT"
-            assert trading_config.leverage == 15
+            assert trading_config.leverage == 10
             assert trading_config.binance_api_key == "test_key"
 
         def test_phase5_통합_필드_매핑(self) -> None:
@@ -324,7 +327,7 @@ class TestBotConfig:
                 bot_name="full-bot",
                 symbol="BTCUSDT",
                 risk_level="medium",
-                leverage=15,
+                leverage=10,
                 use_regime_filter=True,
                 allow_weak_trend=False,
                 use_mtf_filter=True,
@@ -392,7 +395,7 @@ class TestBotConfig:
                 "leverage": 20,
                 "position_size_pct": 0.08,
                 "take_profit_pct": 0.006,
-                "stop_loss_pct": 0.006,
+                "stop_loss_pct": 0.002,
                 "time_cut_minutes": 90,
                 "rsi_oversold": 40.0,
                 "rsi_overbought": 60.0,
@@ -435,3 +438,51 @@ class TestRiskLevelDefaults:
         for level in ["low", "medium", "high"]:
             for key in required_keys:
                 assert key in RISK_LEVEL_DEFAULTS[level], f"{level}에 {key} 없음"
+
+
+class TestRiskConsistencyValidation:
+    """Phase 8: 위험한 설정 거부 테스트"""
+
+    def test_위험한_설정_거부_ValueError(self) -> None:
+        """SL x leverage > daily_limit일 때 ValueError 발생"""
+        from pydantic import ValidationError
+
+        from src.bot_config import BotConfig
+
+        # SL=0.4% x leverage=20 = 8% > 5% daily limit => ValueError
+        with pytest.raises(ValidationError, match="리스크 불일치"):
+            BotConfig(
+                bot_name="risky-bot",
+                symbol="BTCUSDT",
+                leverage=20,
+                stop_loss_pct=0.004,
+                max_daily_loss_pct=0.05,
+            )
+
+    def test_안전한_설정_허용(self) -> None:
+        """SL x leverage <= daily_limit일 때 정상 생성"""
+        from src.bot_config import BotConfig
+
+        # SL=0.3% x leverage=3 = 0.9% < 5% => OK
+        config = BotConfig(
+            bot_name="safe-bot",
+            symbol="BTCUSDT",
+            leverage=3,
+            stop_loss_pct=0.003,
+            max_daily_loss_pct=0.05,
+        )
+        assert config.leverage == 3
+        assert config.stop_loss_pct == 0.003
+
+    def test_high_risk_기본값은_안전(self) -> None:
+        """high risk 기본값 SL=0.004 x leverage=10 = 4% < 5% 통과"""
+        from src.bot_config import BotConfig
+
+        config = BotConfig(
+            bot_name="high-bot",
+            symbol="BTCUSDT",
+            risk_level="high",
+        )
+        # 0.004 * 10 = 0.04 < 0.05 => OK
+        assert config.get_effective_stop_loss_pct() == 0.004
+        assert config.get_effective_leverage() == 10

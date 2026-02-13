@@ -112,7 +112,8 @@ class EnsembleSignalGenerator:
 
     # 합의 임계값
     CONSENSUS_THRESHOLD = 2 / 3  # 2/3 합의 필요
-    WEIGHTED_THRESHOLD = 0.3  # 가중 점수 임계값
+    WEIGHTED_THRESHOLD = 0.5  # 가중 점수 임계값 (Phase 8: 0.3 -> 0.5)
+    MIN_SOURCES = 2  # 최소 소스 수 (Phase 8)
 
     def __init__(
         self,
@@ -346,17 +347,19 @@ class EnsembleSignalGenerator:
         consensus_ratio = max_count / total_count if total_count > 0 else 0
 
         # 최종 신호 결정
-        # 1. 가중 점수 기준
-        if abs(weighted_score) >= self.weighted_threshold:
+        # 1. 가중 점수 기준 (최소 2개 소스 필요)
+        has_enough_sources = len(signals) >= self.MIN_SOURCES
+        if abs(weighted_score) >= self.weighted_threshold and has_enough_sources:
             if weighted_score > 0:
                 return "LONG", weighted_score, consensus_ratio
             return "SHORT", weighted_score, consensus_ratio
 
-        # 2. 합의 기준 (2/3 이상)
-        if long_count / total_count >= self.consensus_threshold:
-            return "LONG", weighted_score, consensus_ratio
-        if short_count / total_count >= self.consensus_threshold:
-            return "SHORT", weighted_score, consensus_ratio
+        # 2. 합의 기준 (2/3 이상, 최소 2개 소스)
+        if has_enough_sources:
+            if long_count / total_count >= self.consensus_threshold:
+                return "LONG", weighted_score, consensus_ratio
+            if short_count / total_count >= self.consensus_threshold:
+                return "SHORT", weighted_score, consensus_ratio
 
         # 3. 합의 실패 -> WAIT
         return "WAIT", weighted_score, consensus_ratio

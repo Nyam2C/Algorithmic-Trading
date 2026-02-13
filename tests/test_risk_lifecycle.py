@@ -23,21 +23,13 @@ from src.trading.risk_manager import RiskManager
 class TestRiskConsistency:
     """SL x leverage와 일일 손실 한도 일관성 테스트."""
 
-    def test_risk_consistency_warning(self, caplog: pytest.LogCaptureFixture) -> None:
-        """SL x leverage > daily_limit일 때 경고 로그 발생."""
+    def test_risk_consistency_raises_error(self) -> None:
+        """SL x leverage > daily_limit일 때 ValueError 발생."""
+        from pydantic import ValidationError
+
         # SL=0.4%, leverage=20 => 8% > daily limit 5%
-
-        import loguru
-
-        # loguru -> caplog propagation
-        handler_id = loguru.logger.add(
-            lambda msg: caplog.records.append(
-                type("Record", (), {"message": str(msg), "levelname": "WARNING"})()
-            ),
-            level="WARNING",
-        )
-        try:
-            config = BotConfig(
+        with pytest.raises(ValidationError, match="리스크 불일치"):
+            BotConfig(
                 bot_name="risky-bot",
                 symbol="BTCUSDT",
                 risk_level="medium",
@@ -45,38 +37,20 @@ class TestRiskConsistency:
                 stop_loss_pct=0.004,
                 max_daily_loss_pct=0.05,
             )
-            # Check that the warning was logged
-            warning_found = any(
-                "리스크 불일치" in getattr(r, "message", "")
-                for r in caplog.records
-            )
-            assert warning_found, "리스크 불일치 경고가 로그에 기록되어야 합니다"
-        finally:
-            loguru.logger.remove(handler_id)
 
-    def test_risk_consistency_ok(self, caplog: pytest.LogCaptureFixture) -> None:
-        """SL x leverage < daily_limit일 때 경고 없음."""
-        import loguru
-
-        warnings = []
-        handler_id = loguru.logger.add(
-            lambda msg: warnings.append(str(msg)),
-            level="WARNING",
+    def test_risk_consistency_ok(self) -> None:
+        """SL x leverage < daily_limit일 때 정상 생성."""
+        config = BotConfig(
+            bot_name="safe-bot",
+            symbol="BTCUSDT",
+            risk_level="low",
+            leverage=3,
+            stop_loss_pct=0.003,
+            max_daily_loss_pct=0.05,
         )
-        try:
-            config = BotConfig(
-                bot_name="safe-bot",
-                symbol="BTCUSDT",
-                risk_level="low",
-                leverage=3,
-                stop_loss_pct=0.003,
-                max_daily_loss_pct=0.05,
-            )
-            # SL=0.3% x leverage=3 = 0.9% < 5% => no warning
-            risk_warnings = [w for w in warnings if "리스크 불일치" in w]
-            assert len(risk_warnings) == 0, "리스크 일관성 경고가 없어야 합니다"
-        finally:
-            loguru.logger.remove(handler_id)
+        # SL=0.3% x leverage=3 = 0.9% < 5% => no error
+        assert config.leverage == 3
+        assert config.stop_loss_pct == 0.003
 
     def test_max_loss_per_trade_field(self) -> None:
         """BotConfig.max_loss_per_trade_pct 기본값 확인."""
@@ -488,6 +462,7 @@ class TestOpenPositionRiskBlock:
                 "leverage": 50,
                 "stop_loss_pct": 0.004,
                 "max_loss_per_trade_pct": 0.02,
+                "max_daily_loss_pct": 0.25,  # 높은 일일 한도로 설정 검증 통과
             },
         )
 
@@ -495,7 +470,7 @@ class TestOpenPositionRiskBlock:
         bot._executor = mock_executor
         bot._risk_manager = RiskManager()
 
-        # SL=0.4% x leverage=50 = 20% >> 2% limit
+        # SL=0.4% x leverage=50 = 20% >> max_loss_per_trade_pct 2%
         result = await bot._open_position("LONG", 100000.0)
 
         assert result is None

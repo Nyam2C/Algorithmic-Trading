@@ -9,6 +9,8 @@ from enum import Enum
 
 from loguru import logger
 
+from src.utils.validation import sanitize_nan_values
+
 
 class MarketRegime(Enum):
     """마켓 레짐 (시장 상태)."""
@@ -73,6 +75,14 @@ class RegimeDetector:
             MarketRegime enum
         """
         try:
+            # atr, price 등 수치 필드의 NaN/None 정제
+            sanitized = sanitize_nan_values(
+                {"atr": market_data.get("atr"), "price": market_data.get("price"),
+                 "current_price": market_data.get("current_price")},
+                default=0.0,
+            )
+            market_data = {**market_data, **sanitized}
+
             # 필수 데이터 추출
             ma_7 = market_data.get("ma_7")
             ma_25 = market_data.get("ma_25")
@@ -88,8 +98,8 @@ class RegimeDetector:
             # NaN 체크 (캔들 수 부족 시 MA25/MA99가 NaN)
             ma_values = [ma_7, ma_25, ma_99]
             if any(math.isnan(v) for v in ma_values if isinstance(v, float)):
-                logger.info("MA 데이터 부족 (캔들 수 부족), RANGING 반환")
-                return MarketRegime.RANGING
+                logger.warning("MA 데이터 부족 (캔들 수 부족), UNKNOWN 반환")
+                return MarketRegime.UNKNOWN
 
             # ATR 비율 계산 (%)
             atr_pct = 0.0
@@ -197,10 +207,10 @@ class RegimeDetector:
             logger.info(f"횡보장 - {signal} 시그널 무시 → WAIT")
             return "WAIT"
 
-        # 알 수 없는 상태에서도 보수적으로
+        # UNKNOWN: 데이터 부족 시 필터 건너뜀 (경고 로그)
         if regime == MarketRegime.UNKNOWN:
-            logger.info(f"레짐 불명 - {signal} 시그널 무시 → WAIT")
-            return "WAIT"
+            logger.warning(f"레짐 데이터 부족으로 필터 건너뜀 - {signal} 시그널 허용")
+            return signal
 
         # 약한 추세 허용 여부
         if not allow_weak_trend and regime in (

@@ -293,7 +293,7 @@ bots:
         assert sol.get_effective_leverage() == 10
         assert sol.get_effective_position_size_pct() == 0.08
         assert sol.get_effective_take_profit_pct() == 0.012
-        assert sol.get_effective_stop_loss_pct() == 0.006
+        assert sol.get_effective_stop_loss_pct() == 0.004
 
     def test_filter_active_bots(self, tmp_path):
         """활성화된 봇만 필터링 테스트"""

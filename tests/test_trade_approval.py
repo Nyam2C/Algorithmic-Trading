@@ -379,3 +379,49 @@ class TestTradeApprovalRequestCreateWithRsiAtr:
         data = request.to_dict()
         assert data["market_data"]["rsi"] == 35.0
         assert data["market_data"]["atr"] == 500.0
+
+
+class TestTradeApprovalSignalConsistency:
+    """validate_signal_consistency 테스트"""
+
+    def test_matching_signals_return_true(self):
+        """동일 시그널이면 True"""
+        request = TradeApprovalRequest(
+            bot_name="btc-bot",
+            signal="LONG",
+            price=50000.0,
+            quantity=0.001,
+            original_signal="LONG",
+        )
+        assert request.validate_signal_consistency("LONG") is True
+
+    def test_different_signals_return_false(self):
+        """다른 시그널이면 False"""
+        request = TradeApprovalRequest(
+            bot_name="btc-bot",
+            signal="LONG",
+            price=50000.0,
+            quantity=0.001,
+            original_signal="LONG",
+        )
+        assert request.validate_signal_consistency("SHORT") is False
+
+    def test_empty_original_returns_true(self):
+        """original_signal이 빈 문자열이면 True (체크 스킵)"""
+        request = TradeApprovalRequest(
+            bot_name="btc-bot",
+            signal="LONG",
+            price=50000.0,
+            quantity=0.001,
+        )
+        assert request.original_signal == ""
+        assert request.validate_signal_consistency("SHORT") is True
+
+    def test_create_request_sets_original_signal(self):
+        """create_request가 original_signal을 설정"""
+        import asyncio
+        manager = TradeApprovalManager()
+        request = asyncio.get_event_loop().run_until_complete(
+            manager.create_request("bot", "SHORT", 50000, 0.001)
+        )
+        assert request.original_signal == "SHORT"

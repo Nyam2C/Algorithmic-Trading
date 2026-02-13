@@ -98,6 +98,9 @@ class MultiBotManager:
         # Phase 7: 노출도 체크 동시성 보호
         self._exposure_lock = asyncio.Lock()
 
+        # Phase 8: 노출도 예약 (TOCTOU 방지)
+        self._pending_reservations: dict[str, float] = {}
+
         # 초기 봇 설정 등록
         if configs:
             for config in configs:
@@ -162,10 +165,10 @@ class MultiBotManager:
     # =========================================================================
 
     async def get_total_exposure(self) -> float:
-        """모든 봇의 총 포지션 가치 계산.
+        """모든 봇의 총 포지션 가치 계산 (예약 포함).
 
         Returns:
-            총 노출도 (USDT)
+            총 노출도 (USDT, 예약 포함)
         """
         total = 0.0
 
@@ -187,6 +190,9 @@ class MultiBotManager:
                     f"{quantity} x ${entry_price:,.2f} "
                     f"x {leverage}x = ${position_value:,.2f}"
                 )
+
+        # Phase 8: 예약된 노출도 추가
+        total += sum(self._pending_reservations.values())
 
         return total
 
@@ -227,6 +233,48 @@ class MultiBotManager:
                 f"총 노출도 ${new_total:,.2f} / ${self._max_total_exposure:,.2f}"
             )
             return True, ""
+
+    async def reserve_exposure(self, bot_name: str, amount: float) -> bool:
+        """노출도 예약 (Phase 8: TOCTOU 방지).
+
+        Args:
+            bot_name: 봇 이름
+            amount: 예약할 노출도 (USDT)
+
+        Returns:
+            True: 예약 성공, False: 한도 초과
+        """
+        if self._max_total_exposure <= 0:
+            return True
+
+        async with self._exposure_lock:
+            current_exposure = await self.get_total_exposure()
+            new_total = current_exposure + amount
+
+            if new_total > self._max_total_exposure:
+                logger.warning(
+                    f"[{bot_name}] 노출도 예약 거부: "
+                    f"${new_total:,.2f} > ${self._max_total_exposure:,.2f}"
+                )
+                return False
+
+            self._pending_reservations[bot_name] = amount
+            logger.info(
+                f"[{bot_name}] 노출도 예약 완료: ${amount:,.2f} "
+                f"(총 ${new_total:,.2f} / ${self._max_total_exposure:,.2f})"
+            )
+            return True
+
+    async def release_reservation(self, bot_name: str) -> None:
+        """노출도 예약 해제 (Phase 8: TOCTOU 방지).
+
+        Args:
+            bot_name: 봇 이름
+        """
+        async with self._exposure_lock:
+            removed = self._pending_reservations.pop(bot_name, None)
+            if removed is not None:
+                logger.info(f"[{bot_name}] 노출도 예약 해제: ${removed:,.2f}")
 
     def get_exposure_summary(self) -> dict[str, Any]:
         """노출도 요약 정보 (Phase 5.4).

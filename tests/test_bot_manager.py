@@ -1230,3 +1230,120 @@ class TestEdgeCases:
 
         # 새 태스크로 교체됨
         assert "restart-bot" in coverage_manager._tasks
+
+
+# =============================================================================
+# Phase 8: Exposure Reservation Tests (Issue 10)
+# =============================================================================
+
+
+class TestExposureReservation:
+    """Phase 8: 노출도 예약 패턴 테스트 (TOCTOU 방지)."""
+
+    @pytest.mark.asyncio
+    async def test_reserve_exposure_success(self) -> None:
+        """한도 내 예약 성공."""
+        manager = MultiBotManager(
+            binance_api_key="test",
+            binance_secret_key="test",
+            max_total_exposure=100000.0,
+        )
+
+        result = await manager.reserve_exposure("btc-bot", 50000.0)
+        assert result is True
+        assert "btc-bot" in manager._pending_reservations
+        assert manager._pending_reservations["btc-bot"] == 50000.0
+
+    @pytest.mark.asyncio
+    async def test_reserve_exposure_exceeds_limit(self) -> None:
+        """한도 초과 시 예약 거부."""
+        manager = MultiBotManager(
+            binance_api_key="test",
+            binance_secret_key="test",
+            max_total_exposure=100000.0,
+        )
+
+        # First reservation OK
+        result1 = await manager.reserve_exposure("btc-bot", 60000.0)
+        assert result1 is True
+
+        # Second reservation exceeds limit
+        result2 = await manager.reserve_exposure("eth-bot", 50000.0)
+        assert result2 is False
+        assert "eth-bot" not in manager._pending_reservations
+
+    @pytest.mark.asyncio
+    async def test_reserve_exposure_no_limit(self) -> None:
+        """한도 없으면 항상 성공."""
+        manager = MultiBotManager(
+            binance_api_key="test",
+            binance_secret_key="test",
+            max_total_exposure=0.0,  # 제한 없음
+        )
+
+        result = await manager.reserve_exposure("btc-bot", 999999.0)
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_release_reservation(self) -> None:
+        """예약 해제."""
+        manager = MultiBotManager(
+            binance_api_key="test",
+            binance_secret_key="test",
+            max_total_exposure=100000.0,
+        )
+
+        await manager.reserve_exposure("btc-bot", 50000.0)
+        assert "btc-bot" in manager._pending_reservations
+
+        await manager.release_reservation("btc-bot")
+        assert "btc-bot" not in manager._pending_reservations
+
+    @pytest.mark.asyncio
+    async def test_release_nonexistent_reservation(self) -> None:
+        """존재하지 않는 예약 해제 시 에러 없음."""
+        manager = MultiBotManager(
+            binance_api_key="test",
+            binance_secret_key="test",
+            max_total_exposure=100000.0,
+        )
+
+        # Should not raise
+        await manager.release_reservation("nonexistent-bot")
+
+    @pytest.mark.asyncio
+    async def test_get_total_exposure_includes_reservations(self) -> None:
+        """get_total_exposure가 예약을 포함."""
+        manager = MultiBotManager(
+            binance_api_key="test",
+            binance_secret_key="test",
+            max_total_exposure=100000.0,
+        )
+
+        # No bots, no positions, but a reservation
+        await manager.reserve_exposure("btc-bot", 30000.0)
+        total = await manager.get_total_exposure()
+        assert total == 30000.0
+
+    @pytest.mark.asyncio
+    async def test_reserve_then_release_frees_capacity(self) -> None:
+        """예약 해제 후 새 예약 가능."""
+        manager = MultiBotManager(
+            binance_api_key="test",
+            binance_secret_key="test",
+            max_total_exposure=100000.0,
+        )
+
+        # Reserve nearly full
+        await manager.reserve_exposure("btc-bot", 90000.0)
+
+        # New reservation exceeds
+        result = await manager.reserve_exposure("eth-bot", 20000.0)
+        assert result is False
+
+        # Release first reservation
+        await manager.release_reservation("btc-bot")
+
+        # Now new reservation fits
+        result = await manager.reserve_exposure("eth-bot", 20000.0)
+        assert result is True

@@ -112,43 +112,98 @@ class TestGetKlines:
         client_instance, mock_internal = client
         mock_klines = [
             [
-                1704067200000,  # timestamp
-                "100000.0",     # open
-                "101000.0",     # high
-                "99000.0",      # low
-                "100500.0",     # close
-                "1000.5",       # volume
-                1704070800000,  # close_time
-                "100500000.0",  # quote_volume
-                100,            # trades
-                "500.25",       # taker_buy_base
-                "50250000.0",   # taker_buy_quote
-                "0"             # ignore
+                1704067200000,
+                "100000.0",
+                "101000.0",
+                "99000.0",
+                "100500.0",
+                "1000.5",
+                1704067500000,
+                "100000.0",
+                100,
+                "500.0",
+                "50000.0",
+                "0"
             ],
             [
-                1704070800000,
-                "100500.0",
-                "102000.0",
+                1704067500000,
                 "100000.0",
-                "101500.0",
-                "1200.3",
-                1704074400000,
-                "121500000.0",
-                120,
-                "600.15",
-                "60915000.0",
+                "101000.0",
+                "99000.0",
+                "100600.0",
+                "1000.5",
+                1704067800000,
+                "100000.0",
+                100,
+                "500.0",
+                "50000.0",
+                "0"
+            ],
+            [
+                1704067800000,
+                "100000.0",
+                "101000.0",
+                "99000.0",
+                "100700.0",
+                "1000.5",
+                1704068100000,
+                "100000.0",
+                100,
+                "500.0",
+                "50000.0",
+                "0"
+            ],
+            [
+                1704068100000,
+                "100000.0",
+                "101000.0",
+                "99000.0",
+                "100800.0",
+                "1000.5",
+                1704068400000,
+                "100000.0",
+                100,
+                "500.0",
+                "50000.0",
+                "0"
+            ],
+            [
+                1704068400000,
+                "100000.0",
+                "101000.0",
+                "99000.0",
+                "100900.0",
+                "1000.5",
+                1704068700000,
+                "100000.0",
+                100,
+                "500.0",
+                "50000.0",
+                "0"
+            ],
+            [
+                1704068700000,
+                "100000.0",
+                "101000.0",
+                "99000.0",
+                "101000.0",
+                "1000.5",
+                1704069000000,
+                "100000.0",
+                100,
+                "500.0",
+                "50000.0",
                 "0"
             ]
         ]
         mock_internal.futures_klines = AsyncMock(return_value=mock_klines)
 
-        df = await client_instance.get_klines("BTCUSDT", limit=2)
+        df = await client_instance.get_klines("BTCUSDT", limit=6)
 
         assert isinstance(df, pd.DataFrame)
-        assert len(df) == 2
+        assert len(df) == 6
         assert list(df.columns) == ["timestamp", "open", "high", "low", "close", "volume"]
         assert df["close"].iloc[0] == 100500.0
-        assert df["volume"].iloc[1] == 1200.3
 
 
 class TestSetLeverage:
@@ -703,6 +758,45 @@ class TestGetKlinesError:
 
         with pytest.raises(Exception, match="Klines error"):
             await client_instance.get_klines("BTCUSDT")
+
+
+
+
+class TestGetKlinesNanValidation:
+    """get_klines NaN 데이터 검증 테스트"""
+
+    @pytest.fixture
+    def client(self):
+        client = BinanceTestnetClient("key", "secret", testnet=True)
+        mock_internal = AsyncMock()
+        client._client = mock_internal
+        yield client, mock_internal
+
+    @pytest.mark.asyncio
+    async def test_get_klines_with_nan_data_forward_filled(self, client):
+        """NaN 포함 캔들 데이터가 forward-fill로 처리됨"""
+        client_instance, mock_internal = client
+        # 6 candles, one with NaN close
+        base_ts = 1704067200000
+        interval_ms = 300000
+        mock_klines = []
+        for i in range(6):
+            ts = base_ts + i * interval_ms
+            close_ts = ts + interval_ms
+            close_val = "100500.0" if i != 2 else None  # 3rd candle has NaN close
+            mock_klines.append([
+                ts, "100000.0", "101000.0", "99000.0",
+                close_val, "1000.5", close_ts,
+                "100000.0", 100, "500.0", "50000.0", "0"
+            ])
+        mock_internal.futures_klines = AsyncMock(return_value=mock_klines)
+
+        df = await client_instance.get_klines("BTCUSDT", limit=6)
+
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 6
+        # NaN should be forward-filled
+        assert not df["close"].isna().any()
 
 
 class TestGetTicker24hError:

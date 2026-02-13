@@ -68,3 +68,41 @@ class TestEmergencyCloseImmediate:
         assert elapsed < 2.0, f"Wait took {elapsed:.1f}s, should be < 2s"
         assert bot._emergency_event.is_set()
         assert bot._emergency_close is True
+
+
+class TestEmergencyEventThreadSafety:
+    """Event 기반 긴급 청산의 스레드 안전성 테스트"""
+
+    def test_event_is_thread_safe_type(self):
+        """asyncio.Event는 코루틴 안전한 타입인지 확인"""
+        bot = _make_bot()
+        # asyncio.Event is coroutine-safe within the same event loop
+        assert isinstance(bot._emergency_event, asyncio.Event)
+
+    @pytest.mark.asyncio
+    async def test_multiple_emergency_requests_idempotent(self):
+        """여러 번 긴급 청산 요청해도 Event는 한번만 설정됨"""
+        bot = _make_bot()
+
+        bot.request_emergency_close()
+        bot.request_emergency_close()
+        bot.request_emergency_close()
+
+        # Event should be set (calling set() multiple times is idempotent)
+        assert bot._emergency_event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_event_clear_after_handling_allows_next_emergency(self):
+        """핸들링 후 clear하면 다음 긴급 청산 요청을 받을 수 있음"""
+        bot = _make_bot()
+
+        bot.request_emergency_close()
+        assert bot._emergency_event.is_set()
+
+        # Simulate handling (clear)
+        bot._emergency_event.clear()
+        assert not bot._emergency_event.is_set()
+
+        # Can request again
+        bot.request_emergency_close()
+        assert bot._emergency_event.is_set()
