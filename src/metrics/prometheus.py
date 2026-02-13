@@ -48,6 +48,7 @@ class TradingMetrics:
     _default_circuit_breaker_state: Gauge | None = None
     _default_open_positions: Gauge | None = None
     _default_bot_uptime: Gauge | None = None
+    _default_rsi_value: Gauge | None = None
 
     def __init__(self, registry: CollectorRegistry | None = None) -> None:
         """메트릭 초기화.
@@ -77,6 +78,7 @@ class TradingMetrics:
             self._circuit_breaker_state = TradingMetrics._default_circuit_breaker_state
             self._open_positions = TradingMetrics._default_open_positions
             self._bot_uptime = TradingMetrics._default_bot_uptime
+            self._rsi_value = TradingMetrics._default_rsi_value
             return
 
         # 새 레지스트리거나 처음 초기화
@@ -200,6 +202,14 @@ class TradingMetrics:
             registry=self._registry,
         )
 
+        # RSI Gauge
+        rsi_value = Gauge(
+            "trading_rsi",
+            "Current RSI value",
+            ["bot_name"],
+            registry=self._registry,
+        )
+
         # 인스턴스 변수에 저장
         self._trades_total = trades_total
         self._trade_duration = trade_duration
@@ -215,6 +225,7 @@ class TradingMetrics:
         self._circuit_breaker_state = circuit_breaker_state
         self._open_positions = open_positions
         self._bot_uptime = bot_uptime
+        self._rsi_value = rsi_value
 
         # 기본 레지스트리면 클래스 변수에도 저장
         if self._use_default:
@@ -232,6 +243,7 @@ class TradingMetrics:
             TradingMetrics._default_circuit_breaker_state = circuit_breaker_state
             TradingMetrics._default_open_positions = open_positions
             TradingMetrics._default_bot_uptime = bot_uptime
+            TradingMetrics._default_rsi_value = rsi_value
 
     @property
     def trades_total(self) -> Counter:
@@ -372,6 +384,21 @@ class TradingMetrics:
             count: 연속 WAIT 횟수
         """
         self.consecutive_wait.labels(bot_name=bot_name).set(count)
+
+    def record_rsi(
+        self,
+        bot_name: str,
+        rsi_value: float,
+    ) -> None:
+        """RSI 값 기록.
+
+        Args:
+            bot_name: 봇 이름
+            rsi_value: RSI 값 (0-100)
+        """
+        import math  # noqa: PLC0415
+        if self._rsi_value is not None and not math.isnan(rsi_value):
+            self._rsi_value.labels(bot_name=bot_name).set(rsi_value)
 
     def record_loop_duration(
         self,
@@ -593,3 +620,11 @@ def record_consecutive_wait(
 ) -> None:
     """연속 WAIT 카운트 기록 (편의 함수)."""
     _get_metrics().record_consecutive_wait(bot_name, count)
+
+
+def record_rsi(
+    bot_name: str,
+    rsi_value: float,
+) -> None:
+    """RSI 값 기록 (편의 함수)."""
+    _get_metrics().record_rsi(bot_name, rsi_value)

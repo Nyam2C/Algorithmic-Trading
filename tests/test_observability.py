@@ -143,6 +143,20 @@ class TestNewPrometheusMetrics:
         metrics.record_ai_latency("btc-bot", 1.5)
         metrics.record_ai_latency("btc-bot", 2.3)
 
+    def test_record_rsi(self, metrics):
+        """RSI 값 기록."""
+        metrics.record_rsi("btc-bot", 35.2)
+        metrics.record_rsi("btc-bot", 70.0)
+
+    def test_rsi_metric_exists(self, metrics):
+        """trading_rsi 메트릭이 존재하는지 확인."""
+        assert metrics._rsi_value is not None
+
+    def test_record_rsi_nan_skipped(self, metrics):
+        """NaN RSI는 기록하지 않음."""
+        metrics.record_rsi("btc-bot", float("nan"))
+        # NaN이 설정되지 않음 (에러 없이 스킵)
+
 
 # =============================================================================
 # Phase 3: AIDecisionLogger 테스트
@@ -218,7 +232,7 @@ class TestAIDecisionLogger:
         )
 
     def test_log_gemini_call_with_event_type(self, ai_logger):
-        """Gemini 로깅에 event_type=AI_SIGNAL 바인딩 확인."""
+        """Gemini 로깅에 event_type=AI_SIGNAL 및 전체 필드 바인딩 확인."""
         with patch("src.ai.ai_logger.logger") as mock_logger:
             mock_bound = MagicMock()
             mock_logger.bind.return_value = mock_bound
@@ -228,26 +242,46 @@ class TestAIDecisionLogger:
                 prompt_summary="test",
                 raw_response="LONG",
                 parsed_signal="LONG",
+                reason="test reason",
+                memory_used=True,
+                latency_ms=100.0,
+                model="gemini-2.5-flash",
             )
 
-            mock_logger.bind.assert_called_with(event_type="AI_SIGNAL")
-            mock_bound.info.assert_called_once()
+            bind_kwargs = mock_logger.bind.call_args[1]
+            assert bind_kwargs["event_type"] == "AI_SIGNAL"
+            assert bind_kwargs["signal"] == "LONG"
+            assert bind_kwargs["bot_name"] == "btc-bot"
+            assert bind_kwargs["raw_response"] == "LONG"
+            assert bind_kwargs["reason"] == "test reason"
+            assert bind_kwargs["memory_used"] is True
+            assert bind_kwargs["latency_ms"] == 100.0
+            assert bind_kwargs["model"] == "gemini-2.5-flash"
+            mock_bound.info.assert_called_once_with("Gemini AI 시그널 생성")
 
     def test_log_ensemble_with_event_type(self, ai_logger):
-        """앙상블 로깅에 event_type=ENSEMBLE_SIGNAL 바인딩 확인."""
+        """앙상블 로깅에 event_type=ENSEMBLE_SIGNAL 및 전체 필드 바인딩 확인."""
         with patch("src.ai.ai_logger.logger") as mock_logger:
             mock_bound = MagicMock()
             mock_logger.bind.return_value = mock_bound
 
             ai_logger.log_ensemble_decision(
                 bot_name="btc-bot",
-                component_signals=[],
+                component_signals=[{"source": "gemini", "signal": "LONG"}],
                 final_signal="WAIT",
-                consensus_ratio=0.0,
+                consensus_ratio=0.75,
+                weighted_score=0.6,
             )
 
-            mock_logger.bind.assert_called_with(event_type="ENSEMBLE_SIGNAL")
-            mock_bound.info.assert_called_once()
+            bind_kwargs = mock_logger.bind.call_args[1]
+            assert bind_kwargs["event_type"] == "ENSEMBLE_SIGNAL"
+            assert bind_kwargs["signal"] == "WAIT"
+            assert bind_kwargs["bot_name"] == "btc-bot"
+            assert bind_kwargs["final_signal"] == "WAIT"
+            assert bind_kwargs["consensus_ratio"] == 0.75
+            assert bind_kwargs["weighted_score"] == 0.6
+            assert len(bind_kwargs["component_signals"]) == 1
+            mock_bound.info.assert_called_once_with("앙상블 시그널 결정")
 
 
 # =============================================================================

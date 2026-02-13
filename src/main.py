@@ -110,7 +110,7 @@ async def send_discord_embed(
         True if successful
     """
     if not webhook_url:
-        logger.warning("DISCORD_WEBHOOK_URL not set")
+        logger.warning("[DISCORD] WEBHOOK_URL not set")
         return False
 
     embed = {
@@ -131,12 +131,12 @@ async def send_discord_embed(
         ) as resp:
                 http_no_content = 204
                 if resp.status == http_no_content:
-                    logger.debug("Discord embed sent successfully")
+                    logger.info(f"[DISCORD] embed sent: {title}")
                     return True
-                logger.error(f"Discord webhook failed: {resp.status}")
+                logger.error(f"[DISCORD] webhook failed: {resp.status}")
                 return False
     except Exception as e:
-        logger.error(f"Discord webhook error: {e}")
+        logger.error(f"[DISCORD] webhook error: {e}")
         return False
 
 

@@ -284,10 +284,37 @@ Output ONLY: LONG, SHORT, or WAIT."""
         return f"{system_prompt}{memory_section}\n{market_prompt}"
 
 
-    async def get_signal(self, market_data: dict) -> str:
-        """시그널 생성 (기존 호환성 유지).
+    async def get_signal_with_reason(self, market_data: dict) -> tuple[str, str]:
+        """시그널+이유 생성 (프롬프트 기록 포함).
 
-        메모리 없이 기존 방식으로 시그널 생성
+        앙상블 경로에서 호출될 때도 _last_prompt가 저장되도록 오버라이드.
+
+        Args:
+            market_data: 시장 데이터 딕셔너리
+
+        Returns:
+            (시그널, 이유) 튜플
+        """
+        signal = "WAIT"
+        reason = ""
+        prompt_text = ""
+        raw_response = ""
+        try:
+            user_prompt = self._build_market_prompt_with_reason(market_data)
+            prompt_text = f"{self.system_prompt}\n\n{user_prompt}"
+            signal, reason = await super().get_signal_with_reason(market_data)
+            raw_response = f'{{"signal": "{signal}", "reason": "{reason}"}}'
+            return signal, reason
+        except Exception:
+            raise
+        finally:
+            self._last_prompt = prompt_text
+            self._last_response = raw_response
+            self._last_call_time = datetime.now()
+            self._last_signal = signal
+
+    async def get_signal(self, market_data: dict) -> str:
+        """시그널 생성 (프롬프트 기록 포함).
 
         Args:
             market_data: 시장 데이터 딕셔너리
@@ -295,5 +322,19 @@ Output ONLY: LONG, SHORT, or WAIT."""
         Returns:
             시그널: "LONG", "SHORT", or "WAIT"
         """
-        # 기존 GeminiSignalGenerator의 get_signal 호출
-        return await super().get_signal(market_data)
+        signal = "WAIT"
+        prompt_text = ""
+        raw_response = ""
+        try:
+            user_prompt = self._build_market_prompt(market_data)
+            prompt_text = f"{self.system_prompt}\n\n{user_prompt}"
+            signal = await super().get_signal(market_data)
+            raw_response = signal
+            return signal
+        except Exception:
+            raise
+        finally:
+            self._last_prompt = prompt_text
+            self._last_response = raw_response
+            self._last_call_time = datetime.now()
+            self._last_signal = signal

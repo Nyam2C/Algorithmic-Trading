@@ -9,6 +9,7 @@ Phase 4: AI 메모리 시스템 통합
 """
 import asyncio
 import contextlib
+import math
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -1338,6 +1339,7 @@ class BotInstance:
                 f"주입 시그널 사용: {signal} (source={injected.get('source')})"
             )
         elif getattr(self.config, "use_ensemble", False) and self._ensemble_generator:
+            _ai_t0 = time.monotonic()
             try:
                 result = await self._ensemble_generator.generate_ensemble_signal(
                     market_data.get("indicators", {}),
@@ -1351,19 +1353,29 @@ class BotInstance:
                     f"앙상블 시그널: {signal} @ ${current_price:,.2f} "
                     f"(합의율={result.consensus_ratio:.1%})"
                 )
-                # Prometheus: signal_confidence 기록
+                # Prometheus: signal_confidence + ai_latency 기록
                 if self._metrics:
                     with contextlib.suppress(Exception):
                         self._metrics.record_signal_confidence(
                             self.bot_name, result.consensus_ratio
                         )
+                    with contextlib.suppress(Exception):
+                        self._metrics.record_ai_latency(
+                            self.bot_name, time.monotonic() - _ai_t0
+                        )
             except Exception as e:
                 self._log.warning(f"앙상블 시그널 실패, 폴백: {e}")
                 signal = self._generate_signal(market_data)
         elif self._use_memory_signals and self._enhanced_gemini:
+            _ai_t0 = time.monotonic()
             signal = await self._generate_signal_with_memory(market_data)
             signal_source = "memory_gemini"
             self._log.info(f"메모리 시그널: {signal} @ ${current_price:,.2f}")
+            if self._metrics:
+                with contextlib.suppress(Exception):
+                    self._metrics.record_ai_latency(
+                        self.bot_name, time.monotonic() - _ai_t0
+                    )
         else:
             signal = self._generate_signal(market_data)
             self._log.info(f"시그널: {signal} @ ${current_price:,.2f}")
@@ -1377,6 +1389,12 @@ class BotInstance:
         # Phase 6.2: 마켓 레짐 감지 및 필터링
         indicators = market_data.get("indicators", {})
         self._current_regime = self._regime_detector.detect(indicators)
+
+        # Prometheus: RSI 기록 (NaN guard)
+        _rsi = indicators.get("rsi")
+        if self._metrics and _rsi is not None and not math.isnan(float(_rsi)):
+            with contextlib.suppress(Exception):
+                self._metrics.record_rsi(self.bot_name, float(_rsi))
 
         if self.config.use_regime_filter:
             original_signal = signal

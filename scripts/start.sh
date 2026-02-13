@@ -23,7 +23,7 @@ warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 # Compose 파일 경로 (통합: Bot + API 단일 프로세스)
-COMPOSE_FILES="-f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml -f deploy/docker-compose.n8n.yml -f deploy/docker-compose.monitoring.yml"
+COMPOSE_FILES="--env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml -f deploy/docker-compose.n8n.yml -f deploy/docker-compose.monitoring.yml"
 # 단독 monitoring compose (별도 프로젝트로 실행됐을 수 있음)
 MONITORING_COMPOSE="-f monitoring/docker-compose.yml"
 

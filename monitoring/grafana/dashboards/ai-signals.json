@@ -24,8 +24,8 @@
   "panels": [
     {
       "datasource": {
-        "type": "loki",
-        "uid": "P8E80F9AEF21F6940"
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -126,12 +126,11 @@
       "targets": [
         {
           "datasource": {
-            "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
           },
-          "editorMode": "code",
-          "expr": "sum by (signal) (count_over_time({app=\"trading\"} | json | signal != \"\" [24h]))",
-          "queryType": "range",
+          "expr": "sum by (signal) (increase(trading_signal_total[24h]))",
+          "legendFormat": "{{signal}}",
           "refId": "A"
         }
       ],
@@ -140,8 +139,8 @@
     },
     {
       "datasource": {
-        "type": "loki",
-        "uid": "P8E80F9AEF21F6940"
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -197,12 +196,11 @@
       "targets": [
         {
           "datasource": {
-            "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
           },
-          "editorMode": "code",
-          "expr": "avg_over_time({app=\"trading\"} | json | confidence \\!= \"\" | unwrap confidence [1h])",
-          "queryType": "range",
+          "expr": "avg(trading_signal_confidence)",
+          "legendFormat": "",
           "refId": "A"
         }
       ],
@@ -211,8 +209,8 @@
     },
     {
       "datasource": {
-        "type": "loki",
-        "uid": "P8E80F9AEF21F6940"
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -286,12 +284,11 @@
       "targets": [
         {
           "datasource": {
-            "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
           },
-          "editorMode": "code",
-          "expr": "sum by (signal) (count_over_time({app=\"trading\"} | json | signal != \"\" [5m]))",
-          "queryType": "range",
+          "expr": "sum by (signal) (rate(trading_signal_total[5m]))",
+          "legendFormat": "{{signal}}",
           "refId": "A"
         }
       ],
@@ -374,8 +371,8 @@
     },
     {
       "datasource": {
-        "type": "loki",
-        "uid": "P8E80F9AEF21F6940"
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -449,14 +446,12 @@
       "targets": [
         {
           "datasource": {
-            "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
           },
-          "editorMode": "code",
-          "expr": "avg_over_time({app=\"trading\"} | json | rsi \\!= \"\" | unwrap rsi [5m])",
-          "queryType": "range",
-          "refId": "A",
-          "legendFormat": "RSI"
+          "expr": "trading_rsi",
+          "legendFormat": "{{bot_name}}",
+          "refId": "A"
         }
       ],
       "title": "RSI 추이",
@@ -544,7 +539,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(trading_ai_latency_seconds_sum[5m]) / rate(trading_ai_latency_seconds_count[5m])",
+          "expr": "rate(trading_ai_latency_seconds_sum[30m]) / rate(trading_ai_latency_seconds_count[30m])",
           "legendFormat": "{{bot_name}}",
           "refId": "A"
         }

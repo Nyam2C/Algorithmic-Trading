@@ -75,7 +75,7 @@
             "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({app=\"trading\", signal=\"LONG\"} [24h]))",
+          "expr": "sum(count_over_time({app=\"trading\"} |= \"ENSEMBLE_SIGNAL\" | json | final_signal=`LONG` [24h]))",
           "queryType": "range",
           "refId": "A"
         }
@@ -136,7 +136,7 @@
             "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({app=\"trading\", signal=\"SHORT\"} [24h]))",
+          "expr": "sum(count_over_time({app=\"trading\"} |= \"ENSEMBLE_SIGNAL\" | json | final_signal=`SHORT` [24h]))",
           "queryType": "range",
           "refId": "A"
         }
@@ -197,7 +197,7 @@
             "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({app=\"trading\", signal=\"WAIT\"} [24h]))",
+          "expr": "sum(count_over_time({app=\"trading\"} |= \"ENSEMBLE_SIGNAL\" | json | final_signal=`WAIT` [24h]))",
           "queryType": "range",
           "refId": "A"
         }
@@ -265,7 +265,7 @@
             "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "sum by (signal) (count_over_time({app=\"trading\"} |= \"SIGNAL\" [24h]))",
+          "expr": "sum by (final_signal) (count_over_time({app=\"trading\"} |= \"ENSEMBLE_SIGNAL\" | json [24h]))",
           "queryType": "range",
           "refId": "A"
         }
@@ -391,7 +391,7 @@
             "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "sum by (signal) (count_over_time({app=\"trading\"} |= \"SIGNAL\" [1h]))",
+          "expr": "sum by (final_signal) (count_over_time({app=\"trading\"} |= \"ENSEMBLE_SIGNAL\" | json [1h]))",
           "queryType": "range",
           "refId": "A"
         }
@@ -428,7 +428,7 @@
             "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "{app=\"trading\"} |= \"DISCORD\"",
+          "expr": "{app=\"trading\"} |~ \"(?i)discord\"",
           "queryType": "range",
           "refId": "A"
         }
@@ -729,7 +729,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "trading_loop_duration_seconds",
+          "expr": "rate(trading_loop_duration_seconds_sum[5m]) / rate(trading_loop_duration_seconds_count[5m])",
           "legendFormat": "{{bot_name}}",
           "refId": "A"
         }
