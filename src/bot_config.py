@@ -78,7 +78,7 @@ class BotConfig(BaseModel):
     risk_level: str = Field(default="medium")
 
     # 트레이딩 파라미터 (None이면 risk_level 기본값 사용)
-    leverage: int | None = Field(default=None, ge=1, le=125)
+    leverage: int | None = Field(default=None, ge=1, le=50)
     position_size_pct: float | None = Field(default=None, gt=0, le=1)
     take_profit_pct: float | None = Field(default=None, gt=0)
     stop_loss_pct: float | None = Field(default=None, gt=0)
@@ -99,6 +99,9 @@ class BotConfig(BaseModel):
 
     # Phase 7: 단일 거래 최대 손실률
     max_loss_per_trade_pct: float = Field(default=0.02, gt=0, le=1)  # 2%
+
+    # Phase 9: 추정 수수료율 (PnL 계산 시 차감)
+    estimated_fee_rate: float = Field(default=0.0008, ge=0, le=0.01)  # 0.08%
 
     # Phase 7: 리스크 한도 시 포지션 청산
     close_on_risk_halt: bool = Field(default=True)

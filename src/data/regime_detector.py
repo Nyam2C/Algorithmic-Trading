@@ -175,6 +175,9 @@ class RegimeDetector:
 
         # 부분 추세 모드: MA7/MA25만으로 약한 추세 감지
         if self.partial_trend_mode:
+            # Phase 9: 낮은 변동성 + 비정렬 = RANGING (횡보)
+            if atr_pct < self.atr_weak_threshold:
+                return MarketRegime.RANGING
             if is_bullish_partial:
                 return MarketRegime.WEAK_UPTREND
             if is_bearish_partial:

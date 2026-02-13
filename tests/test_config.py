@@ -76,7 +76,7 @@ class TestTradingConfig:
                 binance_secret_key="test",
                 gemini_api_key="test",
                 discord_webhook_url="https://test.com",
-                leverage=126,  # 최대값 초과
+                leverage=51,  # 최대값 초과
             )
 
         # 0 이하

@@ -227,26 +227,26 @@ class TestPartialTrendMode:
     """부분 추세 모드 테스트"""
 
     def test_partial_trend_bullish(self):
-        """MA7>MA25 but MA99 not aligned -> WEAK_UPTREND with partial mode"""
+        """MA7>MA25 but MA99 not aligned -> WEAK_UPTREND with partial mode (sufficient volatility)"""
         detector = RegimeDetector(partial_trend_mode=True)
         market_data = {
             "ma_7": 100500.0,
             "ma_25": 100000.0,
             "ma_99": 100200.0,  # MA99 between MA7 and MA25 -> not fully aligned
-            "atr": 500.0,
+            "atr": 600.0,       # Phase 9: ATR > weak_threshold (0.5%) required for partial trend
             "price": 100500.0,
         }
         regime = detector.detect(market_data)
         assert regime == MarketRegime.WEAK_UPTREND
 
     def test_partial_trend_bearish(self):
-        """MA7<MA25 but MA99 not aligned -> WEAK_DOWNTREND with partial mode"""
+        """MA7<MA25 but MA99 not aligned -> WEAK_DOWNTREND with partial mode (sufficient volatility)"""
         detector = RegimeDetector(partial_trend_mode=True)
         market_data = {
             "ma_7": 99500.0,
             "ma_25": 100000.0,
             "ma_99": 99800.0,  # MA99 not aligned for full bearish
-            "atr": 500.0,
+            "atr": 600.0,       # Phase 9: ATR > weak_threshold (0.5%) required for partial trend
             "price": 99500.0,
         }
         regime = detector.detect(market_data)

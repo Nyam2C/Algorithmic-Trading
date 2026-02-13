@@ -228,8 +228,11 @@ class MultiBotManager:
                 logger.warning(f"[{bot_name}] {reason}")
                 return False, reason
 
+            # Phase 9: 허용 시 자동 예약 (TOCTOU 방지)
+            self._pending_reservations[bot_name] = position_value
+
             logger.info(
-                f"[{bot_name}] 포지션 진입 허용: "
+                f"[{bot_name}] 포지션 진입 허용 + 예약: "
                 f"총 노출도 ${new_total:,.2f} / ${self._max_total_exposure:,.2f}"
             )
             return True, ""

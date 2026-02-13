@@ -224,23 +224,24 @@ class RiskManager:
         Returns:
             (중단 여부, 중단 사유)
         """
-        # 시작 잔고가 설정되지 않은 경우
-        if self._daily_start_balance <= 0:
-            return False, ""
+        # 일일 손실 한도 체크 (시작 잔고가 설정된 경우만)
+        if self._daily_start_balance > 0:
+            # Phase 8: 순 PnL 기반 일일 손실 판단
+            net_pnl = self._daily_pnl + min(unrealized_pnl, 0.0)
+            if net_pnl < 0:
+                daily_loss_pct = abs(net_pnl) / self._daily_start_balance
+                if daily_loss_pct >= self.max_daily_loss_pct:
+                    reason = (
+                        f"일일 손실 한도 도달: {daily_loss_pct:.2%} "
+                        f">= {self.max_daily_loss_pct:.2%}"
+                    )
+                    logger.warning(reason)
+                    return True, reason
 
-        # Phase 8: 순 PnL 기반 일일 손실 판단
-        net_pnl = self._daily_pnl + min(unrealized_pnl, 0.0)
-        if net_pnl >= 0:
-            return False, ""
-
-        daily_loss_pct = abs(net_pnl) / self._daily_start_balance
-        if daily_loss_pct >= self.max_daily_loss_pct:
-            reason = (
-                f"일일 손실 한도 도달: {daily_loss_pct:.2%} "
-                f">= {self.max_daily_loss_pct:.2%}"
-            )
-            logger.warning(reason)
-            return True, reason
+        # Phase 9: 드로다운 체크 (PnL 양수여도 전체 드로다운은 초과 가능)
+        dd_exceeded, dd_reason = await self.check_max_drawdown()
+        if dd_exceeded:
+            return True, dd_reason
 
         return False, ""
 
@@ -299,6 +300,77 @@ class RiskManager:
             return True, reason
 
         return False, ""
+
+    # =========================================================================
+    # 상태 직렬화 (Phase 9: 재시작 시 복구용)
+    # =========================================================================
+
+    def to_dict(self) -> dict:
+        """리스크 매니저 상태를 딕셔너리로 직렬화.
+
+        Returns:
+            상태 딕셔너리 (Redis 저장용)
+        """
+        return {
+            "daily_pnl": self._daily_pnl,
+            "daily_start_balance": self._daily_start_balance,
+            "daily_reset_time": (
+                self._daily_reset_time.isoformat()
+                if self._daily_reset_time
+                else None
+            ),
+            "consecutive_losses": self._consecutive_losses,
+            "cooldown_until": (
+                self._cooldown_until.isoformat()
+                if self._cooldown_until
+                else None
+            ),
+            "peak_balance": self._peak_balance,
+            "current_drawdown": self._current_drawdown,
+            "total_trades": self._total_trades,
+            "winning_trades": self._winning_trades,
+            "losing_trades": self._losing_trades,
+        }
+
+    def from_dict(self, state: dict) -> None:
+        """딕셔너리에서 리스크 매니저 상태 복원.
+
+        Args:
+            state: to_dict()로 저장된 상태 딕셔너리
+        """
+        self._daily_pnl = state.get("daily_pnl", self._daily_pnl)
+        self._daily_start_balance = state.get(
+            "daily_start_balance", self._daily_start_balance
+        )
+
+        reset_time = state.get("daily_reset_time")
+        if reset_time and isinstance(reset_time, str):
+            self._daily_reset_time = datetime.fromisoformat(reset_time)
+        elif reset_time is None:
+            self._daily_reset_time = None
+
+        self._consecutive_losses = state.get(
+            "consecutive_losses", self._consecutive_losses
+        )
+
+        cooldown = state.get("cooldown_until")
+        if cooldown and isinstance(cooldown, str):
+            self._cooldown_until = datetime.fromisoformat(cooldown)
+        elif cooldown is None:
+            self._cooldown_until = None
+
+        self._peak_balance = state.get("peak_balance", self._peak_balance)
+        self._current_drawdown = state.get(
+            "current_drawdown", self._current_drawdown
+        )
+        self._total_trades = state.get("total_trades", self._total_trades)
+        self._winning_trades = state.get("winning_trades", self._winning_trades)
+        self._losing_trades = state.get("losing_trades", self._losing_trades)
+
+        logger.info(
+            f"RiskManager 상태 복원: daily_pnl={self._daily_pnl:+,.2f}, "
+            f"trades={self._total_trades}, drawdown={self._current_drawdown:.2%}"
+        )
 
     # =========================================================================
     # 상태 조회

@@ -44,6 +44,10 @@ class TradingMetrics:
     _default_signal_total: Counter | None = None
     _default_ai_latency: Histogram | None = None
     _default_consecutive_wait: Gauge | None = None
+    _default_exchange_connected: Gauge | None = None
+    _default_circuit_breaker_state: Gauge | None = None
+    _default_open_positions: Gauge | None = None
+    _default_bot_uptime: Gauge | None = None
 
     def __init__(self, registry: CollectorRegistry | None = None) -> None:
         """메트릭 초기화.
@@ -69,6 +73,10 @@ class TradingMetrics:
             self._signal_total = TradingMetrics._default_signal_total
             self._ai_latency = TradingMetrics._default_ai_latency
             self._consecutive_wait = TradingMetrics._default_consecutive_wait
+            self._exchange_connected = TradingMetrics._default_exchange_connected
+            self._circuit_breaker_state = TradingMetrics._default_circuit_breaker_state
+            self._open_positions = TradingMetrics._default_open_positions
+            self._bot_uptime = TradingMetrics._default_bot_uptime
             return
 
         # 새 레지스트리거나 처음 초기화
@@ -163,6 +171,35 @@ class TradingMetrics:
             registry=self._registry,
         )
 
+        # Phase 9: 운영 메트릭
+        exchange_connected = Gauge(
+            "trading_exchange_connected",
+            "Exchange connection status (1=connected, 0=disconnected)",
+            ["bot_name"],
+            registry=self._registry,
+        )
+
+        circuit_breaker_state = Gauge(
+            "trading_circuit_breaker_state",
+            "Circuit breaker state (0=closed, 1=open)",
+            ["breaker_name"],
+            registry=self._registry,
+        )
+
+        open_positions = Gauge(
+            "trading_open_positions",
+            "Number of open positions",
+            ["bot_name"],
+            registry=self._registry,
+        )
+
+        bot_uptime = Gauge(
+            "trading_bot_uptime_seconds",
+            "Bot uptime in seconds",
+            ["bot_name"],
+            registry=self._registry,
+        )
+
         # 인스턴스 변수에 저장
         self._trades_total = trades_total
         self._trade_duration = trade_duration
@@ -174,6 +211,10 @@ class TradingMetrics:
         self._signal_total = signal_total
         self._ai_latency = ai_latency
         self._consecutive_wait = consecutive_wait
+        self._exchange_connected = exchange_connected
+        self._circuit_breaker_state = circuit_breaker_state
+        self._open_positions = open_positions
+        self._bot_uptime = bot_uptime
 
         # 기본 레지스트리면 클래스 변수에도 저장
         if self._use_default:
@@ -187,6 +228,10 @@ class TradingMetrics:
             TradingMetrics._default_signal_total = signal_total
             TradingMetrics._default_ai_latency = ai_latency
             TradingMetrics._default_consecutive_wait = consecutive_wait
+            TradingMetrics._default_exchange_connected = exchange_connected
+            TradingMetrics._default_circuit_breaker_state = circuit_breaker_state
+            TradingMetrics._default_open_positions = open_positions
+            TradingMetrics._default_bot_uptime = bot_uptime
 
     @property
     def trades_total(self) -> Counter:
@@ -257,6 +302,63 @@ class TradingMetrics:
         if self._consecutive_wait is None:
             raise RuntimeError("TradingMetrics not initialized")
         return self._consecutive_wait
+
+    def record_exchange_connected(
+        self,
+        bot_name: str,
+        connected: bool,
+    ) -> None:
+        """거래소 연결 상태 기록.
+
+        Args:
+            bot_name: 봇 이름
+            connected: 연결 여부
+        """
+        if self._exchange_connected is not None:
+            val = 1 if connected else 0
+            self._exchange_connected.labels(bot_name=bot_name).set(val)
+
+    def record_circuit_breaker_state(
+        self,
+        breaker_name: str,
+        state: int,
+    ) -> None:
+        """서킷 브레이커 상태 기록.
+
+        Args:
+            breaker_name: 브레이커 이름
+            state: 상태 (0=closed, 1=open)
+        """
+        if self._circuit_breaker_state is not None:
+            self._circuit_breaker_state.labels(breaker_name=breaker_name).set(state)
+
+    def record_open_positions(
+        self,
+        bot_name: str,
+        count: int,
+    ) -> None:
+        """오픈 포지션 수 기록.
+
+        Args:
+            bot_name: 봇 이름
+            count: 포지션 수
+        """
+        if self._open_positions is not None:
+            self._open_positions.labels(bot_name=bot_name).set(count)
+
+    def record_bot_uptime(
+        self,
+        bot_name: str,
+        uptime_seconds: float,
+    ) -> None:
+        """봇 가동시간 기록.
+
+        Args:
+            bot_name: 봇 이름
+            uptime_seconds: 가동시간 (초)
+        """
+        if self._bot_uptime is not None:
+            self._bot_uptime.labels(bot_name=bot_name).set(uptime_seconds)
 
     def record_consecutive_wait(
         self,

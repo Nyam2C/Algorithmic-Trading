@@ -122,6 +122,8 @@ class BotInstance:
         self._emergency_event = asyncio.Event()
         self._uptime_start: datetime | None = None
         self._loop_count = 0
+        self._consecutive_errors: int = 0
+        self._max_consecutive_errors: int = 5
 
         # 현재 데이터
         self._current_price: float = 0.0
@@ -746,6 +748,20 @@ class BotInstance:
 
     async def _cleanup(self) -> None:
         """봇 정리 (연결 해제)."""
+        # 열린 포지션 확인 및 경고
+        try:
+            if self._executor:
+                position = await self._executor.get_position()
+                if position:
+                    self._log.warning(
+                        f"종료 시 열린 포지션 발견: {position.get('side', 'UNKNOWN')} "
+                        f"{abs(position.get('position_amt', 0))} {self.symbol} "
+                        f"@ ${position.get('entry_price', 0):,.2f} "
+                        f"(미실현PnL: ${position.get('unrealized_pnl', 0):,.2f})"
+                    )
+        except Exception as e:
+            self._log.warning(f"종료 시 포지션 확인 실패: {e}")
+
         # Redis 상태 업데이트
         if self._redis_state_manager:
             await self._sync_state_to_redis()
@@ -1038,7 +1054,12 @@ class BotInstance:
                 pnl_usd = (exit_price - entry_price) * abs(position["position_amt"])
             else:
                 pnl_usd = (entry_price - exit_price) * abs(position["position_amt"])
-            pnl_usd *= self.config.get_effective_leverage()
+
+            # Phase 9: 추정 수수료 차감 (진입+청산 왕복)
+            _fee_rate = getattr(self.config, "estimated_fee_rate", 0.0008)
+            if _fee_rate > 0:
+                _fee = abs(position["position_amt"]) * exit_price * _fee_rate * 2
+                pnl_usd -= _fee
 
             # Phase 5 통합: 감사 로그 기록
             if self._audit_log:
@@ -1137,6 +1158,9 @@ class BotInstance:
                 await self._trade_approval.record_trade_completed(self.bot_name)
 
             self._current_position = None
+
+            # Phase 9: Clear executor position state after all DB/PnL tracking
+            self._executor.clear_position()
 
             # 콜백 호출
             await self._notify_trade("CLOSE", side, exit_price, pnl_pct)
@@ -1460,6 +1484,96 @@ class BotInstance:
             self._is_paused = True
             return
 
+        # Phase 9 Issue B: 거래소 측 포지션 종료 감지 (SL/TP 체결)
+        if self._executor and isinstance(self._executor.current_position, dict):
+            exchange_pos = await self._executor.get_position()
+            if exchange_pos is None:
+                # 봇은 포지션을 추적 중이나 거래소에 없음 → SL/TP 체결
+                tracked = self._executor.current_position
+                side = tracked.get("side", "LONG")
+                entry_price = tracked.get("entry_price", 0.0)
+                position_amt = abs(tracked.get("position_amt", 0.0))
+
+                self._log.warning(
+                    f"거래소 측 포지션 종료 감지: {side} @ "
+                )
+
+                # PnL 추정 (현재가 기준)
+                pnl_pct = self._executor.calculate_pnl_pct(
+                    entry_price, current_price, side
+                )
+                if side == "LONG":
+                    pnl_usd = (current_price - entry_price) * position_amt
+                else:
+                    pnl_usd = (entry_price - current_price) * position_amt
+                pnl_usd *= self.config.get_effective_leverage()
+
+                # DB에 기록
+                if self._trade_db and tracked.get("trade_id"):
+                    entry_time = tracked.get("entry_time", datetime.now())
+                    duration = int(
+                        (datetime.now() - entry_time).total_seconds() / 60
+                    )
+                    try:
+                        exit_closed = await self._trade_db.add_exit(
+                            trade_id=tracked["trade_id"],
+                            exit_time=datetime.now(),
+                            exit_price=current_price,
+                            exit_reason="EXCHANGE_SL_TP",
+                            pnl=pnl_usd,
+                            pnl_pct=pnl_pct,
+                            duration_minutes=duration,
+                        )
+                        if not exit_closed:
+                            self._log.warning(
+                                "이미 청산된 거래 - PnL 이중 추적 방지"
+                            )
+                    except Exception as db_err:
+                        self._log.error(
+                            f"거래소 측 종료 DB 기록 실패: {db_err}"
+                        )
+                        exit_closed = True  # DB 실패해도 리스크 매니저에는 기록
+
+                    # 리스크 매니저에 PnL 추적
+                    if exit_closed:
+                        await self._risk_manager.track_trade_pnl(pnl_usd)
+                        is_win = pnl_usd >= 0
+                        await self._risk_manager.track_trade_result(is_win)
+                else:
+                    # trade_id 없으면 리스크 매니저에만 기록
+                    await self._risk_manager.track_trade_pnl(pnl_usd)
+                    is_win = pnl_usd >= 0
+                    await self._risk_manager.track_trade_result(is_win)
+
+                self._log.bind(event_type="TRADE_CLOSE").info(
+                    f"거래소 측 포지션 종료: {side}, PnL={pnl_pct:+.2f}%",
+                    exit_reason="EXCHANGE_SL_TP",
+                    side=side,
+                    entry_price=entry_price,
+                    exit_price=current_price,
+                    pnl_usd=pnl_usd,
+                    pnl_pct=pnl_pct,
+                )
+
+                # 포지션 정리 (WS1 clear_position() 사용)
+                self._executor.clear_position()
+                self._current_position = None
+
+                # Prometheus 메트릭
+                if self._metrics:
+                    with contextlib.suppress(Exception):
+                        result_str = "win" if pnl_usd >= 0 else "loss"
+                        entry_time = tracked.get("entry_time")
+                        duration_s = (
+                            (datetime.now() - entry_time).total_seconds()
+                            if entry_time else 0.0
+                        )
+                        self._metrics.record_trade(
+                            self.bot_name, side, result_str, duration_s
+                        )
+                        self._metrics.clear_position_metrics(self.bot_name)
+                return
+
         # 4. 현재 포지션 확인
         if self._executor is None:
             return
@@ -1577,7 +1691,8 @@ class BotInstance:
         if self._on_exposure_check and signal in ("LONG", "SHORT"):
             try:
                 pct = self.config.get_effective_position_size_pct()
-                position_value = current_price * pct
+                leverage = self.config.get_effective_leverage()
+                position_value = current_price * pct * leverage
                 can_open, reason = await self._on_exposure_check(
                     self.bot_name, position_value
                 )
@@ -1603,9 +1718,14 @@ class BotInstance:
         """메인 트레이딩 루프."""
         self._is_running = True
         self._uptime_start = datetime.now()
+        self._consecutive_errors = 0
         self._log.info("트레이딩 루프 시작")
 
         while self._is_running:
+            if self._is_paused:
+                await asyncio.sleep(1)
+                continue
+
             loop_start = time.monotonic()
             try:
                 loop_timeout = max(self._loop_interval_seconds - 20, 60)
@@ -1620,12 +1740,28 @@ class BotInstance:
                         "API 응답 지연 또는 무한 대기 가능성"
                     )
 
+                # 성공 시 연속 에러 카운터 리셋
+                self._consecutive_errors = 0
+
                 # Redis 상태 동기화
                 await self._sync_state_to_redis()
 
             except Exception as e:
-                self._log.error(f"루프 에러: {e}", exc_info=True)
+                self._consecutive_errors += 1
+                self._log.error(
+                    f"루프 에러 "
+                    f"({self._consecutive_errors}/{self._max_consecutive_errors}): {e}",
+                    exc_info=True,
+                )
                 await self._notify_error(e)
+
+                if self._consecutive_errors >= self._max_consecutive_errors:
+                    self._is_paused = True
+                    self._log.critical(
+                        f"연속 {self._consecutive_errors}회 "
+                        "에러 발생 - 봇 자동 일시정지. "
+                        "수동 확인 후 resume 명령으로 재개하세요."
+                    )
             finally:
                 # 루프 타이밍 기록
                 self._last_loop_duration = time.monotonic() - loop_start

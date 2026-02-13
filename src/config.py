@@ -32,7 +32,7 @@ class TradingConfig(BaseModel):
 
     # Trading Parameters
     symbol: str = Field(default="BTCUSDT")
-    leverage: int = Field(default=15, ge=1, le=125)
+    leverage: int = Field(default=15, ge=1, le=50)
     position_size_pct: float = Field(default=0.05, gt=0, le=1)
     take_profit_pct: float = Field(default=0.004, gt=0)
     stop_loss_pct: float = Field(default=0.004, gt=0)

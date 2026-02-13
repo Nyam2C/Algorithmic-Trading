@@ -29,7 +29,8 @@ class TradeHistoryDB:
                 self.database_url,
                 min_size=1,
                 max_size=10,
-                command_timeout=60
+                command_timeout=60,
+                timeout=10,
             )
             logger.info("PostgreSQL 거래 이력 데이터베이스 연결 완료")
 

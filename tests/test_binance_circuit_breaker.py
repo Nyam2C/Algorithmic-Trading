@@ -5,17 +5,18 @@ import pytest
 from binance.exceptions import BinanceAPIException
 
 from src.exchange.binance import BinanceTestnetClient
-from src.utils.circuit_breaker import CircuitBreakerOpen, get_circuit_breaker
+from src.utils.circuit_breaker import (
+    CircuitBreakerOpen,
+    reset_all_circuit_breakers,
+)
 
 
 @pytest.fixture(autouse=True)
 def _reset_binance_circuit_breaker():
-    """각 테스트 전후로 binance_api circuit breaker 리셋."""
-    # 데코레이터가 모듈 로드 시 생성한 인스턴스를 직접 리셋
-    breaker = get_circuit_breaker("binance_api")
-    breaker.reset()
+    """각 테스트 전후로 모든 circuit breaker 리셋."""
+    reset_all_circuit_breakers()
     yield
-    breaker.reset()
+    reset_all_circuit_breakers()
 
 
 @pytest.fixture
@@ -140,8 +141,8 @@ class TestBinanceCircuitBreakerIntegration:
             assert price == 50000.0
 
     @pytest.mark.asyncio
-    async def test_circuit_shared_across_methods(self, client):
-        """모든 메서드가 동일한 'binance_api' circuit을 공유."""
+    async def test_circuit_shared_across_market_data_methods(self, client):
+        """시장 데이터 메서드가 동일한 'binance_market_data' circuit을 공유."""
         client._client.futures_symbol_ticker = AsyncMock(
             side_effect=ConnectionError("fail")
         )
@@ -159,7 +160,7 @@ class TestBinanceCircuitBreakerIntegration:
             with pytest.raises(ConnectionError):
                 await client.get_klines("BTCUSDT")
 
-        # 다른 메서드도 차단됨
+        # 같은 market_data 카테고리 메서드는 차단됨
         with pytest.raises(CircuitBreakerOpen):
             await client.get_current_price("BTCUSDT")
 

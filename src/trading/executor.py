@@ -11,6 +11,7 @@ from binance.enums import (
     SIDE_BUY,
     SIDE_SELL,
 )
+from binance.exceptions import BinanceAPIException
 from loguru import logger
 
 from src.utils.pnl import calculate_pnl_pct as _calculate_pnl_pct
@@ -41,7 +42,7 @@ class TradingExecutor:
         # Phase 5: 잔고 캐싱
         self._cached_balance: float | None = None
         self._balance_cache_time: datetime | None = None
-        self._balance_cache_ttl_seconds: int = 300  # 5분 캐싱
+        self._balance_cache_ttl_seconds: int = 60  # 1분 캐싱 (변동성 시장 대응)
 
         logger.info("Trading executor initialized")
 
@@ -502,6 +503,9 @@ class TradingExecutor:
     ) -> dict | None:
         """Close current position.
 
+        Note: Does NOT clear current_position. The caller must call
+        clear_position() after completing DB writes and PnL tracking.
+
         Args:
             cancel_orders_first: Cancel all open orders before closing
                 (use for force close to avoid race with exchange SL/TP)
@@ -565,22 +569,24 @@ class TradingExecutor:
                             f"Partial fill retry failed: {retry_err}"
                         ) from retry_err
 
-            # Cancel exchange-side TP/SL orders (no longer needed after manual close)
-            try:
-                await self.client.cancel_all_open_orders(self.config.symbol)
-                logger.info("거래소 TP/SL 주문 취소 완료")
-            except Exception as e:
-                logger.warning(f"거래소 TP/SL 주문 취소 실패 (무시): {e}")
-
-            self.current_position = None
             logger.info("Position closed successfully")
             return order
 
         except RuntimeError:
             raise  # Partial fill failure must propagate
+        except (BinanceAPIException, ConnectionError):
+            raise  # Exchange/network errors must propagate to caller
         except Exception as e:
             logger.error(f"Failed to close position: {e}")
             return None
+
+    def clear_position(self) -> None:
+        """Clear current position state.
+
+        Must be called by the bot AFTER all DB writes and PnL tracking
+        are complete following a close_position() call.
+        """
+        self.current_position = None
 
     async def get_position(self) -> dict | None:
         """Get current position from exchange.
@@ -841,9 +847,8 @@ class TradingExecutor:
         try:
             if "entry_time" not in position or position["entry_time"] is None:
                 logger.warning(
-                    "entry_time이 없어 현재 시간으로 설정합니다"
+                    "entry_time이 없어 타임컷 체크 불가"
                 )
-                position["entry_time"] = datetime.now()
                 return False
 
             entry_time = position["entry_time"]

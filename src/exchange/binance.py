@@ -100,7 +100,7 @@ class BinanceTestnetClient:
         return self._testnet
 
     @circuit_breaker(
-        name="binance_api",
+        name="binance_market_data",
         failure_threshold=5,
         recovery_timeout=60,
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
@@ -133,7 +133,7 @@ class BinanceTestnetClient:
             self._record_latency("get_current_price", t0)
 
     @circuit_breaker(
-        name="binance_api",
+        name="binance_market_data",
         failure_threshold=5,
         recovery_timeout=60,
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
@@ -203,7 +203,7 @@ class BinanceTestnetClient:
             self._record_latency("get_klines", t0)
 
     @circuit_breaker(
-        name="binance_api",
+        name="binance_market_data",
         failure_threshold=5,
         recovery_timeout=60,
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
@@ -239,7 +239,7 @@ class BinanceTestnetClient:
             raise
 
     @circuit_breaker(
-        name="binance_api",
+        name="binance_trading",
         failure_threshold=5,
         recovery_timeout=60,
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
@@ -271,7 +271,7 @@ class BinanceTestnetClient:
             raise
 
     @circuit_breaker(
-        name="binance_api",
+        name="binance_trading",
         failure_threshold=5,
         recovery_timeout=60,
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
@@ -315,7 +315,7 @@ class BinanceTestnetClient:
             self._record_latency("create_market_order", t0)
 
     @circuit_breaker(
-        name="binance_api",
+        name="binance_trading",
         failure_threshold=5,
         recovery_timeout=60,
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
@@ -408,6 +408,12 @@ class BinanceTestnetClient:
             logger.error(f"Failed to cancel order {order_id}: {e}")
             raise
 
+    @async_retry(
+        max_attempts=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(BinanceAPIException, ConnectionError, TimeoutError),
+    )
     async def get_position(self, symbol: str) -> dict | None:
         """Get current position for a symbol.
 
@@ -664,7 +670,7 @@ class BinanceTestnetClient:
         return sentiment
 
     @circuit_breaker(
-        name="binance_api",
+        name="binance_account",
         failure_threshold=5,
         recovery_timeout=60,
         exceptions=(BinanceAPIException, ConnectionError, TimeoutError),

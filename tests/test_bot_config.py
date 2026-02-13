@@ -220,10 +220,10 @@ class TestBotConfig:
         """leverage 검증 테스트"""
 
         def test_leverage_범위_내_유효(self) -> None:
-            """1-125 범위의 leverage 유효"""
+            """1-50 범위의 leverage 유효"""
             from src.bot_config import BotConfig
 
-            for leverage in [1, 10, 50, 100, 125]:
+            for leverage in [1, 10, 25, 50]:
                 config = BotConfig(
                     bot_name="test-bot",
                     symbol="BTCUSDT",
@@ -246,8 +246,8 @@ class TestBotConfig:
                     leverage=0,
                 )
 
-        def test_leverage_125초과_에러(self) -> None:
-            """leverage가 125 초과면 에러"""
+        def test_leverage_50초과_에러(self) -> None:
+            """leverage가 50 초과면 에러"""
             from pydantic import ValidationError
 
             from src.bot_config import BotConfig
@@ -256,7 +256,7 @@ class TestBotConfig:
                 BotConfig(
                     bot_name="test-bot",
                     symbol="BTCUSDT",
-                    leverage=126,
+                    leverage=51,
                 )
 
     # ===== position_size_pct 검증 테스트 =====

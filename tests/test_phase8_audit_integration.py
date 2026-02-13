@@ -533,28 +533,29 @@ class TestBalanceUnrealizedDeduction:
 
 
 class TestEntryTimeTimecutFallback:
-    """이슈 14: entry_time 없을 때 현재 시간으로 설정."""
+    """이슈 14: entry_time 없을 때 False 반환 (Phase 9: 변이 제거)."""
 
     def test_missing_entry_time_sets_now_and_returns_false(self):
-        """entry_time 없음 → 현재 시간 설정, False 반환."""
+        """entry_time 없음 → False 반환, dict 변이 없음."""
         executor = _make_executor()
         position = {"side": "LONG", "quantity": 0.01}
 
         result = executor.check_timecut(position)
 
         assert result is False
-        assert "entry_time" in position
-        assert isinstance(position["entry_time"], datetime)
+        # Phase 9: no longer mutates position dict
+        assert "entry_time" not in position
 
     def test_none_entry_time_sets_now_and_returns_false(self):
-        """entry_time=None → 현재 시간 설정, False 반환."""
+        """entry_time=None → False 반환, dict 변이 없음."""
         executor = _make_executor()
         position = {"side": "LONG", "entry_time": None}
 
         result = executor.check_timecut(position)
 
         assert result is False
-        assert position["entry_time"] is not None
+        # Phase 9: no longer mutates position dict
+        assert position["entry_time"] is None
 
 
 class TestExposureReservation:

@@ -264,10 +264,16 @@ class EnsembleSignalGenerator:
             signal = await self._gemini.get_signal(market_data)
             reason = "Gemini AI 분석"
 
+        # Phase 9: 파싱된 신뢰도 사용, 없으면 0.6 기본값
+        confidence = 0.6
+        raw_conf = getattr(self._gemini, 'last_confidence', None)
+        if isinstance(raw_conf, (int, float)) and 0 < raw_conf <= 1:
+            confidence = float(raw_conf)
+
         return IndividualSignal(
             source=SignalSource.GEMINI_AI,
             signal=signal,
-            confidence=0.8,  # AI 신뢰도
+            confidence=confidence,
             reason=reason,
             weight=self.weights.get(SignalSource.GEMINI_AI, 0.4),
         )

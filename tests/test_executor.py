@@ -295,8 +295,8 @@ class TestTimecutFeature:
 
         assert result is True
 
-    def test_check_timecut_no_entry_time_sets_current_time(self, executor):
-        """entry_time 필드 없으면 현재 시간 설정 후 False 반환"""
+    def test_check_timecut_no_entry_time_returns_false(self, executor):
+        """entry_time 필드 없으면 False 반환 (dict 변경 없음)"""
         position = {
             "side": "LONG"
         }
@@ -304,12 +304,11 @@ class TestTimecutFeature:
         result = executor.check_timecut(position)
 
         assert result is False
-        # entry_time이 설정되어야 함
-        assert "entry_time" in position
-        assert isinstance(position["entry_time"], datetime)
+        # entry_time should NOT be set (no mutation)
+        assert "entry_time" not in position
 
-    def test_check_timecut_none_entry_time_sets_current_time(self, executor):
-        """entry_time이 None이면 현재 시간 설정 후 False 반환"""
+    def test_check_timecut_none_entry_time_returns_false(self, executor):
+        """entry_time이 None이면 False 반환 (dict 변경 없음)"""
         position = {
             "side": "LONG",
             "entry_time": None,
@@ -318,21 +317,21 @@ class TestTimecutFeature:
         result = executor.check_timecut(position)
 
         assert result is False
-        assert position["entry_time"] is not None
-        assert isinstance(position["entry_time"], datetime)
+        # entry_time should still be None (no mutation)
+        assert position["entry_time"] is None
 
-    def test_check_timecut_subsequent_call_uses_set_time(self, executor):
-        """두 번째 호출에서 설정된 entry_time 사용"""
+    def test_check_timecut_missing_entry_time_always_returns_false(self, executor):
+        """entry_time 없으면 항상 False (타이머 시작 안 됨)"""
         position = {"side": "LONG"}
 
-        # 첫 호출: entry_time 설정
+        # 첫 호출: entry_time 없어서 False
         result1 = executor.check_timecut(position)
         assert result1 is False
-        assert "entry_time" in position
+        assert "entry_time" not in position
 
-        # 이제 entry_time이 있으므로 정상 체크
+        # 두 번째 호출: 여전히 entry_time 없으므로 False
         result2 = executor.check_timecut(position)
-        assert result2 is False  # 방금 설정했으므로 아직 시간 안 됨
+        assert result2 is False
 
     def test_check_timecut_custom_duration(self, mock_binance_client):
         """커스텀 타임컷 시간 (60분)"""
@@ -896,7 +895,7 @@ class TestExecutorBalanceErrorWithCache:
         executor = TradingExecutor(mock_binance_client, mock_config)
         # 먼저 캐시에 값 저장 (TTL 이내)
         executor._cached_balance = 3000.0
-        executor._balance_cache_time = datetime.now() - timedelta(minutes=2)  # 아직 유효
+        executor._balance_cache_time = datetime.now() - timedelta(seconds=30)  # TTL 60초 이내
 
         # API 에러 발생
         mock_binance_client.get_account_balance = AsyncMock(

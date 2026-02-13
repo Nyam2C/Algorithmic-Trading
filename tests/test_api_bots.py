@@ -181,11 +181,11 @@ class TestCreateBot:
             json={
                 "bot_name": "invalid-bot",
                 "symbol": "BTCUSDT",
-                "leverage": 200,  # 125 초과 (Pydantic Field에서 le=125)
+                "leverage": 200,  # 50 초과 (Pydantic Field에서 le=50)
             },
         )
 
-        # Pydantic validation에서 걸림 (leverage max 125)
+        # Pydantic validation에서 걸림 (leverage max 50)
         assert response.status_code == 422
 
 

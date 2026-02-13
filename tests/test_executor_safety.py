@@ -107,15 +107,15 @@ class TestBalanceFallbackSafety:
     async def test_balance_fallback_api_fail_fresh_cache(
         self, mock_binance_client, mock_config_real_balance
     ):
-        """API 실패 + 캐시 5분 이내 -> 캐시 사용"""
+        """API 실패 + 캐시 TTL 이내 -> 캐시 사용"""
         mock_binance_client.get_account_balance = AsyncMock(
             side_effect=Exception("API Error")
         )
         executor = TradingExecutor(mock_binance_client, mock_config_real_balance)
 
-        # Set fresh cache (2 minutes ago)
+        # Set fresh cache (30 seconds ago, within 60s TTL)
         executor._cached_balance = 5000.0
-        executor._balance_cache_time = datetime.now() - timedelta(minutes=2)
+        executor._balance_cache_time = datetime.now() - timedelta(seconds=30)
 
         quantity = await executor._calculate_position_size_with_balance(100000.0)
 
@@ -128,7 +128,7 @@ class TestBalanceFallbackSafety:
     async def test_balance_fallback_api_fail_stale_cache(
         self, mock_binance_client, mock_config_real_balance
     ):
-        """API 실패 + 캐시 5분 초과 -> RuntimeError"""
+        """API 실패 + 캐시 TTL 초과 -> RuntimeError"""
         mock_binance_client.get_account_balance = AsyncMock(
             side_effect=Exception("API Error")
         )
@@ -142,12 +142,12 @@ class TestBalanceFallbackSafety:
             await executor._calculate_position_size_with_balance(100000.0)
 
     @pytest.mark.asyncio
-    async def test_cache_ttl_changed_to_300(
+    async def test_cache_ttl_changed_to_60(
         self, mock_binance_client, mock_config_real_balance
     ):
-        """캐시 TTL이 300초(5분)로 설정됨"""
+        """캐시 TTL이 60초(1분)로 설정됨"""
         executor = TradingExecutor(mock_binance_client, mock_config_real_balance)
-        assert executor._balance_cache_ttl_seconds == 300
+        assert executor._balance_cache_ttl_seconds == 60
 
 
 # =============================================================================
@@ -491,13 +491,17 @@ class TestExchangeTpSlPlacement:
 
 
 class TestClosePositionCancelsOrders:
-    """Issue #1: 포지션 청산 시 거래소 TP/SL 주문 취소 확인"""
+    """Issue #1 (updated Phase 9): Post-close cancel removed.
+
+    cancel_all_open_orders is only called when cancel_orders_first=True (pre-close).
+    Post-close cancel was removed to avoid cancelling other bots' SL orders.
+    """
 
     @pytest.mark.asyncio
-    async def test_close_position_cancels_all_orders(
+    async def test_close_position_no_post_close_cancel(
         self, mock_binance_client, mock_config
     ):
-        """close_position() 후 cancel_all_open_orders() 호출 확인"""
+        """close_position() should NOT call cancel_all_open_orders post-close."""
         mock_binance_client.get_position = AsyncMock(return_value={
             "side": "LONG", "position_amt": 0.01, "entry_price": 100000.0,
         })
@@ -509,26 +513,25 @@ class TestClosePositionCancelsOrders:
         order = await executor.close_position()
 
         assert order is not None
-        mock_binance_client.cancel_all_open_orders.assert_called_once_with("BTCUSDT")
+        mock_binance_client.cancel_all_open_orders.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_close_position_cancel_failure_ignored(
+    async def test_close_position_cancel_orders_first_calls_cancel(
         self, mock_binance_client, mock_config
     ):
-        """TP/SL 취소 실패해도 청산은 성공"""
+        """cancel_orders_first=True should call cancel before close."""
         mock_binance_client.get_position = AsyncMock(return_value={
             "side": "LONG", "position_amt": 0.01, "entry_price": 100000.0,
         })
-        mock_binance_client.cancel_all_open_orders = AsyncMock(
-            side_effect=Exception("Cancel failed")
-        )
+        mock_binance_client.cancel_all_open_orders = AsyncMock(return_value={
+            "code": 200, "msg": "success",
+        })
 
         executor = TradingExecutor(mock_binance_client, mock_config)
-        order = await executor.close_position()
+        order = await executor.close_position(cancel_orders_first=True)
 
-        # 청산은 성공해야 함
         assert order is not None
-        assert executor.current_position is None
+        mock_binance_client.cancel_all_open_orders.assert_called_once_with("BTCUSDT")
 
     @pytest.mark.asyncio
     async def test_close_position_no_position_no_cancel(
@@ -696,7 +699,7 @@ class TestDeductUnrealizedLossesFromCachedBalance:
 
         # Set fresh cache
         executor._cached_balance = 5000.0
-        executor._balance_cache_time = datetime.now() - timedelta(minutes=1)
+        executor._balance_cache_time = datetime.now() - timedelta(seconds=30)
 
         # Set current position with unrealized loss
         executor.current_position = {
@@ -718,7 +721,7 @@ class TestDeductUnrealizedLossesFromCachedBalance:
 
         # Set fresh cache
         executor._cached_balance = 5000.0
-        executor._balance_cache_time = datetime.now() - timedelta(minutes=1)
+        executor._balance_cache_time = datetime.now() - timedelta(seconds=30)
 
         # Set current position with unrealized profit
         executor.current_position = {
@@ -740,7 +743,7 @@ class TestDeductUnrealizedLossesFromCachedBalance:
 
         # Set fresh cache
         executor._cached_balance = 5000.0
-        executor._balance_cache_time = datetime.now() - timedelta(minutes=1)
+        executor._balance_cache_time = datetime.now() - timedelta(seconds=30)
 
         # No position
         executor.current_position = None
@@ -757,7 +760,7 @@ class TestDeductUnrealizedLossesFromCachedBalance:
 
         # Set fresh cache
         executor._cached_balance = 100.0
-        executor._balance_cache_time = datetime.now() - timedelta(minutes=1)
+        executor._balance_cache_time = datetime.now() - timedelta(seconds=30)
 
         # Unrealized loss exceeds balance
         executor.current_position = {
@@ -928,10 +931,10 @@ class TestCancelOrdersBeforeClose:
         mock_binance_client.cancel_all_open_orders.assert_called()
 
     @pytest.mark.asyncio
-    async def test_close_position_default_no_pre_cancel(
+    async def test_close_position_default_no_cancel_at_all(
         self, mock_binance_client, mock_config
     ):
-        """기본값(cancel_orders_first=False) 시 사전 취소 안 함"""
+        """기본값(cancel_orders_first=False) 시 cancel 호출 안 함"""
         mock_binance_client.get_position = AsyncMock(return_value={
             'side': 'LONG', 'position_amt': 0.01,
         })
@@ -943,8 +946,8 @@ class TestCancelOrdersBeforeClose:
         order = await executor.close_position()
 
         assert order is not None
-        # cancel_all_open_orders is called once (post-close cleanup only)
-        assert mock_binance_client.cancel_all_open_orders.call_count == 1
+        # cancel_all_open_orders should NOT be called at all (no post-close cancel)
+        mock_binance_client.cancel_all_open_orders.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_cancel_orders_first_position_gone(
