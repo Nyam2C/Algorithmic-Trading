@@ -14,15 +14,7 @@ n8n은 **봇이 하지 않는 고유 가치**를 제공합니다:
 
 ## 워크플로우 목록
 
-### 1. tradingview-signal.json
-TradingView 알림을 받아 봇에 시그널을 전송하는 워크플로우입니다.
-
-**흐름:**
-1. TradingView Webhook 수신
-2. 시그널 파싱 (LONG/SHORT/WAIT/CLOSE)
-3. API 시그널 전송 (`POST /api/n8n/signal`)
-
-### 2. daily-report.json
+### 1. daily-report.json
 매일 09:00에 거래 통계를 수집하여 Discord + Notion으로 전송합니다.
 
 **흐름:**
@@ -31,7 +23,7 @@ TradingView 알림을 받아 봇에 시그널을 전송하는 워크플로우입
 3. 리포트 포맷팅
 4. Discord Webhook 전송 + Notion 페이지 생성
 
-### 3. alert-escalation.json
+### 2. alert-escalation.json
 봇 콜백 이벤트를 수신하여 에러는 에스컬레이션하고 거래는 알림합니다.
 
 **흐름:**
@@ -40,7 +32,7 @@ TradingView 알림을 받아 봇에 시그널을 전송하는 워크플로우입
 3. error: Discord 즉시 알림 → 5분 대기 → 헬스 체크 → 미복구 시 Notion 인시던트 로그
 4. trade: Discord 거래 알림
 
-### 4. data-enrichment.json
+### 3. data-enrichment.json
 4시간마다 외부 시장 데이터를 수집하여 봇에 전송합니다.
 
 **흐름:**
@@ -49,7 +41,7 @@ TradingView 알림을 받아 봇에 시그널을 전송하는 워크플로우입
 3. 데이터 정규화
 4. `POST /api/n8n/market-context`로 전송
 
-### 5. trade-journal-notion.json
+### 4. trade-journal-notion.json
 거래 콜백을 수신하여 Notion 데이터베이스에 거래 기록을 저장합니다.
 
 **흐름:**
@@ -58,7 +50,7 @@ TradingView 알림을 받아 봇에 시그널을 전송하는 워크플로우입
 3. 거래 데이터 포맷팅
 4. Notion API로 페이지 생성
 
-### 6. health-monitor.json
+### 5. health-monitor.json
 5분마다 봇 시스템 상태를 점검하고 이상 시 알림합니다.
 
 **흐름:**
@@ -78,7 +70,7 @@ TradingView 알림을 받아 봇에 시그널을 전송하는 워크플로우입
 | 변수명 | 설명 | 필수 | 사용 워크플로우 |
 |--------|------|------|----------------|
 | `TRADING_BOT_API_URL` | API 서버 URL | ✅ | 전체 |
-| `N8N_API_KEY` | n8n 전용 API 키 | ✅ | tradingview-signal, data-enrichment |
+| `N8N_API_KEY` | n8n 전용 API 키 | ✅ | data-enrichment |
 | `API_KEY` | 일반 API 키 | ✅ | daily-report, health-monitor |
 | `DISCORD_WEBHOOK_URL` | Discord 웹훅 URL | ✅ | daily-report, alert-escalation, health-monitor |
 | `NOTION_API_KEY` | Notion API 키 | ⬜ | daily-report, alert-escalation, trade-journal, health-monitor |
