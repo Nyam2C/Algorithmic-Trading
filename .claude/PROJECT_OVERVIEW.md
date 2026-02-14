@@ -227,6 +227,15 @@ Algorithmic-Trading/
 | 봇 상태 엔드포인트 | `src/api/routes/health.py` | GET /health/bots |
 | Grafana 대시보드 개선 | `monitoring/grafana/dashboards/*.json` | Prometheus 패널 추가 |
 
+### n8n 통합 재설계 (2026-02-15 구현)
+| 기능 | 파일 | 설명 |
+|------|------|------|
+| /command 제거 | `src/api/routes/n8n.py` | /api/bots와 중복되는 명령 엔드포인트 삭제 |
+| 콜백 서비스 연결 | `src/main.py` | N8NCallbackService를 MultiBotManager 콜백에 연결 |
+| 시장 컨텍스트 수신 | `src/api/routes/n8n.py` | POST /api/n8n/market-context (Fear & Greed, 펀딩레이트) |
+| Redis 시장 컨텍스트 | `src/storage/redis_state.py` | save/load_market_context (TTL 1시간) |
+| 워크플로우 정리 | `workflows/` | 중복 삭제 + 6개 워크플로우 (시그널, 리포트, 에스컬레이션, 데이터, 저널, 헬스) |
+
 ---
 
 ## 구현 기능 상세
