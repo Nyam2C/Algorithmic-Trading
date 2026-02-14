@@ -24,6 +24,10 @@ BOT_POSITION_KEY = f"{KEY_PREFIX}:bot:{{bot_name}}:position"
 REGISTERED_BOTS_KEY = f"{KEY_PREFIX}:manager:bots"
 RUNNING_BOTS_KEY = f"{KEY_PREFIX}:manager:running"
 MARKET_CONTEXT_KEY = f"{KEY_PREFIX}:market_context"
+BOT_RISK_KEY = f"{KEY_PREFIX}:bot:{{bot_name}}:risk"
+BOT_HEARTBEAT_KEY = f"{KEY_PREFIX}:bot:{{bot_name}}:heartbeat"
+BOT_COMMAND_KEY = f"{KEY_PREFIX}:bot:{{bot_name}}:command"
+EXPOSURE_KEY = f"{KEY_PREFIX}:exposure:bots"
 
 # Market context TTL (1시간)
 MARKET_CONTEXT_TTL = 3600
@@ -461,6 +465,47 @@ class RedisStateManager:
             return False
 
     # =========================================================================
+    # 범용 키 유틸리티
+    # =========================================================================
+
+    async def key_exists(self, key: str) -> bool:
+        """Redis 키 존재 여부 확인.
+
+        Args:
+            key: 확인할 키
+
+        Returns:
+            키 존재 여부 (연결 실패 시 False)
+        """
+        if self._client is None:
+            return False
+
+        try:
+            return bool(await self._client.exists(key))  # type: ignore[misc]
+        except Exception:
+            return False
+
+    async def set_with_ttl(self, key: str, value: str, ttl_seconds: int) -> bool:
+        """Redis 키 설정 (TTL 포함).
+
+        Args:
+            key: 설정할 키
+            value: 값
+            ttl_seconds: TTL (초)
+
+        Returns:
+            설정 성공 여부
+        """
+        if self._client is None:
+            return False
+
+        try:
+            await self._client.set(key, value, ex=ttl_seconds)  # type: ignore[misc]
+            return True
+        except Exception:
+            return False
+
+    # =========================================================================
     # 외부 시장 컨텍스트
     # =========================================================================
 
@@ -506,6 +551,266 @@ class RedisStateManager:
         except Exception as e:
             self._log.error(f"시장 컨텍스트 로드 실패: {e}")
             return None
+
+
+    # =========================================================================
+    # 리스크 매니저 상태 영속화 (Phase 1)
+    # =========================================================================
+
+    def _get_risk_key(self, bot_name: str) -> str:
+        """봇 리스크 상태 키 생성."""
+        return f"{self._key_prefix}:bot:{bot_name}:risk"
+
+    async def save_risk_state(self, bot_name: str, risk_data: dict[str, Any]) -> bool:
+        """리스크 매니저 상태 저장.
+
+        Args:
+            bot_name: 봇 이름
+            risk_data: RiskManager.to_dict() 결과
+
+        Returns:
+            저장 성공 여부
+        """
+        if self._client is None:
+            return False
+
+        try:
+            key = self._get_risk_key(bot_name)
+            serializable = self._serialize_state(risk_data)
+            serializable["last_updated"] = datetime.now().isoformat()
+            await self._client.hset(key, mapping=serializable)  # type: ignore[misc]
+            self._log.debug(f"리스크 상태 저장: {bot_name}")
+            return True
+        except Exception as e:
+            self._log.error(f"리스크 상태 저장 실패: {bot_name}, {e}")
+            return False
+
+    async def load_risk_state(self, bot_name: str) -> dict[str, Any] | None:
+        """리스크 매니저 상태 로드.
+
+        Args:
+            bot_name: 봇 이름
+
+        Returns:
+            리스크 상태 딕셔너리 또는 None
+        """
+        if self._client is None:
+            return None
+
+        try:
+            key = self._get_risk_key(bot_name)
+            state = await self._client.hgetall(key)  # type: ignore[misc]
+            if not state:
+                return None
+            return self._deserialize_state(state)
+        except Exception as e:
+            self._log.error(f"리스크 상태 로드 실패: {bot_name}, {e}")
+            return None
+
+    # =========================================================================
+    # 봇 하트비트 (Phase 1)
+    # =========================================================================
+
+    async def write_heartbeat(
+        self, bot_name: str, data: dict[str, Any], ttl: int
+    ) -> bool:
+        """봇 하트비트 기록.
+
+        Args:
+            bot_name: 봇 이름
+            data: 하트비트 데이터 (timestamp, loop_count, status 등)
+            ttl: TTL (초). 만료 시 봇 사망으로 간주.
+
+        Returns:
+            기록 성공 여부
+        """
+        if self._client is None:
+            return False
+
+        try:
+            key = f"{self._key_prefix}:bot:{bot_name}:heartbeat"
+            json_data = json.dumps(data, default=str)
+            await self._client.set(key, json_data, ex=ttl)  # type: ignore[misc]
+            return True
+        except Exception as e:
+            self._log.error(f"하트비트 기록 실패: {bot_name}, {e}")
+            return False
+
+    async def read_heartbeat(self, bot_name: str) -> dict[str, Any] | None:
+        """봇 하트비트 조회.
+
+        TTL 만료 시 None 반환 (= 봇 사망).
+
+        Args:
+            bot_name: 봇 이름
+
+        Returns:
+            하트비트 데이터 또는 None (만료/없음)
+        """
+        if self._client is None:
+            return None
+
+        try:
+            key = f"{self._key_prefix}:bot:{bot_name}:heartbeat"
+            raw = await self._client.get(key)  # type: ignore[misc]
+            if raw is None:
+                return None
+            return json.loads(raw)
+        except Exception as e:
+            self._log.error(f"하트비트 조회 실패: {bot_name}, {e}")
+            return None
+
+    # =========================================================================
+    # 봇 명령 채널 (Phase 1)
+    # =========================================================================
+
+    async def push_command(self, bot_name: str, command: dict[str, Any]) -> bool:
+        """봇 명령 큐에 명령 추가 (FIFO).
+
+        Args:
+            bot_name: 봇 이름
+            command: 명령 딕셔너리 (예: {"action": "PAUSE"})
+
+        Returns:
+            추가 성공 여부
+        """
+        if self._client is None:
+            return False
+
+        try:
+            key = f"{self._key_prefix}:bot:{bot_name}:command"
+            json_data = json.dumps(command, default=str)
+            await self._client.rpush(key, json_data)  # type: ignore[misc]
+            action = command.get('action', 'UNKNOWN')
+            self._log.info(f"명령 전송: {bot_name} <- {action}")
+            return True
+        except Exception as e:
+            self._log.error(f"명령 전송 실패: {bot_name}, {e}")
+            return False
+
+    async def pop_command(self, bot_name: str) -> dict[str, Any] | None:
+        """봇 명령 큐에서 명령 꺼내기 (FIFO).
+
+        Args:
+            bot_name: 봇 이름
+
+        Returns:
+            명령 딕셔너리 또는 None (큐 비어있음)
+        """
+        if self._client is None:
+            return None
+
+        try:
+            key = f"{self._key_prefix}:bot:{bot_name}:command"
+            raw = await self._client.lpop(key)  # type: ignore[misc]
+            if raw is None:
+                return None
+            return json.loads(raw)
+        except Exception as e:
+            self._log.error(f"명령 수신 실패: {bot_name}, {e}")
+            return None
+
+    # =========================================================================
+    # 분산 노출도 관리 (Phase 2)
+    # =========================================================================
+
+    async def check_and_reserve_exposure(
+        self, bot_name: str, value: float, max_total: float
+    ) -> bool:
+        """원자적 노출도 체크+예약 (Lua script).
+
+        Args:
+            bot_name: 봇 이름
+            value: 예약할 노출도 (USDT)
+            max_total: 최대 총 노출도 (USDT)
+
+        Returns:
+            True: 예약 성공, False: 한도 초과
+        """
+        if self._client is None:
+            return False
+
+        lua_script = """
+        local key = KEYS[1]
+        local bot_name = ARGV[1]
+        local value = tonumber(ARGV[2])
+        local max_total = tonumber(ARGV[3])
+
+        -- 현재 총 노출도 계산
+        local all = redis.call('HGETALL', key)
+        local total = 0
+        for i = 1, #all, 2 do
+            if all[i] ~= bot_name then
+                total = total + tonumber(all[i+1])
+            end
+        end
+
+        -- 한도 체크
+        if total + value > max_total then
+            return 0
+        end
+
+        -- 예약
+        redis.call('HSET', key, bot_name, tostring(value))
+        return 1
+        """
+
+        try:
+            key = f"{self._key_prefix}:exposure:bots"
+            result = await self._client.eval(  # type: ignore[misc]
+                lua_script, 1, key, bot_name, str(value), str(max_total)
+            )
+            if result == 1:
+                self._log.info(
+                    f"노출도 예약 성공: {bot_name} = ${value:,.2f}"
+                )
+                return True
+            self._log.warning(
+                f"노출도 예약 거부 (한도 초과): {bot_name} = ${value:,.2f}"
+            )
+            return False
+        except Exception as e:
+            self._log.error(f"노출도 체크 실패: {bot_name}, {e}")
+            return False
+
+    async def release_exposure(self, bot_name: str) -> bool:
+        """노출도 예약 해제.
+
+        Args:
+            bot_name: 봇 이름
+
+        Returns:
+            해제 성공 여부
+        """
+        if self._client is None:
+            return False
+
+        try:
+            key = f"{self._key_prefix}:exposure:bots"
+            result = await self._client.hdel(key, bot_name)  # type: ignore[misc]
+            if result:
+                self._log.info(f"노출도 해제: {bot_name}")
+            return bool(result)
+        except Exception as e:
+            self._log.error(f"노출도 해제 실패: {bot_name}, {e}")
+            return False
+
+    async def get_total_exposure(self) -> dict[str, float]:
+        """전체 노출도 조회.
+
+        Returns:
+            봇별 노출도 딕셔너리
+        """
+        if self._client is None:
+            return {}
+
+        try:
+            key = f"{self._key_prefix}:exposure:bots"
+            raw = await self._client.hgetall(key)  # type: ignore[misc]
+            return {k: float(v) for k, v in raw.items()}
+        except Exception as e:
+            self._log.error(f"노출도 조회 실패: {e}")
+            return {}
 
     # =========================================================================
     # 직렬화/역직렬화
@@ -639,6 +944,44 @@ class DummyRedisStateManager:
 
     async def clear_running_bots(self) -> bool:
         return False
+
+    async def key_exists(self, _key: str) -> bool:
+        return False
+
+    async def set_with_ttl(self, _key: str, _value: str, _ttl_seconds: int) -> bool:
+        return False
+
+
+    async def save_risk_state(self, _bot_name: str, _risk_data: dict[str, Any]) -> bool:
+        return False
+
+    async def load_risk_state(self, _bot_name: str) -> dict[str, Any] | None:
+        return None
+
+    async def write_heartbeat(
+        self, _bot_name: str, _data: dict[str, Any], _ttl: int
+    ) -> bool:
+        return False
+
+    async def read_heartbeat(self, _bot_name: str) -> dict[str, Any] | None:
+        return None
+
+    async def push_command(self, _bot_name: str, _command: dict[str, Any]) -> bool:
+        return False
+
+    async def pop_command(self, _bot_name: str) -> dict[str, Any] | None:
+        return None
+
+    async def check_and_reserve_exposure(
+        self, _bot_name: str, _value: float, _max_total: float
+    ) -> bool:
+        return True
+
+    async def release_exposure(self, _bot_name: str) -> bool:
+        return False
+
+    async def get_total_exposure(self) -> dict[str, float]:
+        return {}
 
     async def save_market_context(self, _data: dict[str, Any]) -> bool:
         return False

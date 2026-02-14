@@ -35,6 +35,7 @@ from src.storage.redis_state import DummyRedisStateManager, RedisStateManager
 from src.storage.trade_history import TradeHistoryDB
 from src.trading.executor import TradingExecutor
 from src.trading.risk_manager import RiskManager  # Phase 5.2
+from src.trading.signal_cooldown import SignalCooldownManager
 
 # 콜백 타입 정의
 OnSignalCallback = Callable[[str, str, float], Awaitable[None]]
@@ -199,6 +200,9 @@ class BotInstance:
 
         # Phase 5 통합: AuditLogManager
         self._audit_log: AuditLogManager | None = None
+
+        # 시그널 쿨다운 매니저
+        self._signal_cooldown: SignalCooldownManager | None = None
 
         # Phase 5 통합: 외부 시그널 주입
         self._injected_signal: dict[str, Any] | None = None
@@ -395,10 +399,28 @@ class BotInstance:
             else:
                 await self._redis_state_manager.delete_position(self.bot_name)
 
+            # Phase 1: 리스크 매니저 상태 영속화
+            await self._redis_state_manager.save_risk_state(
+                self.bot_name, self._risk_manager.to_dict()
+            )
+
+            # Phase 1: 하트비트 기록 (TTL = loop_interval x 2)
+            heartbeat_ttl = self._loop_interval_seconds * 2
+            heartbeat_data = {
+                "timestamp": datetime.now().isoformat(),
+                "loop_count": self._loop_count,
+                "status": "paused" if self._is_paused else "running",
+                "current_price": self._current_price,
+                "has_position": self._current_position is not None,
+            }
+            await self._redis_state_manager.write_heartbeat(
+                self.bot_name, heartbeat_data, heartbeat_ttl
+            )
+
         except Exception as e:
             self._log.warning(f"Redis 상태 동기화 실패: {e}")
 
-    async def _restore_state_from_redis(self) -> bool:
+    async def _restore_state_from_redis(self) -> bool:  # noqa: PLR0915
         """Redis에서 상태 복구.
 
         Returns:
@@ -418,6 +440,16 @@ class BotInstance:
                 self._log.info(
                     f"Redis에서 상태 복구: loop_count={self._loop_count}, "
                     f"is_paused={self._is_paused}"
+                )
+
+            # Phase 1: 리스크 매니저 상태 복구
+            risk_state = await self._redis_state_manager.load_risk_state(
+                self.bot_name
+            )
+            if risk_state:
+                self._risk_manager.from_dict(risk_state)
+                self._log.info(
+                    f"리스크 상태 복구: daily_pnl={risk_state.get('daily_pnl', 0):.2f}"
                 )
 
             # 포지션 복구
@@ -675,6 +707,18 @@ class BotInstance:
             # 봇 실행 상태 등록
             await self._redis_state_manager.register_bot(self.bot_name)
             await self._redis_state_manager.set_bot_running(self.bot_name)
+
+        # 시그널 쿨다운 매니저 초기화
+        if self._redis_state_manager:
+            self._signal_cooldown = SignalCooldownManager(
+                redis_manager=self._redis_state_manager,
+                bot_name=self.bot_name,
+                symbol=self.symbol,
+                signal_cooldown_seconds=self.config.signal_cooldown_seconds,
+                post_loss_cooldown_seconds=self.config.post_loss_cooldown_seconds,
+                alert_dedup_seconds=self.config.alert_dedup_seconds,
+            )
+            self._log.info("SignalCooldownManager 초기화 완료")
 
         # Position reconciliation: 거래소 vs Redis 포지션 동기화
         if self._binance_client:
@@ -968,6 +1012,10 @@ class BotInstance:
                                 f" - 수동 확인 필요: {redis_err}"
                             )
 
+            # 시그널 쿨다운 설정
+            if self._signal_cooldown:
+                await self._signal_cooldown.set_signal_cooldown(signal)
+
             # Phase 5 통합: 감사 로그 기록
             if self._audit_log:
                 try:
@@ -1123,6 +1171,9 @@ class BotInstance:
                 await self._risk_manager.track_trade_pnl(pnl_usd)
                 is_win = pnl_usd >= 0
                 await self._risk_manager.track_trade_result(is_win)
+                # 손실 시 쿨다운 설정
+                if not is_win and self._signal_cooldown:
+                    await self._signal_cooldown.set_post_loss_cooldown()
             else:
                 self._log.info("PnL 추적 스킵 - 이미 청산된 거래")
 
@@ -1168,6 +1219,10 @@ class BotInstance:
 
             # Phase 9: Clear executor position state after all DB/PnL tracking
             self._executor.clear_position()
+
+            # Phase 2: 분산 노출도 해제
+            if self._redis_state_manager:
+                await self._redis_state_manager.release_exposure(self.bot_name)
 
             # 콜백 호출
             await self._notify_trade("CLOSE", side, exit_price, pnl_pct)
@@ -1523,8 +1578,13 @@ class BotInstance:
             except Exception as e:
                 self._log.debug(f"시그널 메트릭 기록 실패: {e}")
 
-        # 콜백 호출
-        await self._notify_signal(signal, current_price)
+        # 콜백 호출 (알림 중복 제거 적용)
+        if self._signal_cooldown and signal in ("LONG", "SHORT"):
+            if await self._signal_cooldown.should_send_alert(signal):
+                await self._notify_signal(signal, current_price)
+                await self._signal_cooldown.mark_alert_sent(signal)
+        else:
+            await self._notify_signal(signal, current_price)
 
     async def _handle_emergency_close(self, current_price: float) -> bool:
         """긴급 청산 처리.
@@ -1548,7 +1608,7 @@ class BotInstance:
         self._is_paused = True
         return True
 
-    async def _detect_exchange_position_close(
+    async def _detect_exchange_position_close(  # noqa: PLR0915
         self, current_price: float
     ) -> bool:
         """거래소 측 포지션 종료 감지 (SL/TP 체결).
@@ -1614,11 +1674,15 @@ class BotInstance:
                 await self._risk_manager.track_trade_pnl(pnl_usd)
                 is_win = pnl_usd >= 0
                 await self._risk_manager.track_trade_result(is_win)
+                if not is_win and self._signal_cooldown:
+                    await self._signal_cooldown.set_post_loss_cooldown()
         else:
             # trade_id 없으면 리스크 매니저에만 기록
             await self._risk_manager.track_trade_pnl(pnl_usd)
             is_win = pnl_usd >= 0
             await self._risk_manager.track_trade_result(is_win)
+            if not is_win and self._signal_cooldown:
+                await self._signal_cooldown.set_post_loss_cooldown()
 
         self._log.bind(event_type="TRADE_CLOSE").info(
             f"거래소 측 포지션 종료: {side}, PnL={pnl_pct:+.2f}%",
@@ -1633,6 +1697,10 @@ class BotInstance:
         # 포지션 정리
         self._executor.clear_position()
         self._current_position = None
+
+        # Phase 2: 분산 노출도 해제
+        if self._redis_state_manager:
+            await self._redis_state_manager.release_exposure(self.bot_name)
 
         # Prometheus 메트릭
         if self._metrics:
@@ -1696,7 +1764,7 @@ class BotInstance:
 
         return False
 
-    async def _attempt_new_entry(  # noqa: PLR0911
+    async def _attempt_new_entry(  # noqa: PLR0911, PLR0915
         self,
         signal: str,
         current_price: float,
@@ -1718,6 +1786,15 @@ class BotInstance:
         if should_skip:
             self._log.info(f"리스크 제한으로 진입 스킵: {skip_reason}")
             return
+
+        # 시그널 쿨다운 체크
+        if self._signal_cooldown and signal in ("LONG", "SHORT"):
+            if await self._signal_cooldown.is_signal_on_cooldown(signal):
+                self._log.info(f"시그널 쿨다운 중 - 진입 스킵: {signal}")
+                return
+            if await self._signal_cooldown.is_post_loss_cooldown_active():
+                self._log.info("손실 후 쿨다운 중 - 진입 스킵")
+                return
 
         # 수동 승인 체크 (비차단)
         if self._trade_approval and signal in ("LONG", "SHORT"):
@@ -1798,8 +1875,36 @@ class BotInstance:
             )
             await self._open_position(signal, current_price, entry_atr)
 
+    async def _check_redis_commands(self) -> None:
+        """Redis 명령 큐에서 명령 확인 및 실행."""
+        if self._redis_state_manager is None:
+            return
+
+        while True:
+            command = await self._redis_state_manager.pop_command(self.bot_name)
+            if command is None:
+                break
+
+            action = command.get("action", "").upper()
+            self._log.info(f"Redis 명령 수신: {action}")
+
+            if action == "PAUSE":
+                self.pause()
+            elif action == "RESUME":
+                self.resume()
+                self._risk_halt_notified = False
+            elif action == "EMERGENCY_CLOSE":
+                self.request_emergency_close()
+            elif action == "STOP":
+                await self.stop()
+            else:
+                self._log.warning(f"알 수 없는 Redis 명령: {action}")
+
     async def _execute_single_loop(self) -> None:
         """단일 트레이딩 루프 실행."""
+        # Phase 1: Redis 명령 큐 확인
+        await self._check_redis_commands()
+
         self._loop_count += 1
         self._log.info(f"루프 #{self._loop_count} 시작")
 

@@ -103,6 +103,11 @@ class BotConfig(BaseModel):
     # Phase 9: 추정 수수료율 (PnL 계산 시 차감)
     estimated_fee_rate: float = Field(default=0.0008, ge=0, le=0.01)  # 0.08%
 
+    # 시그널 쿨다운 & 중복 제거
+    signal_cooldown_seconds: int = Field(default=300, ge=0)  # 5분
+    post_loss_cooldown_seconds: int = Field(default=600, ge=0)  # 10분
+    alert_dedup_seconds: int = Field(default=300, ge=0)  # 5분
+
     # Phase 7: 리스크 한도 시 포지션 청산
     close_on_risk_halt: bool = Field(default=True)
 

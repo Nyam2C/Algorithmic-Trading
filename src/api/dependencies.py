@@ -319,3 +319,40 @@ def get_optional_signal_tracker() -> Any | None:
         SignalTracker 인스턴스 또는 None
     """
     return _signal_tracker
+
+# =============================================================================
+# Phase 3: 오케스트레이터 모드
+# =============================================================================
+
+_orchestration_service: Any | None = None
+
+
+def is_orchestrator_mode() -> bool:
+    """오케스트레이터 모드 여부 확인.
+
+    ORCHESTRATOR_MODE=true 환경변수로 활성화.
+
+    Returns:
+        오케스트레이터 모드 활성화 여부
+    """
+    return os.getenv("ORCHESTRATOR_MODE", "false").lower() == "true"
+
+
+def set_orchestration_service(service: Any) -> None:
+    """OrchestrationService 인스턴스 설정.
+
+    Args:
+        service: OrchestrationService 인스턴스
+    """
+    global _orchestration_service  # noqa: PLW0603
+    _orchestration_service = service
+
+
+def get_orchestration_service() -> Any | None:
+    """OrchestrationService 인스턴스 반환.
+
+    Returns:
+        OrchestrationService 인스턴스 또는 None
+    """
+    return _orchestration_service
+

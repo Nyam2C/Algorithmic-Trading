@@ -564,6 +564,14 @@ def mock_redis_manager():
     manager.register_bot = AsyncMock()
     manager.set_bot_running = AsyncMock()
     manager.set_bot_stopped = AsyncMock()
+    # Phase 1: 리스크 상태 + 하트비트 + 명령
+    manager.save_risk_state = AsyncMock(return_value=True)
+    manager.load_risk_state = AsyncMock(return_value=None)
+    manager.write_heartbeat = AsyncMock(return_value=True)
+    manager.read_heartbeat = AsyncMock(return_value=None)
+    manager.push_command = AsyncMock(return_value=True)
+    manager.pop_command = AsyncMock(return_value=None)
+    manager.release_exposure = AsyncMock(return_value=False)
     return manager
 
 

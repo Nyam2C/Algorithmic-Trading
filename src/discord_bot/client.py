@@ -588,11 +588,22 @@ class TradingBotClient(discord.Client):
 
             if is_all:
                 # 전체 봇 긴급청산
-                bots = self.bot_manager.bots
-                closed_count = 0
-                for _name, bot in bots.items():
-                    bot.request_emergency_close()
-                    closed_count += 1
+                # Phase 3: 오케스트레이터 모드면 Redis 명령 채널 사용
+                from src.api.dependencies import is_orchestrator_mode  # noqa: PLC0415
+                if is_orchestrator_mode() and self.bot_manager.redis_state_manager:
+                    redis_mgr = self.bot_manager.redis_state_manager
+                    registered = await redis_mgr.get_registered_bots()
+                    closed_count = len(registered)
+                    for name in registered:
+                        await redis_mgr.push_command(
+                            name, {"action": "EMERGENCY_CLOSE"}
+                        )
+                else:
+                    bots = self.bot_manager.bots
+                    closed_count = 0
+                    for _name, bot in bots.items():
+                        bot.request_emergency_close()
+                        closed_count += 1
 
                 embed = discord.Embed(
                     title="🚨 전체 긴급 청산",
@@ -612,7 +623,14 @@ class TradingBotClient(discord.Client):
                     )
                     return
 
-                found_bot.request_emergency_close()
+                # Phase 3: 오케스트레이터 모드면 Redis 명령 채널 사용
+                from src.api.dependencies import is_orchestrator_mode  # noqa: PLC0415
+                if is_orchestrator_mode() and self.bot_manager.redis_state_manager:
+                    await self.bot_manager.redis_state_manager.push_command(
+                        target, {"action": "EMERGENCY_CLOSE"}
+                    )
+                else:
+                    found_bot.request_emergency_close()
 
                 embed = discord.Embed(
                     title=f"🚨 긴급 청산 — {target}",

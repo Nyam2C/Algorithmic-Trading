@@ -331,8 +331,13 @@ async def main() -> None:
         logger.warning("DISCORD_BOT_TOKEN not set - Discord commands disabled")
 
     # MultiBotManager 실행 태스크
-    manager_task = asyncio.create_task(manager.run(), name="bot_manager")
-    tasks.append(manager_task)
+    orchestrator_mode = os.getenv("ORCHESTRATOR_MODE", "false").lower() == "true"
+
+    if orchestrator_mode:
+        logger.info("오케스트레이터 모드: 봇 인프로세스 실행 스킵 (Redis 경유 제어)")
+    else:
+        manager_task = asyncio.create_task(manager.run(), name="bot_manager")
+        tasks.append(manager_task)
 
     # 9. 시작 알림
     await send_discord_embed(
