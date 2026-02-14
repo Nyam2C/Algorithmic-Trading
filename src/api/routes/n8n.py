@@ -3,16 +3,19 @@
 n8n과의 통합을 위한 웹훅 엔드포인트입니다.
 Phase 4.1: API 키 인증 추가
 """
+from datetime import datetime
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 
 from src.api.dependencies import (
-    check_critical_rate_limit,
     get_bot_manager,
+    get_redis_state_manager,
     verify_n8n_api_key,
 )
 from src.api.schemas.common import SuccessResponse
-from src.api.schemas.n8n import N8NCommandPayload, N8NSignalPayload
+from src.api.schemas.n8n import MarketContextPayload, N8NSignalPayload
 from src.bot_manager import MultiBotManager
 
 router = APIRouter(prefix="/n8n", tags=["n8n"])
@@ -86,76 +89,51 @@ async def receive_signal(
 
 
 # =============================================================================
-# POST - 명령 수신
+# POST - 외부 시장 컨텍스트 수신
 # =============================================================================
 
 
-@router.post("/command", response_model=SuccessResponse)
-async def receive_command(  # noqa: PLR0912
-    payload: N8NCommandPayload,
-    manager: MultiBotManager = Depends(get_bot_manager),
+@router.post("/market-context", response_model=SuccessResponse)
+async def receive_market_context(
+    payload: MarketContextPayload,
     _: str = Depends(verify_n8n_api_key),
-    _rate_limit: None = Depends(check_critical_rate_limit),  # Phase 7: 레이트 리밋
 ) -> SuccessResponse:
-    """외부 명령 수신.
+    """외부 시장 컨텍스트 수신.
 
-    n8n이나 다른 외부 시스템에서 보내는 봇 제어 명령을 수신합니다.
+    n8n에서 수집한 Fear & Greed, 펀딩레이트 등 외부 데이터를 수신하여
+    Redis에 저장합니다. AI 시그널 생성 시 참고 데이터로 사용됩니다.
 
     Args:
-        payload: 명령 페이로드
-        manager: MultiBotManager 인스턴스 (DI)
+        payload: 시장 컨텍스트 페이로드
     """
-    logger.info(
-        f"n8n 명령 수신: {payload.command}"
-        f" (bot={payload.bot_name or 'all'})"
-    )
+    redis_manager = get_redis_state_manager()
 
-    command = payload.command
-    bot_name = payload.bot_name
+    context_data: dict[str, Any] = {
+        "source": payload.source,
+        "received_at": datetime.now().isoformat(),
+    }
 
-    try:
-        if bot_name:
-            # 특정 봇에 명령 실행
-            if command == "start":
-                await manager.start_bot(bot_name)
-            elif command == "stop":
-                await manager.stop_bot(bot_name)
-            elif command == "pause":
-                manager.pause_bot(bot_name)
-            elif command == "resume":
-                manager.resume_bot(bot_name)
-            elif command == "emergency_close":
-                bot = manager.get_bot(bot_name)
-                if bot:
-                    bot.request_emergency_close()
-                else:
-                    raise ValueError(f"Bot '{bot_name}' not found")
-        # 전체 봇에 명령 실행
-        elif command == "start":
-            await manager.start_all()
-        elif command == "stop":
-            await manager.stop_all()
-        elif command == "pause":
-            manager.pause_all()
-        elif command == "resume":
-            manager.resume_all()
-        elif command == "emergency_close":
-            # 전체 봇 긴급 청산
-            for bot in manager.bots.values():
-                bot.request_emergency_close()
+    if payload.fear_greed_index is not None:
+        context_data["fear_greed_index"] = payload.fear_greed_index
+    if payload.funding_rate is not None:
+        context_data["funding_rate"] = payload.funding_rate
+    if payload.whale_alerts is not None:
+        context_data["whale_alerts"] = payload.whale_alerts
+    if payload.custom_data is not None:
+        context_data["custom_data"] = payload.custom_data
+    if payload.timestamp is not None:
+        context_data["data_timestamp"] = payload.timestamp.isoformat()
 
-        return SuccessResponse(
-            message=f"Command '{command}' executed successfully"
-        )
+    if redis_manager:
+        saved = await redis_manager.save_market_context(context_data)
+        if saved:
+            logger.info(
+                f"시장 컨텍스트 저장: source={payload.source}, "
+                f"fields={list(context_data.keys())}"
+            )
+            return SuccessResponse(message="Market context saved successfully")
+        logger.warning("시장 컨텍스트 Redis 저장 실패")
+        return SuccessResponse(message="Market context received but Redis save failed")
 
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
-        ) from e
-    except Exception as e:
-        logger.error(f"명령 실행 에러: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        ) from e
+    logger.warning("Redis not available - 시장 컨텍스트 저장 불가")
+    return SuccessResponse(message="Market context received but Redis not available")

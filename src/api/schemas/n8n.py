@@ -32,26 +32,6 @@ class N8NSignalPayload(BaseModel):
     )
 
 
-class N8NCommandPayload(BaseModel):
-    """n8n 명령 페이로드.
-
-    외부 시스템에서 보내는 봇 제어 명령입니다.
-
-    Attributes:
-        bot_name: 대상 봇 이름 (선택, 없으면 전체 봇에 적용)
-        command: 명령 (start, stop, pause, resume, emergency_close)
-        parameters: 명령 파라미터 (선택)
-    """
-
-    bot_name: str | None = Field(default=None, description="대상 봇 이름")
-    command: Literal[
-        "start", "stop", "pause", "resume", "emergency_close"
-    ] = Field(..., description="명령")
-    parameters: dict[str, Any] | None = Field(
-        default=None, description="명령 파라미터"
-    )
-
-
 class N8NCallbackPayload(BaseModel):
     """n8n 콜백 페이로드.
 
@@ -72,3 +52,24 @@ class N8NCallbackPayload(BaseModel):
         default_factory=datetime.now, description="이벤트 발생 시간"
     )
     data: dict[str, Any] = Field(..., description="이벤트 데이터")
+
+class MarketContextPayload(BaseModel):
+    """외부 시장 컨텍스트 데이터.
+
+    n8n에서 수집한 Fear & Greed, 펀딩레이트 등 외부 데이터를 수신합니다.
+
+    Attributes:
+        fear_greed_index: Fear & Greed 지수 (0-100)
+        funding_rate: 펀딩레이트
+        whale_alerts: 고래 알림 목록
+        custom_data: 사용자 정의 데이터
+        source: 데이터 소스
+        timestamp: 데이터 수집 시간
+    """
+
+    fear_greed_index: int | None = Field(default=None, ge=0, le=100)
+    funding_rate: float | None = None
+    whale_alerts: list[dict[str, Any]] | None = None
+    custom_data: dict[str, Any] | None = None
+    source: str = Field(default="n8n")
+    timestamp: datetime | None = None

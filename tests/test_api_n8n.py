@@ -5,7 +5,7 @@ n8n API 테스트
 Phase 4.1: API 키 인증 테스트 추가
 """
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -44,10 +44,6 @@ def mock_manager(mock_bot):
     manager.running_count = 1
     manager.paused_count = 0
     manager.get_bot.return_value = mock_bot
-    manager.start_bot = AsyncMock()
-    manager.stop_bot = AsyncMock()
-    manager.start_all = AsyncMock()
-    manager.stop_all = AsyncMock()
     return manager
 
 
@@ -62,9 +58,6 @@ def set_n8n_api_key_env():
 def client(mock_manager):
     """테스트 클라이언트 fixture"""
     app = create_app(bot_manager=mock_manager)
-    # Phase 7: 레이트 리밋 의존성 우회 (테스트에서 불필요)
-    from src.api.dependencies import check_critical_rate_limit
-    app.dependency_overrides[check_critical_rate_limit] = lambda: None
     return TestClient(app)
 
 
@@ -171,147 +164,6 @@ class TestN8NSignal:
         assert response.status_code == 200
 
 
-class TestN8NCommand:
-    """POST /api/n8n/command 테스트"""
-
-    def test_command_start(self, client, mock_manager, api_headers):
-        """시작 명령"""
-        response = client.post(
-            "/api/n8n/command",
-            json={
-                "bot_name": "test-bot",
-                "command": "start",
-            },
-            headers=api_headers,
-        )
-
-        assert response.status_code == 200
-        mock_manager.start_bot.assert_called_once_with("test-bot")
-
-    def test_command_stop(self, client, mock_manager, api_headers):
-        """정지 명령"""
-        response = client.post(
-            "/api/n8n/command",
-            json={
-                "bot_name": "test-bot",
-                "command": "stop",
-            },
-            headers=api_headers,
-        )
-
-        assert response.status_code == 200
-        mock_manager.stop_bot.assert_called_once_with("test-bot")
-
-    def test_command_pause(self, client, mock_manager, api_headers):
-        """일시정지 명령"""
-        response = client.post(
-            "/api/n8n/command",
-            json={
-                "bot_name": "test-bot",
-                "command": "pause",
-            },
-            headers=api_headers,
-        )
-
-        assert response.status_code == 200
-        mock_manager.pause_bot.assert_called_once_with("test-bot")
-
-    def test_command_resume(self, client, mock_manager, api_headers):
-        """재개 명령"""
-        response = client.post(
-            "/api/n8n/command",
-            json={
-                "bot_name": "test-bot",
-                "command": "resume",
-            },
-            headers=api_headers,
-        )
-
-        assert response.status_code == 200
-        mock_manager.resume_bot.assert_called_once_with("test-bot")
-
-    def test_command_emergency_close(self, client, mock_manager, mock_bot, api_headers):
-        """긴급 청산 명령"""
-        response = client.post(
-            "/api/n8n/command",
-            json={
-                "bot_name": "test-bot",
-                "command": "emergency_close",
-            },
-            headers=api_headers,
-        )
-
-        assert response.status_code == 200
-        mock_bot.request_emergency_close.assert_called_once()
-
-    def test_command_all_bots_start(self, client, mock_manager, api_headers):
-        """전체 봇 시작 명령"""
-        response = client.post(
-            "/api/n8n/command",
-            json={
-                "command": "start",
-            },
-            headers=api_headers,
-        )
-
-        assert response.status_code == 200
-        mock_manager.start_all.assert_called_once()
-
-    def test_command_all_bots_stop(self, client, mock_manager, api_headers):
-        """전체 봇 정지 명령"""
-        response = client.post(
-            "/api/n8n/command",
-            json={
-                "command": "stop",
-            },
-            headers=api_headers,
-        )
-
-        assert response.status_code == 200
-        mock_manager.stop_all.assert_called_once()
-
-    def test_command_all_bots_pause(self, client, mock_manager, api_headers):
-        """전체 봇 일시정지 명령"""
-        response = client.post(
-            "/api/n8n/command",
-            json={
-                "command": "pause",
-            },
-            headers=api_headers,
-        )
-
-        assert response.status_code == 200
-        mock_manager.pause_all.assert_called_once()
-
-    def test_command_invalid(self, client, api_headers):
-        """잘못된 명령"""
-        response = client.post(
-            "/api/n8n/command",
-            json={
-                "command": "invalid_command",
-            },
-            headers=api_headers,
-        )
-
-        # Pydantic validation error
-        assert response.status_code == 422
-
-    def test_command_bot_not_found(self, client, mock_manager, api_headers):
-        """존재하지 않는 봇에 명령"""
-        mock_manager.start_bot.side_effect = ValueError("Bot not found")
-
-        response = client.post(
-            "/api/n8n/command",
-            json={
-                "bot_name": "nonexistent",
-                "command": "start",
-            },
-            headers=api_headers,
-        )
-
-        assert response.status_code == 404
-
-
 class TestN8NPayloadValidation:
     """페이로드 검증 테스트"""
 
@@ -322,19 +174,6 @@ class TestN8NPayloadValidation:
             json={
                 "source": "n8n",
                 # signal 필드 누락
-            },
-            headers=api_headers,
-        )
-
-        assert response.status_code == 422
-
-    def test_command_missing_required_field(self, client, api_headers):
-        """필수 필드 누락"""
-        response = client.post(
-            "/api/n8n/command",
-            json={
-                "bot_name": "test-bot",
-                # command 필드 누락
             },
             headers=api_headers,
         )
@@ -379,6 +218,110 @@ class TestN8NAuthValidation:
                 "signal": "LONG",
                 "source": "n8n",
             },
+            headers={"X-N8N-API-Key": "wrong-key"},
+        )
+
+        assert response.status_code == 401
+
+
+class TestN8NMarketContext:
+    """POST /api/n8n/market-context 테스트"""
+
+    def test_receive_fear_greed(self, client, api_headers):
+        """Fear & Greed 인덱스 수신"""
+        response = client.post(
+            "/api/n8n/market-context",
+            json={
+                "fear_greed_index": 75,
+                "source": "alternative.me",
+            },
+            headers=api_headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert "Market context" in data["message"]
+
+    def test_receive_funding_rate(self, client, api_headers):
+        """펀딩레이트 수신"""
+        response = client.post(
+            "/api/n8n/market-context",
+            json={
+                "funding_rate": 0.0003,
+                "source": "binance",
+            },
+            headers=api_headers,
+        )
+
+        assert response.status_code == 200
+
+    def test_receive_full_context(self, client, api_headers):
+        """전체 시장 컨텍스트 수신"""
+        response = client.post(
+            "/api/n8n/market-context",
+            json={
+                "fear_greed_index": 50,
+                "funding_rate": -0.001,
+                "whale_alerts": [
+                    {"amount_usd": 50000000, "type": "transfer"}
+                ],
+                "custom_data": {"btc_dominance": 55.2},
+                "source": "n8n",
+            },
+            headers=api_headers,
+        )
+
+        assert response.status_code == 200
+
+    def test_fear_greed_out_of_range(self, client, api_headers):
+        """Fear & Greed 범위 초과"""
+        response = client.post(
+            "/api/n8n/market-context",
+            json={
+                "fear_greed_index": 150,  # 0-100 초과
+            },
+            headers=api_headers,
+        )
+
+        assert response.status_code == 422
+
+    def test_fear_greed_negative(self, client, api_headers):
+        """Fear & Greed 음수"""
+        response = client.post(
+            "/api/n8n/market-context",
+            json={
+                "fear_greed_index": -1,
+            },
+            headers=api_headers,
+        )
+
+        assert response.status_code == 422
+
+    def test_empty_context_accepted(self, client, api_headers):
+        """빈 컨텍스트도 수신 가능"""
+        response = client.post(
+            "/api/n8n/market-context",
+            json={},
+            headers=api_headers,
+        )
+
+        assert response.status_code == 200
+
+    def test_market_context_auth_required(self, client):
+        """인증 없이 접근 시 실패"""
+        response = client.post(
+            "/api/n8n/market-context",
+            json={"fear_greed_index": 50},
+        )
+
+        assert response.status_code == 422
+
+    def test_market_context_invalid_auth(self, client):
+        """잘못된 인증"""
+        response = client.post(
+            "/api/n8n/market-context",
+            json={"fear_greed_index": 50},
             headers={"X-N8N-API-Key": "wrong-key"},
         )
 

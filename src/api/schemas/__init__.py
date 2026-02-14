@@ -16,8 +16,8 @@ from src.api.schemas.common import (
     SuccessResponse,
 )
 from src.api.schemas.n8n import (
+    MarketContextPayload,
     N8NCallbackPayload,
-    N8NCommandPayload,
     N8NSignalPayload,
 )
 
@@ -29,8 +29,8 @@ __all__ = [
     "BotStateResponse",
     "BotUpdateRequest",
     "ErrorResponse",
+    "MarketContextPayload",
     "N8NCallbackPayload",
-    "N8NCommandPayload",
     "N8NSignalPayload",
     "SuccessResponse",
 ]
