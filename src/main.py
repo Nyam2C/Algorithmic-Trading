@@ -272,6 +272,28 @@ async def main() -> None:
         "leverage": config.leverage,
     }
 
+    # 6.5. n8n 콜백 서비스 초기화
+    from src.api.config import APIConfig  # noqa: PLC0415
+    from src.api.services.n8n_callback import N8NCallbackService  # noqa: PLC0415
+
+    api_config = APIConfig.from_env()
+    n8n_callback = N8NCallbackService(webhook_url=api_config.n8n_webhook_url)
+
+    async def _n8n_signal_cb(bot_name: str, signal: str, price: float) -> None:
+        await n8n_callback.send_signal(bot_name, signal, price)
+
+    async def _n8n_trade_cb(
+        bot_name: str, action: str, side: str, price: float, pnl: float | None
+    ) -> None:
+        await n8n_callback.send_trade(bot_name, action, side, price, pnl=pnl)
+
+    async def _n8n_error_cb(bot_name: str, error: Exception) -> None:
+        await n8n_callback.send_error(bot_name, error)
+
+    manager.set_on_signal_callback(_n8n_signal_cb)
+    manager.set_on_trade_callback(_n8n_trade_cb)
+    manager.set_on_error_callback(_n8n_error_cb)
+
     # 7. FastAPI 앱 생성 (MultiBotManager 주입)
     api_app = create_app(bot_manager=manager)
     api_host = os.getenv("API_HOST", "0.0.0.0")  # noqa: S104
@@ -359,6 +381,9 @@ async def main() -> None:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+
+        # n8n 콜백 서비스 종료
+        await n8n_callback.close()
 
         # Redis 연결 해제
         if redis_manager and redis_manager.is_connected:
