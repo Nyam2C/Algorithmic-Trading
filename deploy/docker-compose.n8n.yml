@@ -25,6 +25,14 @@ services:
       - TRADING_BOT_API_URL=http://trading-bot:8000
       # Discord 채널 ID (환경변수에서 가져옴)
       - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID:-}
+      # API Keys
+      - N8N_API_KEY=${N8N_API_KEY:-}
+      - API_KEY=${API_KEY:-}
+      # Discord
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+      # Notion
+      - NOTION_API_KEY=${NOTION_API_KEY:-}
+      - NOTION_DATABASE_ID=${NOTION_DATABASE_ID:-}
       # 타임존
       - GENERIC_TIMEZONE=Asia/Seoul
       - TZ=Asia/Seoul
