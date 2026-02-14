@@ -23,6 +23,10 @@ BOT_STATE_KEY = f"{KEY_PREFIX}:bot:{{bot_name}}:state"
 BOT_POSITION_KEY = f"{KEY_PREFIX}:bot:{{bot_name}}:position"
 REGISTERED_BOTS_KEY = f"{KEY_PREFIX}:manager:bots"
 RUNNING_BOTS_KEY = f"{KEY_PREFIX}:manager:running"
+MARKET_CONTEXT_KEY = f"{KEY_PREFIX}:market_context"
+
+# Market context TTL (1시간)
+MARKET_CONTEXT_TTL = 3600
 
 # 직렬화 접두사 상수
 _NULL_PREFIX = "__null__"
@@ -457,6 +461,53 @@ class RedisStateManager:
             return False
 
     # =========================================================================
+    # 외부 시장 컨텍스트
+    # =========================================================================
+
+    async def save_market_context(self, data: dict[str, Any]) -> bool:
+        """외부 시장 컨텍스트 저장.
+
+        Args:
+            data: 시장 컨텍스트 데이터
+
+        Returns:
+            저장 성공 여부
+        """
+        if self._client is None:
+            self._log.warning("Redis 연결되지 않음 - 시장 컨텍스트 저장 스킵")
+            return False
+
+        try:
+            json_data = json.dumps(data, default=str)
+            await self._client.set(  # type: ignore[misc]
+                MARKET_CONTEXT_KEY, json_data, ex=MARKET_CONTEXT_TTL
+            )
+            self._log.debug("시장 컨텍스트 저장 완료")
+            return True
+        except Exception as e:
+            self._log.error(f"시장 컨텍스트 저장 실패: {e}")
+            return False
+
+    async def load_market_context(self) -> dict[str, Any] | None:
+        """외부 시장 컨텍스트 로드.
+
+        Returns:
+            시장 컨텍스트 딕셔너리 또는 None (만료/없음)
+        """
+        if self._client is None:
+            self._log.warning("Redis 연결되지 않음 - 시장 컨텍스트 로드 스킵")
+            return None
+
+        try:
+            raw = await self._client.get(MARKET_CONTEXT_KEY)  # type: ignore[misc]
+            if raw is None:
+                return None
+            return json.loads(raw)
+        except Exception as e:
+            self._log.error(f"시장 컨텍스트 로드 실패: {e}")
+            return None
+
+    # =========================================================================
     # 직렬화/역직렬화
     # =========================================================================
 
@@ -588,6 +639,12 @@ class DummyRedisStateManager:
 
     async def clear_running_bots(self) -> bool:
         return False
+
+    async def save_market_context(self, _data: dict[str, Any]) -> bool:
+        return False
+
+    async def load_market_context(self) -> dict[str, Any] | None:
+        return None
 
 
 async def create_redis_manager(

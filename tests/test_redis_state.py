@@ -920,3 +920,83 @@ class TestCreateRedisManagerAdditional:
                     redis_url="redis://localhost:6379",
                     fallback_on_error=False,
                 )
+
+
+class TestRedisMarketContext:
+    """시장 컨텍스트 저장/로드 테스트"""
+
+    @pytest.fixture
+    def mock_redis_client(self):
+        """Mock Redis 클라이언트 생성"""
+        client = AsyncMock()
+        client.ping = AsyncMock(return_value=True)
+        client.set = AsyncMock()
+        client.get = AsyncMock(return_value=None)
+        client.close = AsyncMock()
+        return client
+
+    @pytest.fixture
+    def state_manager(self, mock_redis_client):
+        """테스트용 상태 관리자"""
+        if not REDIS_AVAILABLE:
+            pytest.skip("redis 패키지가 설치되지 않음")
+
+        manager = RedisStateManager(redis_url="redis://localhost:6379")
+        manager._client = mock_redis_client
+        return manager
+
+    @pytest.mark.asyncio
+    async def test_save_market_context(self, state_manager, mock_redis_client):
+        """시장 컨텍스트 저장"""
+        data = {"fear_greed_index": 75, "funding_rate": 0.0003}
+        result = await state_manager.save_market_context(data)
+
+        assert result is True
+        mock_redis_client.set.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_load_market_context(self, state_manager, mock_redis_client):
+        """시장 컨텍스트 로드"""
+        import json
+        mock_redis_client.get.return_value = json.dumps(
+            {"fear_greed_index": 75, "funding_rate": 0.0003}
+        )
+
+        result = await state_manager.load_market_context()
+
+        assert result is not None
+        assert result["fear_greed_index"] == 75
+        assert result["funding_rate"] == 0.0003
+
+    @pytest.mark.asyncio
+    async def test_load_market_context_none(self, state_manager, mock_redis_client):
+        """시장 컨텍스트 없을 때 None"""
+        mock_redis_client.get.return_value = None
+
+        result = await state_manager.load_market_context()
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_save_market_context_not_connected(self):
+        """연결 안 된 상태에서 저장 시 False"""
+        if not REDIS_AVAILABLE:
+            pytest.skip("redis 패키지가 설치되지 않음")
+
+        manager = RedisStateManager(redis_url="redis://localhost:6379")
+        # _client is None (not connected)
+        result = await manager.save_market_context({"test": 1})
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_dummy_save_market_context(self):
+        """DummyRedisStateManager 시장 컨텍스트 저장"""
+        dummy = DummyRedisStateManager()
+        result = await dummy.save_market_context({"test": 1})
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_dummy_load_market_context(self):
+        """DummyRedisStateManager 시장 컨텍스트 로드"""
+        dummy = DummyRedisStateManager()
+        result = await dummy.load_market_context()
+        assert result is None
