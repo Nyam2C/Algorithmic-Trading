@@ -1,0 +1,158 @@
+{
+  "name": "Data Enrichment",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 */4 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Every 4 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.alternative.me/fng/",
+        "options": {}
+      },
+      "id": "fetch-fng",
+      "name": "Fetch Fear & Greed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        450,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&limit=1",
+        "options": {}
+      },
+      "id": "fetch-funding",
+      "name": "Fetch Funding Rate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        450,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// \ub370\uc774\ud130 \uc815\uaddc\ud654\nconst fng = $('Fetch Fear & Greed').first().json;\nconst funding = $('Fetch Funding Rate').first().json;\n\nconst payload = {\n  source: 'n8n-enrichment',\n  timestamp: new Date().toISOString()\n};\n\n// Fear & Greed Index\nif (fng?.data?.[0]) {\n  payload.fear_greed_index = parseInt(fng.data[0].value, 10);\n}\n\n// Funding Rate\nif (Array.isArray(funding) && funding.length > 0) {\n  payload.funding_rate = parseFloat(funding[0].fundingRate);\n} else if (funding?.fundingRate) {\n  payload.funding_rate = parseFloat(funding.fundingRate);\n}\n\nreturn payload;"
+      },
+      "id": "normalize",
+      "name": "Normalize Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.TRADING_BOT_API_URL}}/api/n8n/market-context",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-N8N-API-Key",
+              "value": "={{$env.N8N_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "options": {}
+      },
+      "id": "send-context",
+      "name": "Send to Bot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        900,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Every 4 Hours": {
+      "main": [
+        [
+          {
+            "node": "Fetch Fear & Greed",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Funding Rate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Fear & Greed": {
+      "main": [
+        [
+          {
+            "node": "Normalize Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Funding Rate": {
+      "main": [
+        [
+          {
+            "node": "Normalize Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Data": {
+      "main": [
+        [
+          {
+            "node": "Send to Bot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "versionId": "1"
+}

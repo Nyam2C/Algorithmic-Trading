@@ -12,7 +12,10 @@
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [250, 300],
+      "position": [
+        250,
+        300
+      ],
       "webhookId": "tradingview-signal"
     },
     {
@@ -30,17 +33,23 @@
       "name": "Validate Payload",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [450, 300]
+      "position": [
+        450,
+        300
+      ]
     },
     {
       "parameters": {
-        "jsCode": "// TradingView 페이로드를 API 형식으로 변환\nconst input = $input.first().json;\n\n// TradingView 액션을 시그널로 변환\nlet signal = 'WAIT';\nif (input.action === 'buy' || input.action === 'long') {\n  signal = 'LONG';\n} else if (input.action === 'sell' || input.action === 'short') {\n  signal = 'SHORT';\n} else if (input.action === 'close' || input.action === 'exit') {\n  signal = 'CLOSE';\n}\n\nreturn {\n  bot_name: input.bot_name || null,\n  signal: signal,\n  source: 'tradingview',\n  confidence: input.confidence || 1.0,\n  metadata: {\n    strategy: input.strategy || 'unknown',\n    ticker: input.ticker,\n    timeframe: input.timeframe,\n    price: input.price\n  }\n};"
+        "jsCode": "// TradingView \ud398\uc774\ub85c\ub4dc\ub97c API \ud615\uc2dd\uc73c\ub85c \ubcc0\ud658\nconst input = $input.first().json;\n\n// TradingView \uc561\uc158\uc744 \uc2dc\uadf8\ub110\ub85c \ubcc0\ud658\nlet signal = 'WAIT';\nif (input.action === 'buy' || input.action === 'long') {\n  signal = 'LONG';\n} else if (input.action === 'sell' || input.action === 'short') {\n  signal = 'SHORT';\n} else if (input.action === 'close' || input.action === 'exit') {\n  signal = 'CLOSE';\n}\n\nreturn {\n  bot_name: input.bot_name || null,\n  signal: signal,\n  source: 'tradingview',\n  confidence: input.confidence || 1.0,\n  metadata: {\n    strategy: input.strategy || 'unknown',\n    ticker: input.ticker,\n    timeframe: input.timeframe,\n    price: input.price\n  }\n};"
       },
       "id": "transform-payload",
       "name": "Transform Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
-      "position": [650, 250]
+      "position": [
+        650,
+        250
+      ]
     },
     {
       "parameters": {
@@ -52,6 +61,10 @@
             {
               "name": "Content-Type",
               "value": "application/json"
+            },
+            {
+              "name": "X-N8N-API-Key",
+              "value": "={{$env.N8N_API_KEY}}"
             }
           ]
         },
@@ -65,7 +78,10 @@
       "name": "Send Signal to Bot",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 3,
-      "position": [850, 250]
+      "position": [
+        850,
+        250
+      ]
     },
     {
       "parameters": {
@@ -76,7 +92,10 @@
       "name": "Respond Success",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1050, 250]
+      "position": [
+        1050,
+        250
+      ]
     },
     {
       "parameters": {
@@ -87,7 +106,10 @@
       "name": "Respond Error",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [650, 400]
+      "position": [
+        650,
+        400
+      ]
     }
   ],
   "connections": {

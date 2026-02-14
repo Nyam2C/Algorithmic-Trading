@@ -1,0 +1,267 @@
+{
+  "name": "Alert Escalation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bot-callback",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Bot Callback",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ],
+      "webhookId": "bot-callback"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.event_type}}",
+              "value2": "error",
+              "operation": "equals"
+            }
+          ]
+        }
+      },
+      "id": "is-error",
+      "name": "Is Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.DISCORD_WEBHOOK_URL}}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "=\ud83d\udea8 **ERROR** in bot `{{$json.bot_name}}`:\n```\n{{$json.data.error}}\n```\nType: `{{$json.data.error_type}}`"
+            },
+            {
+              "name": "username",
+              "value": "Trading Bot Alert"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "discord-error",
+      "name": "Discord Error Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        650,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "minutes"
+      },
+      "id": "wait-5min",
+      "name": "Wait 5min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        850,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.TRADING_BOT_API_URL}}/health",
+        "options": {}
+      },
+      "id": "health-check",
+      "name": "Health Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1050,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.status}}",
+              "value2": "healthy",
+              "operation": "notEquals"
+            }
+          ]
+        }
+      },
+      "id": "still-unhealthy",
+      "name": "Still Unhealthy?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1250,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.NOTION_API_KEY}}"
+            },
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"parent\": {\"database_id\": \"{{$env.NOTION_DATABASE_ID}}\"},\n  \"properties\": {\n    \"Name\": {\"title\": [{\"text\": {\"content\": \"Incident: \" + $('Bot Callback').first().json.data.error_type}}]},\n    \"Type\": {\"select\": {\"name\": \"Incident\"}},\n    \"Status\": {\"select\": {\"name\": \"Open\"}}\n  }\n}",
+        "options": {}
+      },
+      "id": "notion-incident",
+      "name": "Notion Incident Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1450,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.DISCORD_WEBHOOK_URL}}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "=\ud83d\udcb0 **Trade** on `{{$json.bot_name}}`:\n\u2022 Action: {{$json.data.action}}\n\u2022 Side: {{$json.data.side}}\n\u2022 Price: ${{$json.data.price}}"
+            },
+            {
+              "name": "username",
+              "value": "Trading Bot"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "discord-trade",
+      "name": "Discord Trade Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        650,
+        450
+      ]
+    }
+  ],
+  "connections": {
+    "Bot Callback": {
+      "main": [
+        [
+          {
+            "node": "Is Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Error?": {
+      "main": [
+        [
+          {
+            "node": "Discord Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Discord Trade Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord Error Alert": {
+      "main": [
+        [
+          {
+            "node": "Wait 5min",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5min": {
+      "main": [
+        [
+          {
+            "node": "Health Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health Check": {
+      "main": [
+        [
+          {
+            "node": "Still Unhealthy?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Still Unhealthy?": {
+      "main": [
+        [
+          {
+            "node": "Notion Incident Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "versionId": "1"
+}

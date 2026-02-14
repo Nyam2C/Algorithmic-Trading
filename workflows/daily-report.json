@@ -1,0 +1,252 @@
+{
+  "name": "Daily Trading Report",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Daily 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.TRADING_BOT_API_URL}}/api/analytics/summary",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{$env.API_KEY}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-summary",
+      "name": "Fetch Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        450,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.TRADING_BOT_API_URL}}/api/analytics/patterns",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{$env.API_KEY}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-patterns",
+      "name": "Fetch Patterns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        450,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.TRADING_BOT_API_URL}}/api/bots",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{$env.API_KEY}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-bots",
+      "name": "Fetch Bots",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        450,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// \uc77c\uac04 \ub9ac\ud3ec\ud2b8 \ud3ec\ub9f7\ud305\nconst summary = $('Fetch Summary').first().json;\nconst patterns = $('Fetch Patterns').first().json;\nconst bots = $('Fetch Bots').first().json;\n\nconst now = new Date().toISOString().split('T')[0];\n\nlet report = `\ud83d\udcca **Daily Trading Report - ${now}**\\n\\n`;\n\nif (summary?.data) {\n  const s = summary.data;\n  report += `**Performance**\\n`;\n  report += `\u2022 Total trades: ${s.total_trades || 0}\\n`;\n  report += `\u2022 Win rate: ${((s.win_rate || 0) * 100).toFixed(1)}%\\n`;\n  report += `\u2022 Total PnL: $${(s.total_pnl || 0).toFixed(2)}\\n\\n`;\n}\n\nif (bots?.data) {\n  report += `**Active Bots**: ${bots.data.length || 0}\\n`;\n}\n\nreturn { report };"
+      },
+      "id": "format-report",
+      "name": "Format Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.DISCORD_WEBHOOK_URL}}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "={{$json.report}}"
+            },
+            {
+              "name": "username",
+              "value": "Trading Bot Report"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "discord-send",
+      "name": "Discord Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        900,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.NOTION_API_KEY}}"
+            },
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"parent\": {\"database_id\": \"{{$env.NOTION_DATABASE_ID}}\"},\n  \"properties\": {\n    \"Name\": {\"title\": [{\"text\": {\"content\": \"Daily Report - \" + new Date().toISOString().split('T')[0]}}]},\n    \"Type\": {\"select\": {\"name\": \"Daily Report\"}}\n  },\n  \"children\": [{\"object\": \"block\", \"type\": \"paragraph\", \"paragraph\": {\"rich_text\": [{\"text\": {\"content\": $json.report}}]}}]\n}",
+        "options": {}
+      },
+      "id": "notion-create",
+      "name": "Notion Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        900,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Daily 09:00": {
+      "main": [
+        [
+          {
+            "node": "Fetch Summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Patterns",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Bots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Summary": {
+      "main": [
+        [
+          {
+            "node": "Format Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Patterns": {
+      "main": [
+        [
+          {
+            "node": "Format Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Bots": {
+      "main": [
+        [
+          {
+            "node": "Format Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Report": {
+      "main": [
+        [
+          {
+            "node": "Discord Webhook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Notion Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "versionId": "1"
+}

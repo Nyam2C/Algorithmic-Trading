@@ -1,0 +1,134 @@
+{
+  "name": "Trade Journal (Notion)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "trade-journal",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Trade Callback",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ],
+      "webhookId": "trade-journal"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.event_type}}",
+              "value2": "trade",
+              "operation": "equals"
+            }
+          ]
+        }
+      },
+      "id": "is-trade",
+      "name": "Is Trade?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// \uac70\ub798 \ub370\uc774\ud130 \ud3ec\ub9f7\ud305\nconst input = $input.first().json;\nconst data = input.data;\n\nconst entry = {\n  bot_name: input.bot_name,\n  action: data.action,\n  side: data.side,\n  price: data.price,\n  quantity: data.quantity || 'N/A',\n  pnl: data.pnl !== undefined ? `$${data.pnl.toFixed(2)}` : 'N/A',\n  timestamp: input.timestamp,\n  title: `${data.action} ${data.side} @ $${data.price}`\n};\n\nreturn entry;"
+      },
+      "id": "format-trade",
+      "name": "Format Trade",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        650,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.NOTION_API_KEY}}"
+            },
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"parent\": {\"database_id\": \"{{$env.NOTION_DATABASE_ID}}\"},\n  \"properties\": {\n    \"Name\": {\"title\": [{\"text\": {\"content\": $json.title}}]},\n    \"Bot\": {\"rich_text\": [{\"text\": {\"content\": $json.bot_name}}]},\n    \"Action\": {\"select\": {\"name\": $json.action}},\n    \"Side\": {\"select\": {\"name\": $json.side}},\n    \"Price\": {\"number\": $json.price},\n    \"PnL\": {\"rich_text\": [{\"text\": {\"content\": $json.pnl}}]},\n    \"Type\": {\"select\": {\"name\": \"Trade\"}}\n  }\n}",
+        "options": {}
+      },
+      "id": "notion-create",
+      "name": "Notion Trade Entry",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        850,
+        250
+      ]
+    }
+  ],
+  "connections": {
+    "Trade Callback": {
+      "main": [
+        [
+          {
+            "node": "Is Trade?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Trade?": {
+      "main": [
+        [
+          {
+            "node": "Format Trade",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Format Trade": {
+      "main": [
+        [
+          {
+            "node": "Notion Trade Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "versionId": "1"
+}
