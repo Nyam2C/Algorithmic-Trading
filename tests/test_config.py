@@ -148,20 +148,16 @@ class TestLoadConfig:
     def test_load_config_from_env(self, monkeypatch, tmp_path):
         """환경 변수에서 설정 로딩 테스트"""
         # 환경 변수 설정
-        monkeypatch.setenv("BOT_NAME", "test-bot")
         monkeypatch.setenv("BINANCE_API_KEY", "test_key")
         monkeypatch.setenv("BINANCE_SECRET_KEY", "test_secret")
         monkeypatch.setenv("GEMINI_API_KEY", "test_gemini")
         monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://test.com")
-        monkeypatch.setenv("SYMBOL", "ETHUSDT")
-        monkeypatch.setenv("LEVERAGE", "10")
 
         # load_config 실행
         config = load_config()
 
-        assert config.bot_name == "test-bot"
-        assert config.symbol == "ETHUSDT"
-        assert config.leverage == 10
+        assert config.binance_api_key == "test_key"
+        assert config.gemini_api_key == "test_gemini"
 
     def test_load_config_missing_required_keys(self, monkeypatch):
         """필수 키가 없을 때 에러"""

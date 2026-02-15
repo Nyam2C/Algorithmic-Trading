@@ -163,17 +163,10 @@ def load_config() -> TradingConfig:
     """Load configuration from environment variables."""
     try:
         config = TradingConfig(
-            bot_name=os.getenv("BOT_NAME", "trading-bot"),
             binance_testnet=os.getenv("BINANCE_TESTNET", "true").lower() == "true",
             binance_api_key=os.getenv("BINANCE_API_KEY", ""),
             binance_secret_key=os.getenv("BINANCE_SECRET_KEY", ""),
             mainnet_confirmation=os.getenv("MAINNET_CONFIRMATION", ""),
-            symbol=os.getenv("SYMBOL", "BTCUSDT"),
-            leverage=int(os.getenv("LEVERAGE", "15")),
-            position_size_pct=float(os.getenv("POSITION_SIZE_PCT", "0.05")),
-            take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "0.004")),
-            stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0.004")),
-            time_cut_minutes=int(os.getenv("TIME_CUT_MINUTES", "120")),
             use_real_balance=os.getenv("USE_REAL_BALANCE", "false").lower() == "true",
             # Phase 6.1: ATR 기반 동적 TP/SL
             use_atr_tp_sl=os.getenv("USE_ATR_TP_SL", "false").lower() == "true",
@@ -222,13 +215,7 @@ def load_config() -> TradingConfig:
         config.validate_mainnet_switch()
 
         logger.info("Configuration loaded successfully")
-        logger.info(f"Bot: {config.bot_name}")
-        logger.info(f"Symbol: {config.symbol}")
-        logger.info(f"Leverage: {config.leverage}x")
-        logger.info(f"Position Size: {config.position_size_pct*100}%")
-        logger.info(
-            f"TP/SL: {config.take_profit_pct*100}% / {config.stop_loss_pct*100}%"
-        )
+        logger.info("Mode: MultiBotManager (YAML config)")
         logger.info(f"Testnet: {config.binance_testnet}")
 
         return config
