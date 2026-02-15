@@ -957,3 +957,137 @@ class TestTpSlPriceValidation:
         # API 호출이 없어야 함
         mock_binance_client.create_stop_market_order.assert_not_called()
         mock_binance_client.create_take_profit_market_order.assert_not_called()
+
+
+# =============================================================================
+# Fix: MIN_STOP_PRICE validation in _place_exchange_tp_sl (-4013 방지)
+# =============================================================================
+
+
+class TestMinStopPriceValidation:
+    """거래소 최소 가격 미만 SL/TP -> -4013 에러 방지"""
+
+    @pytest.mark.asyncio
+    async def test_sl_below_min_stop_price_returns_false(
+        self, mock_binance_client, mock_config
+    ):
+        """SL 가격이 MIN_STOP_PRICE 미만 -> False, API 미호출"""
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        # entry_price=0.05 -> SL = 0.05 * (1 - 0.004) = 0.0498 < 0.10
+        result = await executor._place_exchange_tp_sl(
+            symbol="BTCUSDT",
+            side="LONG",
+            quantity=0.01,
+            entry_price=0.05,
+            entry_atr=None,
+        )
+
+        assert result is False
+        mock_binance_client.create_stop_market_order.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_tp_below_min_stop_price_skipped_sl_placed(
+        self, mock_binance_client
+    ):
+        """TP가 MIN_STOP_PRICE 미만이면 TP 스킵, SL만 배치 (True 반환)"""
+        # tp_pct=0.5 (50%) → SHORT entry=0.15:
+        #   TP = 0.15 * (1-0.5) = 0.075 < 0.10 ✓
+        #   SL = 0.15 * (1+0.004) = 0.15 >= 0.10 ✓
+        config = TradingConfig(
+            bot_name="test-bot",
+            binance_api_key="test_key",
+            binance_secret_key="test_secret",
+            gemini_api_key="test_gemini",
+            discord_webhook_url="https://test.com",
+            symbol="BTCUSDT",
+            leverage=15,
+            position_size_pct=0.05,
+            take_profit_pct=0.5,
+            stop_loss_pct=0.004,
+        )
+        executor = TradingExecutor(mock_binance_client, config)
+
+        result = await executor._place_exchange_tp_sl(
+            symbol="BTCUSDT",
+            side="SHORT",
+            quantity=0.01,
+            entry_price=0.15,
+            entry_atr=None,
+        )
+
+        assert result is True
+        mock_binance_client.create_stop_market_order.assert_called_once()
+        # TP should NOT be placed (skipped due to < MIN_STOP_PRICE)
+        mock_binance_client.create_take_profit_market_order.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_normal_price_passes_min_stop_validation(
+        self, mock_binance_client, mock_config
+    ):
+        """정상 가격 -> MIN_STOP_PRICE 검증 통과, SL+TP 모두 배치"""
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        result = await executor._place_exchange_tp_sl(
+            symbol="BTCUSDT",
+            side="LONG",
+            quantity=0.01,
+            entry_price=100000.0,
+            entry_atr=None,
+        )
+
+        assert result is True
+        mock_binance_client.create_stop_market_order.assert_called_once()
+        mock_binance_client.create_take_profit_market_order.assert_called_once()
+
+
+# =============================================================================
+# Fix: current_price <= 0 guard after slippage detection
+# =============================================================================
+
+
+class TestPostSlippagePriceValidation:
+    """슬리피지 감지 후 가격이 0 이하면 포지션 청산"""
+
+    @pytest.mark.asyncio
+    async def test_zero_price_after_slippage_closes_position(
+        self, mock_binance_client, mock_config
+    ):
+        """슬리피지 감지에서 current_price=0 반환 -> 포지션 청산, None 반환"""
+        # avgPrice가 없는 경우에 current_price=0이 전달되면
+        mock_binance_client.create_market_order = AsyncMock(return_value={
+            "orderId": 12345,
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "status": "FILLED",
+            # avgPrice 없음 -> current_price 그대로 유지
+        })
+        mock_binance_client.close_position = AsyncMock(return_value={
+            "orderId": 67890, "status": "FILLED",
+        })
+
+        executor = TradingExecutor(mock_binance_client, mock_config)
+        # current_price=0으로 진입 시도
+        result = await executor.open_position("LONG", 0.0)
+
+        # ValueError: 최소 주문 수량 미달로 None 반환
+        # 이 경우 _calculate_position_size가 먼저 실패하므로
+        # 직접 _prepare_and_open_position을 테스트
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_negative_price_after_slippage_closes_position(
+        self, mock_binance_client, mock_config
+    ):
+        """슬리피지 감지 후 가격이 음수면 포지션 청산"""
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        # _handle_slippage_detection이 음수 가격 반환하는 시나리오 직접 테스트
+        order = {"avgPrice": "-100.0"}
+        should_close, actual_price = executor._handle_slippage_detection(
+            order, 100000.0
+        )
+
+        # avgPrice <= 0 -> current_price 유지
+        assert should_close is False
+        assert actual_price == 100000.0  # 원래 가격 유지

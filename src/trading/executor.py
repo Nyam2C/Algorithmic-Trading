@@ -26,6 +26,7 @@ class TradingExecutor:
     """
 
     MIN_ORDER_QTY = 0.001  # Binance BTC minimum order quantity
+    MIN_STOP_PRICE = 0.10  # Binance minimum stop price (safety margin)
     PARTIAL_FILL_THRESHOLD = 0.99  # 99% fill threshold
 
     def __init__(self, binance_client, config):
@@ -353,6 +354,17 @@ class TradingExecutor:
                     await self.client.close_position(self.config.symbol)
                 except Exception as close_err:
                     logger.critical(f"슬리피지 청산 실패: {close_err}")
+                return None
+
+            # 슬리피지 감지 후 가격 유효성 검증
+            if current_price <= 0:
+                logger.critical(
+                    f"슬리피지 감지 후 가격 무효: {current_price}. 포지션 청산."
+                )
+                try:
+                    await self.client.close_position(self.config.symbol)
+                except Exception:
+                    logger.exception("무효 가격 후 포지션 청산 실패")
                 return None
 
         # Calculate TP/SL prices for Redis persistence
@@ -842,6 +854,20 @@ class TradingExecutor:
             )
             return False
 
+        # 거래소 최소 가격 검증 (-4013 방지)
+        if sl_price < self.MIN_STOP_PRICE:
+            logger.error(
+                f"SL 가격이 거래소 최소가 미만: {sl_price} < {self.MIN_STOP_PRICE} "
+                f"(entry={entry_price}). SL 배치 스킵."
+            )
+            return False
+        if tp_price < self.MIN_STOP_PRICE:
+            logger.warning(
+                f"TP 가격이 거래소 최소가 미만: {tp_price} < {self.MIN_STOP_PRICE}. "
+                f"TP 스킵."
+            )
+            tp_price = 0  # TP 스킵 플래그
+
         # SL 주문 (필수 - 실패 시 False 반환)
         try:
             await self.client.create_stop_market_order(
@@ -854,16 +880,17 @@ class TradingExecutor:
             logger.error(f"거래소 SL 주문 배치 실패 (필수): {e}")
             return False
 
-        # TP 주문 (비필수 - 실패 시 경고만)
-        try:
-            await self.client.create_take_profit_market_order(
-                symbol=symbol,
-                side=close_side,
-                quantity=quantity,
-                stop_price=tp_price,
-            )
-        except Exception as e:
-            logger.warning(f"거래소 TP 주문 배치 실패 (비필수): {e}")
+        # TP 주문 (비필수 - 실패 시 경고만, tp_price=0이면 스킵)
+        if tp_price > 0:
+            try:
+                await self.client.create_take_profit_market_order(
+                    symbol=symbol,
+                    side=close_side,
+                    quantity=quantity,
+                    stop_price=tp_price,
+                )
+            except Exception as e:
+                logger.warning(f"거래소 TP 주문 배치 실패 (비필수): {e}")
 
         logger.info(
             f"거래소 TP/SL 주문 배치 완료: "
