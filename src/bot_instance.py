@@ -774,6 +774,30 @@ class BotInstance:
                 self._log.info(
                     f"리스크 매니저 초기화: 시작 잔고=${balance_info['available']:,.2f}"
                 )
+
+                # 계좌 메트릭 초기값 기록 (대시보드 즉시 표시)
+                if self._metrics:
+                    m = self._metrics
+                    bn = self.bot_name
+                    m.record_account_balance(
+                        bn, balance_info["balance"]
+                    )
+                    m.record_available_balance(
+                        bn, balance_info["available"]
+                    )
+                    m.record_unrealized_pnl(
+                        bn,
+                        balance_info.get("unrealized_pnl", 0.0),
+                    )
+                    stats = self._risk_manager.get_stats()
+                    m.record_daily_pnl(bn, stats["daily_pnl"])
+                    m.record_daily_pnl_pct(
+                        bn, stats["daily_pnl_pct"]
+                    )
+                    m.record_drawdown_pct(
+                        bn, stats["current_drawdown"]
+                    )
+                    m.record_win_rate(bn, stats["win_rate"])
         except Exception as e:
             self._log.warning(f"리스크 매니저 초기화 실패 (기본값 사용): {e}")
             await self._risk_manager.reset_daily_stats(1000.0)

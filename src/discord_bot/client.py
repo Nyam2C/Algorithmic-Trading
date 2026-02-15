@@ -83,6 +83,7 @@ class TradingBotClient(discord.Client):
         self.trade_db = trade_db
         self.binance_client = binance_client
         self.bot_state = bot_state or {}
+        self._binance_resolved = False
         self._api_url = os.getenv("TRADING_BOT_API_URL", "http://localhost:8000")
 
         # Phase 7: 감사 로그
@@ -106,6 +107,22 @@ class TradingBotClient(discord.Client):
             self.trade_db is not None
             and getattr(self.trade_db, "pool", None) is not None
         )
+
+    def _resolve_binance_client(self) -> Any:
+        """Binance 클라이언트 반환. 없으면 bot_manager에서 탐색."""
+        if self.binance_client:
+            return self.binance_client
+        if self._binance_resolved:
+            return self.binance_client
+        # bot_manager의 첫 번째 봇에서 클라이언트 가져오기
+        self._binance_resolved = True
+        if self.bot_manager:
+            for bot in self.bot_manager.bots.values():
+                client = getattr(bot, "_binance_client", None)
+                if client:
+                    self.binance_client = client
+                    return client
+        return None
 
     async def _audit_command(
         self, command: str, user: str, bot_name: str = "", details: str = ""
@@ -388,14 +405,15 @@ class TradingBotClient(discord.Client):
         await interaction.response.defer()
 
         try:
-            if not self.binance_client:
+            client = self._resolve_binance_client()
+            if not client:
                 await interaction.followup.send(
                     Messages.NO_BINANCE, ephemeral=True
                 )
                 return
 
-            balance = await self.binance_client.get_account_balance()
-            positions = await self.binance_client.get_all_positions()
+            balance = await client.get_account_balance()
+            positions = await client.get_all_positions()
             embed = create_account_embed(balance, positions)
             await interaction.followup.send(embed=embed)
             logger.info(f"Discord 명령어 /계정 실행: {interaction.user}")
@@ -763,7 +781,8 @@ class TradingBotClient(discord.Client):
 
     async def _get_account_embed(self) -> discord.Embed:
         """계정 임베드 반환 (대시보드 버튼용)."""
-        if not self.binance_client:
+        client = self._resolve_binance_client()
+        if not client:
             return discord.Embed(
                 title="❌ Binance 클라이언트 연결 안 됨",
                 description="Binance API를 사용할 수 없습니다",
@@ -771,8 +790,8 @@ class TradingBotClient(discord.Client):
             )
 
         try:
-            balance = await self.binance_client.get_account_balance()
-            positions = await self.binance_client.get_all_positions()
+            balance = await client.get_account_balance()
+            positions = await client.get_all_positions()
             return create_account_embed(balance, positions)
         except Exception as e:
             logger.error(f"계정 조회 에러: {e}")
