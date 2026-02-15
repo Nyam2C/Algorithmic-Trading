@@ -27,6 +27,7 @@ from src.discord_bot.embeds import (
 )
 from src.discord_bot.utils import (
     PERIOD_LABELS,
+    get_pnl_emoji,
 )
 from src.discord_bot.utils import (
     validate_bot_name as _validate_bot_name,
@@ -83,7 +84,6 @@ class TradingBotClient(discord.Client):
         self.trade_db = trade_db
         self.binance_client = binance_client
         self.bot_state = bot_state or {}
-        self._binance_resolved = False
         self._api_url = os.getenv("TRADING_BOT_API_URL", "http://localhost:8000")
 
         # Phase 7: 감사 로그
@@ -109,13 +109,9 @@ class TradingBotClient(discord.Client):
         )
 
     def _resolve_binance_client(self) -> Any:
-        """Binance 클라이언트 반환. 없으면 bot_manager에서 탐색."""
+        """Binance 클라이언트 반환. 없으면 bot_manager에서 매번 재탐색."""
         if self.binance_client:
             return self.binance_client
-        if self._binance_resolved:
-            return self.binance_client
-        # bot_manager의 첫 번째 봇에서 클라이언트 가져오기
-        self._binance_resolved = True
         if self.bot_manager:
             for bot in self.bot_manager.bots.values():
                 client = getattr(bot, "_binance_client", None)
@@ -305,34 +301,39 @@ class TradingBotClient(discord.Client):
                 embed = create_position_embed(state)
                 embed.title = f"📍 포지션 — {bot_name}"
             else:
-                # 전체 봇 포지션 요약
-                result = await self._call_bot_api("GET", "/api/bots")
-                data = result.get("data", result)
-                bots = data.get("bots", [])
+                # 전체 포지션 — 거래소에서 실시간 조회 (/계정과 동일한 소스)
+                binance = self._resolve_binance_client()
+                if not binance:
+                    await interaction.followup.send(
+                        Messages.NO_BINANCE, ephemeral=True
+                    )
+                    return
+
+                await binance.connect()
+                positions = await binance.get_all_positions()
 
                 embed = discord.Embed(
                     title="📍 전체 포지션",
                     color=Colors.INFO,
                 )
 
-                has_position = False
-                for bot_info in bots:
-                    name = bot_info.get("name", "unknown")
-                    position = bot_info.get("position")
-                    if position and position.get("side"):
-                        has_position = True
-                        side = position["side"]
-                        entry = position.get("entry_price", 0)
+                if positions:
+                    for pos in positions:
+                        side = pos["side"]
                         emoji = Emojis.LONG if side == "LONG" else Emojis.SHORT
+                        pnl_emoji = get_pnl_emoji(pos["unrealized_pnl"])
                         embed.add_field(
-                            name=f"{emoji} {name}",
+                            name=f"{emoji} {pos['symbol']}",
                             value=(
-                                f"{side} @ ${entry:,.2f}"
+                                f"{side} {pos['leverage']}x\n"
+                                f"진입: ${pos['entry_price']:,.2f} → "
+                                f"현재: ${pos['current_price']:,.2f}\n"
+                                f"{pnl_emoji} ${pos['unrealized_pnl']:+,.2f} "
+                                f"({pos['pnl_pct']:+.2f}%)"
                             ),
                             inline=True,
                         )
-
-                if not has_position:
+                else:
                     embed.description = "열린 포지션이 없습니다"
 
             await interaction.followup.send(embed=embed)
@@ -412,6 +413,7 @@ class TradingBotClient(discord.Client):
                 )
                 return
 
+            await client.connect()  # 멱등 — 이미 연결이면 no-op
             balance = await client.get_account_balance()
             positions = await client.get_all_positions()
             embed = create_account_embed(balance, positions)
@@ -790,6 +792,7 @@ class TradingBotClient(discord.Client):
             )
 
         try:
+            await client.connect()  # 멱등 — 이미 연결이면 no-op
             balance = await client.get_account_balance()
             positions = await client.get_all_positions()
             return create_account_embed(balance, positions)

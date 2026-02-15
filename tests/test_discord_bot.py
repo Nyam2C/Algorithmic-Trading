@@ -659,22 +659,35 @@ class TestPositionCommand:
 
     @pytest.mark.asyncio
     async def test_all_positions(self, client, mock_interaction):
-        client._call_bot_api = AsyncMock(
-            return_value={
-                "data": {
-                    "bots": [
-                        {
-                            "name": "bot1",
-                            "position": {
-                                "side": "LONG",
-                                "entry_price": 100000,
-                            },
-                        },
-                        {"name": "bot2", "position": None},
-                    ]
-                }
-            }
-        )
+        mock_binance = AsyncMock()
+        mock_binance.get_all_positions.return_value = [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "leverage": 10,
+                "entry_price": 100000,
+                "current_price": 100500,
+                "unrealized_pnl": 50.0,
+                "pnl_pct": 5.0,
+            },
+        ]
+        client._resolve_binance_client = MagicMock(return_value=mock_binance)
+        await client._position_command(mock_interaction, "")
+        mock_interaction.followup.send.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_all_positions_no_binance(self, client, mock_interaction):
+        client._resolve_binance_client = MagicMock(return_value=None)
+        await client._position_command(mock_interaction, "")
+        mock_interaction.followup.send.assert_called_once()
+        call_kwargs = mock_interaction.followup.send.call_args
+        assert call_kwargs[1].get("ephemeral") is True
+
+    @pytest.mark.asyncio
+    async def test_all_positions_empty(self, client, mock_interaction):
+        mock_binance = AsyncMock()
+        mock_binance.get_all_positions.return_value = []
+        client._resolve_binance_client = MagicMock(return_value=mock_binance)
         await client._position_command(mock_interaction, "")
         mock_interaction.followup.send.assert_called_once()
 
