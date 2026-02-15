@@ -100,6 +100,13 @@ class TradingBotClient(discord.Client):
         self._audit_log = audit_log
         logger.info("Discord 봇 감사 로그 설정 완료")
 
+    def _is_trade_db_ready(self) -> bool:
+        """Trade DB가 연결 완료 상태인지 확인."""
+        return (
+            self.trade_db is not None
+            and getattr(self.trade_db, "pool", None) is not None
+        )
+
     async def _audit_command(
         self, command: str, user: str, bot_name: str = "", details: str = ""
     ) -> None:
@@ -357,7 +364,7 @@ class TradingBotClient(discord.Client):
         await interaction.response.defer()
 
         try:
-            if not self.trade_db:
+            if not self._is_trade_db_ready():
                 await interaction.followup.send(
                     Messages.NO_DATABASE, ephemeral=True
                 )
@@ -731,7 +738,7 @@ class TradingBotClient(discord.Client):
 
     async def _get_pnl_embed(self, hours: int = 24) -> discord.Embed:
         """수익 임베드 반환 (대시보드 버튼용)."""
-        if not self.trade_db:
+        if not self._is_trade_db_ready():
             return discord.Embed(
                 title="❌ 데이터베이스 연결 안 됨",
                 description="거래 데이터베이스를 사용할 수 없습니다",
@@ -743,7 +750,7 @@ class TradingBotClient(discord.Client):
 
     async def _get_history_embed(self, limit: int = 5) -> discord.Embed:
         """내역 임베드 반환 (대시보드 버튼용)."""
-        if not self.trade_db:
+        if not self._is_trade_db_ready():
             return discord.Embed(
                 title="❌ 데이터베이스 연결 안 됨",
                 description="거래 데이터베이스를 사용할 수 없습니다",

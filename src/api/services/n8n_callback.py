@@ -122,7 +122,7 @@ class N8NCallbackService:
                 return CallbackResult.FAILED
 
         except aiohttp.ClientError as e:
-            logger.error(f"n8n 콜백 발송 에러 (네트워크): {e}")
+            logger.warning(f"n8n 콜백 발송 실패 (네트워크): {e}")
             return CallbackResult.FAILED
         except Exception as e:
             logger.error(f"n8n 콜백 발송 에러: {e}")

@@ -1639,7 +1639,13 @@ class BotInstance:
             pnl_usd = (current_price - entry_price) * position_amt
         else:
             pnl_usd = (entry_price - current_price) * position_amt
-        pnl_usd *= self.config.get_effective_leverage()
+        # position_amt는 거래소에서 이미 레버리지 적용된 값 - 이중 곱셈 금지
+
+        # 추정 수수료 차감 (진입+청산 왕복) - _close_position과 동일 로직
+        _fee_rate = getattr(self.config, "estimated_fee_rate", 0.0008)
+        if _fee_rate > 0:
+            _fee = position_amt * current_price * _fee_rate * 2
+            pnl_usd -= _fee
 
         # DB에 기록
         if self._trade_db and tracked.get("trade_id"):
@@ -1983,22 +1989,26 @@ class BotInstance:
             loop_start = time.monotonic()
             try:
                 loop_timeout = max(self._loop_interval_seconds - 20, 60)
+                timed_out = False
                 try:
                     await asyncio.wait_for(
                         self._execute_single_loop(),
                         timeout=loop_timeout,
                     )
                 except asyncio.TimeoutError:
+                    timed_out = True
+                    self._consecutive_errors += 1
                     self._log.critical(
                         f"트레이딩 루프 타임아웃 ({loop_timeout}초) - "
-                        "API 응답 지연 또는 무한 대기 가능성"
+                        "API 응답 지연 또는 무한 대기 가능성 "
+                        f"({self._consecutive_errors}/{self._max_consecutive_errors})"
                     )
 
-                # 성공 시 연속 에러 카운터 리셋
-                self._consecutive_errors = 0
-
-                # Redis 상태 동기화
-                await self._sync_state_to_redis()
+                if not timed_out:
+                    # 성공 시에만 연속 에러 카운터 리셋
+                    self._consecutive_errors = 0
+                    # Redis 상태 동기화
+                    await self._sync_state_to_redis()
 
             except Exception as e:
                 self._consecutive_errors += 1

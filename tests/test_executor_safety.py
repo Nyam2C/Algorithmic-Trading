@@ -899,5 +899,61 @@ class TestSLPlacementFailure:
         assert result is not None
         assert executor.current_position is not None
 
+# =============================================================================
+# Fix #1: avgPrice="0" Handling in Slippage Detection
+# =============================================================================
 
 
+class TestSlippageAvgPriceZero:
+    """avgPrice="0" or "0.0" -> 원래 current_price 유지"""
+
+    @pytest.mark.asyncio
+    async def test_slippage_avg_price_zero_string(self, mock_binance_client, mock_config):
+        """avgPrice="0" -> 원래 current_price 유지, 슬리피지 체크 스킵"""
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        order = {"avgPrice": "0", "orderId": 12345}
+        should_close, actual_price = executor._handle_slippage_detection(order, 100000.0)
+
+        assert should_close is False
+        assert actual_price == 100000.0  # 원래 가격 유지
+
+    @pytest.mark.asyncio
+    async def test_slippage_avg_price_zero_float(self, mock_binance_client, mock_config):
+        """avgPrice="0.0" -> 원래 current_price 유지"""
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        order = {"avgPrice": "0.0", "orderId": 12345}
+        should_close, actual_price = executor._handle_slippage_detection(order, 100000.0)
+
+        assert should_close is False
+        assert actual_price == 100000.0
+
+
+# =============================================================================
+# Fix #2: SL/TP Price Validation Guard
+# =============================================================================
+
+
+class TestTpSlPriceValidation:
+    """TP/SL 가격이 0 이하면 주문 스킵"""
+
+    @pytest.mark.asyncio
+    async def test_place_exchange_tp_sl_zero_price_rejected(
+        self, mock_binance_client, mock_config
+    ):
+        """entry_price=0 -> TP/SL 가격 0 -> API 호출 안 함, False 반환"""
+        executor = TradingExecutor(mock_binance_client, mock_config)
+
+        result = await executor._place_exchange_tp_sl(
+            symbol="BTCUSDT",
+            side="LONG",
+            quantity=0.01,
+            entry_price=0.0,  # 가격 0 -> SL/TP도 0
+            entry_atr=None,
+        )
+
+        assert result is False
+        # API 호출이 없어야 함
+        mock_binance_client.create_stop_market_order.assert_not_called()
+        mock_binance_client.create_take_profit_market_order.assert_not_called()

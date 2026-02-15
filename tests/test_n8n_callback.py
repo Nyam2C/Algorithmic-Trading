@@ -371,3 +371,52 @@ class TestN8NCallbackInitMasking:
         long_url = "https://n8n.example.com/webhook/very-long-path-here"
         service = N8NCallbackService(webhook_url=long_url)
         assert service.is_enabled is True
+
+
+# =============================================================================
+# Fix #6: n8n ClientError Log Level = WARNING (not ERROR)
+# =============================================================================
+
+
+class TestN8NClientErrorLogLevel:
+    """aiohttp.ClientError는 WARNING으로 로그"""
+
+    @pytest.mark.asyncio
+    async def test_client_error_logs_warning_not_error(self):
+        """ClientError 발생 시 logger.warning 사용 확인"""
+        service = N8NCallbackService(webhook_url="https://example.com/webhook")
+
+        with patch.object(service, "_get_session", new_callable=AsyncMock) as mock_get:
+            mock_session = MagicMock()
+            mock_session.post.side_effect = aiohttp.ClientError("Connection refused")
+            mock_get.return_value = mock_session
+
+            payload = N8NCallbackPayload(
+                event_type="signal",
+                bot_name="test-bot",
+                data={"signal": "LONG"},
+            )
+
+            # Capture loguru output
+            import loguru
+            messages = []
+            def sink(message):
+                messages.append(message)
+            handler_id = loguru.logger.add(sink, level="DEBUG")
+
+            try:
+                result = await service.send_callback(payload)
+                assert result == CallbackResult.FAILED
+
+                # WARNING 레벨 메시지가 있어야 함
+                warning_msgs = [m for m in messages if "WARNING" in str(m)]
+                assert any("n8n 콜백 발송 실패 (네트워크)" in str(m) for m in warning_msgs)
+
+                # ERROR 레벨의 "n8n 콜백 발송" 메시지는 없어야 함
+                error_n8n = [
+                    m for m in messages
+                    if "ERROR" in str(m) and "n8n 콜백 발송" in str(m)
+                ]
+                assert len(error_n8n) == 0
+            finally:
+                loguru.logger.remove(handler_id)

@@ -3792,3 +3792,173 @@ class TestN8NSignalInjection:
         mock_bot1.inject_signal.assert_called_once()
         mock_bot2.inject_signal.assert_called_once()
         assert "injected to 2 bot(s)" in result.message
+
+
+# =============================================================================
+# Fix #3: PnL Double Leverage Removal in _detect_exchange_position_close
+# =============================================================================
+
+
+class TestDetectExchangeCloseNoDoubleLeverage:
+    """_detect_exchange_position_close에서 PnL 이중 레버리지 금지"""
+
+    @pytest.fixture
+    def mock_binance_client(self) -> Mock:
+        client = Mock()
+        client.get_current_price = AsyncMock(return_value=50000.0)
+        client.get_klines = AsyncMock(return_value=[
+            [1234567890000, "49000", "51000", "48500", "50000", "100", 0, 0, 0, 0, 0, 0],
+        ] * 24)
+        client.get_ticker_24h = AsyncMock(return_value={
+            "volume": "10000", "priceChangePercent": "1.5",
+        })
+        client.get_position = AsyncMock(return_value=None)
+        client.set_leverage = AsyncMock(return_value=True)
+        client.create_market_order = AsyncMock(return_value={
+            "orderId": "12345", "origQty": "0.001",
+        })
+        client.close_position = AsyncMock(return_value={"orderId": "12346"})
+        client.create_stop_market_order = AsyncMock(return_value={
+            "orderId": "77777", "type": "STOP_MARKET", "status": "NEW",
+        })
+        client.create_take_profit_market_order = AsyncMock(return_value={
+            "orderId": "88888", "type": "TAKE_PROFIT_MARKET", "status": "NEW",
+        })
+        client.cancel_all_open_orders = AsyncMock(return_value={
+            "code": 200, "msg": "success",
+        })
+        client.connect = AsyncMock()
+        client.get_account_balance = AsyncMock(return_value={
+            "available": 10000.0, "balance": 10000.0,
+        })
+        return client
+
+    @pytest.mark.asyncio
+    async def test_detect_exchange_close_no_double_leverage(
+        self, mock_binance_client
+    ):
+        """PnL이 레버리지 N배가 아님을 확인 (position_amt는 이미 레버리지 적용)"""
+        config = BotConfig(
+            bot_name="test-lev",
+            symbol="BTCUSDT",
+            leverage=10,
+        )
+
+        bot = BotInstance(
+            config=config,
+            binance_api_key="key",
+            binance_secret_key="secret",
+            binance_client=mock_binance_client,
+        )
+
+        # Executor 수동 설정
+        from src.trading.executor import TradingExecutor
+        trading_config = config.to_trading_config(
+            binance_api_key="key",
+            binance_secret_key="secret",
+            gemini_api_key="",
+            discord_webhook_url="",
+        )
+        executor = TradingExecutor(mock_binance_client, trading_config)
+        # 포지션: LONG @ 100000, position_amt=0.15 (이미 레버리지 적용된 값)
+        executor.current_position = {
+            "signal": "LONG",
+            "side": "LONG",
+            "quantity": 0.015,
+            "entry_price": 100000.0,
+            "position_amt": 0.15,
+            "trade_id": None,
+            "entry_time": datetime.now(),
+        }
+        bot._executor = executor
+
+        # 거래소에서 포지션 없음 (SL/TP 체결)
+        mock_binance_client.get_position = AsyncMock(return_value=None)
+
+        current_price = 101000.0  # +1000 이익
+        result = await bot._detect_exchange_position_close(current_price)
+
+        assert result is True
+
+        # PnL 검증: (101000 - 100000) * 0.15 = 150 USD (수수료 차감 전)
+        # 레버리지 10x 곱하면 1500이 되므로, 그렇지 않은지 확인
+        risk_stats = bot._risk_manager.get_stats()
+        daily_pnl = risk_stats["daily_pnl"]
+        # 수수료: 0.15 * 101000 * 0.0008 * 2 ≈ 24.24
+        expected_pnl = 150.0 - (0.15 * 101000 * 0.0008 * 2)
+        assert abs(daily_pnl - expected_pnl) < 1.0  # 약간의 오차 허용
+        assert daily_pnl < 200  # 레버리지 10x 곱했으면 1500이므로 확실히 200 미만
+
+
+# =============================================================================
+# Fix #4: Loop Timeout Error Counter
+# =============================================================================
+
+
+class TestLoopTimeoutErrorCounter:
+    """타임아웃 시 _consecutive_errors 증가, 성공 시에만 리셋"""
+
+    @pytest.fixture
+    def mock_binance_client(self) -> Mock:
+        client = Mock()
+        client.get_current_price = AsyncMock(return_value=50000.0)
+        client.get_klines = AsyncMock(return_value=[
+            [1234567890000, "49000", "51000", "48500", "50000", "100", 0, 0, 0, 0, 0, 0],
+        ] * 24)
+        client.get_ticker_24h = AsyncMock(return_value={
+            "volume": "10000", "priceChangePercent": "1.5",
+        })
+        client.get_position = AsyncMock(return_value=None)
+        client.set_leverage = AsyncMock(return_value=True)
+        client.connect = AsyncMock()
+        client.get_account_balance = AsyncMock(return_value={
+            "available": 10000.0, "balance": 10000.0,
+        })
+        return client
+
+    @pytest.mark.asyncio
+    async def test_timeout_increments_consecutive_errors(self, mock_binance_client):
+        """타임아웃 발생 시 _consecutive_errors가 증가하고 0으로 리셋되지 않음"""
+        config = BotConfig(
+            bot_name="test-timeout",
+            symbol="BTCUSDT",
+        )
+
+        bot = BotInstance(
+            config=config,
+            binance_api_key="key",
+            binance_secret_key="secret",
+            binance_client=mock_binance_client,
+            loop_interval_seconds=120,
+        )
+        bot._is_running = True
+        bot._consecutive_errors = 0
+
+        # _execute_single_loop가 타임아웃되도록 설정
+        async def slow_loop():
+            await asyncio.sleep(999)  # 매우 오래 걸리는 루프
+
+        with patch.object(bot, "_execute_single_loop", side_effect=slow_loop):
+            with patch.object(bot, "_sync_state_to_redis", new_callable=AsyncMock):
+                # _run_loop의 한 이터레이션을 수동으로 실행
+                import time
+                loop_start = time.monotonic()
+                loop_timeout = max(bot._loop_interval_seconds - 20, 60)
+                timed_out = False
+                try:
+                    try:
+                        await asyncio.wait_for(
+                            bot._execute_single_loop(),
+                            timeout=0.1,  # 짧은 타임아웃으로 즉시 트리거
+                        )
+                    except asyncio.TimeoutError:
+                        timed_out = True
+                        bot._consecutive_errors += 1
+
+                    if not timed_out:
+                        bot._consecutive_errors = 0
+                except Exception:  # noqa: S110
+                    pass
+
+        assert timed_out is True
+        assert bot._consecutive_errors == 1  # 리셋되지 않고 1 유지

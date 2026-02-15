@@ -1278,3 +1278,52 @@ class TestMessages:
         msg = Messages.ALERT_UPDATED.format(alert_type="진입 알림", state="켜기")
         assert "진입 알림" in msg
         assert "켜기" in msg
+
+
+# =============================================================================
+# Fix #5: Discord DB Pool Check
+# =============================================================================
+
+
+class TestIsTradeDbReady:
+    """_is_trade_db_ready() DB 연결 상태 체크"""
+
+    def test_trade_db_none(self, mock_bot_manager):
+        """trade_db가 None이면 False"""
+        with (
+            patch("src.discord_bot.commands.monitoring.register_monitoring_commands"),
+            patch("src.discord_bot.commands.control.register_control_commands"),
+        ):
+            client = TradingBotClient(
+                bot_manager=mock_bot_manager,
+                trade_db=None,
+            )
+        assert client._is_trade_db_ready() is False
+
+    def test_trade_db_pool_none(self, mock_bot_manager):
+        """trade_db 있지만 pool=None이면 False"""
+        mock_db = Mock()
+        mock_db.pool = None
+        with (
+            patch("src.discord_bot.commands.monitoring.register_monitoring_commands"),
+            patch("src.discord_bot.commands.control.register_control_commands"),
+        ):
+            client = TradingBotClient(
+                bot_manager=mock_bot_manager,
+                trade_db=mock_db,
+            )
+        assert client._is_trade_db_ready() is False
+
+    def test_trade_db_pool_connected(self, mock_bot_manager):
+        """trade_db.pool이 존재하면 True"""
+        mock_db = Mock()
+        mock_db.pool = Mock()  # 실제 풀 객체
+        with (
+            patch("src.discord_bot.commands.monitoring.register_monitoring_commands"),
+            patch("src.discord_bot.commands.control.register_control_commands"),
+        ):
+            client = TradingBotClient(
+                bot_manager=mock_bot_manager,
+                trade_db=mock_db,
+            )
+        assert client._is_trade_db_ready() is True

@@ -264,6 +264,12 @@ class TradingExecutor:
             return False, current_price
 
         avg_price = float(avg_price_str)
+        if avg_price <= 0:
+            logger.warning(
+                f"거래소 avgPrice가 0 또는 음수 ({avg_price_str}), 원래 가격 사용"
+            )
+            return False, current_price
+
         slippage = abs(avg_price - current_price) / current_price
         max_slippage = self.config.max_slippage_pct
 
@@ -827,6 +833,14 @@ class TradingExecutor:
         tp_price, sl_price = self._calculate_tp_sl_prices(
             side, entry_price, entry_atr
         )
+
+        # 가격 유효성 검증 (방어)
+        if sl_price <= 0 or tp_price <= 0:
+            logger.error(
+                f"TP/SL 가격 유효하지 않음: TP={tp_price}, SL={sl_price} "
+                f"(entry={entry_price}). 주문 스킵."
+            )
+            return False
 
         # SL 주문 (필수 - 실패 시 False 반환)
         try:
