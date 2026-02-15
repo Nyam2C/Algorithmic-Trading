@@ -718,10 +718,6 @@ class BotInstance:
             )
             self._log.info("SignalCooldownManager 초기화 완료")
 
-        # Position reconciliation: 거래소 vs Redis 포지션 동기화
-        if self._binance_client:
-            await self._reconcile_position()
-
         # Phase 5 통합: EnsembleSignalGenerator 초기화
         if getattr(self.config, "use_ensemble", False):
             try:
@@ -774,6 +770,10 @@ class BotInstance:
                 connected = True
             except Exception as e:
                 self._log.error(f"Binance 클라이언트 연결 실패: {e}")
+
+        # Position reconciliation: 거래소 vs Redis 포지션 동기화 (연결 성공 시에만)
+        if connected:
+            await self._reconcile_position()
 
         # (2) 메트릭 기본값 등록 (연결 무관 — Grafana template variable 활성화)
         if self._metrics:

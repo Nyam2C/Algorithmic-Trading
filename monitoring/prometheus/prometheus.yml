@@ -11,8 +11,9 @@ global:
 scrape_configs:
   # Trading Bot 메트릭 (/metrics 엔드포인트)
   - job_name: 'trading-bot'
-    authorization:
-      credentials_file: /etc/prometheus/metrics_token
+    # METRICS_AUTH_TOKEN 설정 시 아래 주석 해제:
+    # authorization:
+    #   credentials_file: /etc/prometheus/metrics_token
     static_configs:
       - targets: ['trading-bot:8000']
         labels:
