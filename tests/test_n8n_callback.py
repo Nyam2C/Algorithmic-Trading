@@ -420,3 +420,107 @@ class TestN8NClientErrorLogLevel:
                 assert len(error_n8n) == 0
             finally:
                 loguru.logger.remove(handler_id)
+
+
+# =============================================================================
+# 서킷 브레이커 테스트
+# =============================================================================
+
+
+class TestN8NCircuitBreaker:
+    """n8n 콜백 서킷 브레이커 테스트"""
+
+    def _make_service(self):
+        return N8NCallbackService(webhook_url="https://example.com/webhook")
+
+    def _make_payload(self):
+        return N8NCallbackPayload(
+            event_type="signal",
+            bot_name="test-bot",
+            data={"signal": "LONG"},
+        )
+
+    def _mock_session_failure(self, service):
+        """_get_session이 ClientError를 발생시키도록 mock"""
+        mock_session = MagicMock()
+        mock_session.post.side_effect = aiohttp.ClientError("Connection refused")
+        mock_get = AsyncMock(return_value=mock_session)
+        return patch.object(service, "_get_session", mock_get)
+
+    def _mock_session_success(self, service):
+        """_get_session이 성공 응답을 반환하도록 mock"""
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_post_cm = MagicMock()
+        mock_post_cm.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_post_cm.__aexit__ = AsyncMock(return_value=None)
+        mock_session = MagicMock()
+        mock_session.post.return_value = mock_post_cm
+        mock_get = AsyncMock(return_value=mock_session)
+        return patch.object(service, "_get_session", mock_get)
+
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_opens_after_threshold(self):
+        """3회 연속 실패 후 서킷 오픈 → 4번째는 HTTP 요청 없이 즉시 FAILED"""
+        service = self._make_service()
+        payload = self._make_payload()
+
+        # 3회 실패시켜서 서킷 오픈
+        with self._mock_session_failure(service) as mock_get:
+            for _ in range(3):
+                result = await service.send_callback(payload)
+                assert result == CallbackResult.FAILED
+
+        assert service._consecutive_failures == 3
+
+        # 4번째 호출: 서킷 오픈 상태이므로 _get_session 호출 없이 즉시 FAILED
+        with self._mock_session_failure(service) as mock_get:
+            result = await service.send_callback(payload)
+            assert result == CallbackResult.FAILED
+            mock_get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_half_open_recovery(self):
+        """서킷 오픈 후 recovery 시간 경과 → 반개방 → 성공 시 리셋"""
+        import time
+
+        service = self._make_service()
+        payload = self._make_payload()
+
+        # 3회 실패시켜서 서킷 오픈
+        with self._mock_session_failure(service):
+            for _ in range(3):
+                await service.send_callback(payload)
+
+        assert service._consecutive_failures == 3
+
+        # recovery 시간을 과거로 설정 (즉시 반개방)
+        service._circuit_open_until = time.monotonic() - 1
+
+        # 반개방 상태에서 성공 → 리셋
+        with self._mock_session_success(service):
+            result = await service.send_callback(payload)
+            assert result == CallbackResult.SUCCESS
+
+        assert service._consecutive_failures == 0
+
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_resets_on_success(self):
+        """실패 1~2회 후 성공 → 카운터 리셋"""
+        service = self._make_service()
+        payload = self._make_payload()
+
+        # 2회 실패 (임계치 미만)
+        with self._mock_session_failure(service):
+            for _ in range(2):
+                result = await service.send_callback(payload)
+                assert result == CallbackResult.FAILED
+
+        assert service._consecutive_failures == 2
+
+        # 성공 → 카운터 리셋
+        with self._mock_session_success(service):
+            result = await service.send_callback(payload)
+            assert result == CallbackResult.SUCCESS
+
+        assert service._consecutive_failures == 0

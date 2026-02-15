@@ -3,6 +3,7 @@
 n8n 웹훅으로 이벤트 콜백을 발송합니다.
 Phase 4.1: aiohttp 세션 재사용 및 URL 마스킹
 """
+import time
 from enum import Enum
 from typing import Any
 
@@ -51,6 +52,12 @@ class N8NCallbackService:
         self.webhook_url = webhook_url
         self.is_enabled = webhook_url is not None
         self._session: aiohttp.ClientSession | None = None
+
+        # 서킷 브레이커 상태
+        self._consecutive_failures: int = 0
+        self._circuit_open_until: float = 0.0
+        self.CIRCUIT_FAILURE_THRESHOLD = 3
+        self.CIRCUIT_RECOVERY_SECONDS = 300
 
         if self.is_enabled:
             # URL 마스킹 (보안)
@@ -103,6 +110,14 @@ class N8NCallbackService:
             logger.debug("n8n 콜백 비활성화됨, 발송 스킵")
             return CallbackResult.DISABLED
 
+        # 서킷 브레이커 체크
+        now = time.monotonic()
+        if self._consecutive_failures >= self.CIRCUIT_FAILURE_THRESHOLD:
+            if now < self._circuit_open_until:
+                return CallbackResult.FAILED
+            # 반개방: 1회 시도 허용
+            logger.info("n8n 콜백 서킷 반개방 - 재시도")
+
         try:
             session = await self._get_session()
             async with session.post(
@@ -111,22 +126,40 @@ class N8NCallbackService:
                 headers={"Content-Type": "application/json"},
             ) as response:
                 if response.status >= HTTP_OK and response.status < HTTP_REDIRECT:
+                    if self._consecutive_failures > 0:
+                        logger.info(
+                            f"n8n 콜백 복구 ({self._consecutive_failures}회 실패 후)"
+                        )
+                    self._consecutive_failures = 0
                     logger.debug(
                         f"n8n 콜백 발송 성공: {payload.event_type} "
                         f"(bot={payload.bot_name})"
                     )
                     return CallbackResult.SUCCESS
-                logger.warning(
-                    f"n8n 콜백 발송 실패: HTTP {response.status}"
-                )
+                self._record_failure(f"HTTP {response.status}")
                 return CallbackResult.FAILED
 
         except aiohttp.ClientError as e:
-            logger.warning(f"n8n 콜백 발송 실패 (네트워크): {e}")
+            self._record_failure(str(e))
             return CallbackResult.FAILED
         except Exception as e:
-            logger.error(f"n8n 콜백 발송 에러: {e}")
+            self._record_failure(str(e), level="error")
             return CallbackResult.FAILED
+
+    def _record_failure(self, reason: str, level: str = "warning") -> None:
+        """실패 기록 및 서킷 브레이커 상태 업데이트."""
+        self._consecutive_failures += 1
+        if self._consecutive_failures == self.CIRCUIT_FAILURE_THRESHOLD:
+            self._circuit_open_until = time.monotonic() + self.CIRCUIT_RECOVERY_SECONDS
+            logger.warning(
+                f"n8n 콜백 서킷 오픈: {self._consecutive_failures}회 연속 실패, "
+                f"{self.CIRCUIT_RECOVERY_SECONDS}초 후 재시도. 마지막: {reason}"
+            )
+        elif self._consecutive_failures < self.CIRCUIT_FAILURE_THRESHOLD:
+            if level == "error":
+                logger.error(f"n8n 콜백 발송 에러: {reason}")
+            else:
+                logger.warning(f"n8n 콜백 발송 실패 (네트워크): {reason}")
 
     async def send_signal(
         self,
