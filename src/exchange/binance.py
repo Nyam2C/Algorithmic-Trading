@@ -727,7 +727,13 @@ class BinanceTestnetClient:
 
         Returns:
             주문 응답 딕셔너리
+
+        Raises:
+            ValueError: stop_price가 유효하지 않을 때
         """
+        if not stop_price or stop_price <= 0:
+            raise ValueError(f"Invalid stop_price: {stop_price}")
+
         t0 = time.monotonic()
         try:
             order = await self.client.futures_create_order(

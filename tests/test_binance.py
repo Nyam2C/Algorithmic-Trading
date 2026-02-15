@@ -1397,3 +1397,59 @@ class TestIssueKGetPositionRetry:
         # Should still raise ConnectionError, NOT CircuitBreakerOpen
         with pytest.raises(ConnectionError):
             await retry_client.get_position("BTCUSDT")
+
+
+class TestStopMarketOrderValidation:
+    """create_stop_market_order 방어적 검증 테스트"""
+
+    @pytest.fixture
+    def client_fixture(self):
+        client = BinanceTestnetClient("key", "secret", testnet=True)
+        mock_internal = AsyncMock()
+        client._client = mock_internal
+        return client, mock_internal
+
+    @pytest.mark.asyncio
+    async def test_stop_market_order_zero_price_raises(self, client_fixture):
+        """stop_price=0 -> ValueError"""
+        client_instance, _ = client_fixture
+
+        with pytest.raises(ValueError, match="Invalid stop_price"):
+            await client_instance.create_stop_market_order(
+                "BTCUSDT", "SELL", 0.01, 0.0
+            )
+
+    @pytest.mark.asyncio
+    async def test_stop_market_order_negative_price_raises(self, client_fixture):
+        """stop_price 음수 -> ValueError"""
+        client_instance, _ = client_fixture
+
+        with pytest.raises(ValueError, match="Invalid stop_price"):
+            await client_instance.create_stop_market_order(
+                "BTCUSDT", "SELL", 0.01, -100.0
+            )
+
+    @pytest.mark.asyncio
+    async def test_stop_market_order_none_price_raises(self, client_fixture):
+        """stop_price=None -> ValueError"""
+        client_instance, _ = client_fixture
+
+        with pytest.raises(ValueError, match="Invalid stop_price"):
+            await client_instance.create_stop_market_order(
+                "BTCUSDT", "SELL", 0.01, None
+            )
+
+    @pytest.mark.asyncio
+    async def test_stop_market_order_valid_price_succeeds(self, client_fixture):
+        """정상 stop_price -> 주문 성공"""
+        client_instance, mock_internal = client_fixture
+        mock_internal.futures_create_order = AsyncMock(return_value={
+            "orderId": 77777, "type": "STOP_MARKET", "status": "NEW",
+        })
+
+        result = await client_instance.create_stop_market_order(
+            "BTCUSDT", "SELL", 0.01, 99600.0
+        )
+
+        assert result["orderId"] == 77777
+        mock_internal.futures_create_order.assert_called_once()
