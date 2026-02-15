@@ -24,7 +24,6 @@ services:
     environment:
       - LOG_LEVEL=DEBUG
       - TESTNET=true
-      - REDIS_URL=redis://redis:6379
       - ENABLE_JSON_LOGGING=true   # Promtail/Loki 연동 필수
       - ENABLE_REDIS_STATE=true
       - API_DEBUG=true  # /docs, /redoc 활성화

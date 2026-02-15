@@ -75,7 +75,7 @@ case "${1:-start}" in
         echo ""
         echo "  서비스 접속:"
         echo "    - n8n:      http://localhost:5678 (워크플로우 자동화)"
-        echo "    - Grafana:  http://localhost:3000 (admin/admin123)"
+        echo "    - Grafana:  http://localhost:3000 (admin/\${GRAFANA_ADMIN_PASSWORD:-changeme})"
         echo "    - API:      http://localhost:8000/health"
         echo "    - API Docs: http://localhost:8000/docs (debug 모드)"
         echo "    - DB:       localhost:5432"
