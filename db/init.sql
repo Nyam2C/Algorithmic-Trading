@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS trades (
     duration_minutes INT,
 
     -- Exit reason
-    exit_reason VARCHAR(20) CHECK (exit_reason IN ('TP', 'SL', 'TIME_CUT', 'MANUAL', 'AI_SIGNAL')),
+    exit_reason VARCHAR(20) CHECK (exit_reason IN ('TP', 'SL', 'TIME_CUT', 'MANUAL', 'AI_SIGNAL', 'EXCHANGE_SL_TP', 'UNKNOWN')),
 
     -- Status
     status VARCHAR(20) NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'CLOSED', 'CANCELLED')),
