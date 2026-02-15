@@ -9,10 +9,17 @@ from prometheus_client import CollectorRegistry
 from src.metrics.prometheus import (
     TradingMetrics,
     get_metrics_registry,
+    record_account_balance,
     record_api_latency,
+    record_available_balance,
+    record_daily_pnl,
+    record_daily_pnl_pct,
+    record_drawdown_pct,
     record_position_pnl,
     record_signal_confidence,
     record_trade,
+    record_unrealized_pnl,
+    record_win_rate,
 )
 
 
@@ -110,6 +117,63 @@ class TestTradingMetrics:
         assert True
 
 
+class TestAccountMetrics:
+    """계좌 메트릭 테스트"""
+
+    def test_record_account_balance(self, metrics):
+        """총 계좌 잔고 기록"""
+        metrics.record_account_balance("btc-bot", 1234.56)
+        assert True
+
+    def test_record_available_balance(self, metrics):
+        """가용 잔고 기록"""
+        metrics.record_available_balance("btc-bot", 1000.0)
+        assert True
+
+    def test_record_unrealized_pnl(self, metrics):
+        """미실현 손익 기록"""
+        metrics.record_unrealized_pnl("btc-bot", 34.5)
+        assert True
+
+    def test_record_unrealized_pnl_negative(self, metrics):
+        """미실현 손실 기록"""
+        metrics.record_unrealized_pnl("btc-bot", -15.0)
+        assert True
+
+    def test_record_daily_pnl(self, metrics):
+        """일일 실현 손익 기록"""
+        metrics.record_daily_pnl("btc-bot", 50.0)
+        assert True
+
+    def test_record_daily_pnl_pct(self, metrics):
+        """일일 수익률 기록"""
+        metrics.record_daily_pnl_pct("btc-bot", 2.1)
+        assert True
+
+    def test_record_drawdown_pct(self, metrics):
+        """드로다운 기록"""
+        metrics.record_drawdown_pct("btc-bot", 1.2)
+        assert True
+
+    def test_record_win_rate(self, metrics):
+        """승률 기록"""
+        metrics.record_win_rate("btc-bot", 0.67)
+        assert True
+
+    def test_record_win_rate_zero(self, metrics):
+        """승률 0% 기록"""
+        metrics.record_win_rate("btc-bot", 0.0)
+        assert True
+
+    def test_account_metrics_multiple_bots(self, metrics):
+        """멀티봇 계좌 메트릭"""
+        metrics.record_account_balance("bot-1", 1000.0)
+        metrics.record_account_balance("bot-2", 2000.0)
+        metrics.record_daily_pnl("bot-1", 10.0)
+        metrics.record_daily_pnl("bot-2", -5.0)
+        assert True
+
+
 class TestConvenienceFunctions:
     """편의 함수 테스트"""
 
@@ -143,6 +207,35 @@ class TestConvenienceFunctions:
             bot_name="btc-bot",
             confidence=0.75,
         )
+
+
+    def test_record_account_balance_function(self):
+        """record_account_balance 편의 함수"""
+        record_account_balance(bot_name="btc-bot", balance=1234.56)
+
+    def test_record_available_balance_function(self):
+        """record_available_balance 편의 함수"""
+        record_available_balance(bot_name="btc-bot", balance=1000.0)
+
+    def test_record_unrealized_pnl_function(self):
+        """record_unrealized_pnl 편의 함수"""
+        record_unrealized_pnl(bot_name="btc-bot", pnl=34.5)
+
+    def test_record_daily_pnl_function(self):
+        """record_daily_pnl 편의 함수"""
+        record_daily_pnl(bot_name="btc-bot", pnl=50.0)
+
+    def test_record_daily_pnl_pct_function(self):
+        """record_daily_pnl_pct 편의 함수"""
+        record_daily_pnl_pct(bot_name="btc-bot", pnl_pct=2.1)
+
+    def test_record_drawdown_pct_function(self):
+        """record_drawdown_pct 편의 함수"""
+        record_drawdown_pct(bot_name="btc-bot", drawdown=1.2)
+
+    def test_record_win_rate_function(self):
+        """record_win_rate 편의 함수"""
+        record_win_rate(bot_name="btc-bot", win_rate=0.67)
 
 
 class TestMetricsRegistry:

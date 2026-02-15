@@ -48,6 +48,13 @@ class TradingMetrics:
     _default_open_positions: Gauge | None = None
     _default_bot_uptime: Gauge | None = None
     _default_rsi_value: Gauge | None = None
+    _default_account_balance: Gauge | None = None
+    _default_available_balance: Gauge | None = None
+    _default_unrealized_pnl: Gauge | None = None
+    _default_daily_pnl: Gauge | None = None
+    _default_daily_pnl_pct: Gauge | None = None
+    _default_drawdown_pct: Gauge | None = None
+    _default_win_rate: Gauge | None = None
 
     def __init__(self, registry: CollectorRegistry | None = None) -> None:
         """메트릭 초기화.
@@ -78,6 +85,13 @@ class TradingMetrics:
             self._open_positions = TradingMetrics._default_open_positions
             self._bot_uptime = TradingMetrics._default_bot_uptime
             self._rsi_value = TradingMetrics._default_rsi_value
+            self._account_balance = TradingMetrics._default_account_balance
+            self._available_balance = TradingMetrics._default_available_balance
+            self._unrealized_pnl = TradingMetrics._default_unrealized_pnl
+            self._daily_pnl = TradingMetrics._default_daily_pnl
+            self._daily_pnl_pct = TradingMetrics._default_daily_pnl_pct
+            self._drawdown_pct = TradingMetrics._default_drawdown_pct
+            self._win_rate = TradingMetrics._default_win_rate
             return
 
         # 새 레지스트리거나 처음 초기화
@@ -88,7 +102,7 @@ class TradingMetrics:
 
         logger.debug("TradingMetrics 초기화 완료")
 
-    def _create_metrics(self) -> None:
+    def _create_metrics(self) -> None:  # noqa: PLR0915
         """메트릭 생성."""
         # 거래 메트릭
         trades_total = Counter(
@@ -209,6 +223,56 @@ class TradingMetrics:
             registry=self._registry,
         )
 
+        # 계좌 메트릭
+        account_balance = Gauge(
+            "trading_account_balance",
+            "Total account balance (USDT)",
+            ["bot_name"],
+            registry=self._registry,
+        )
+
+        available_balance = Gauge(
+            "trading_available_balance",
+            "Available balance (USDT)",
+            ["bot_name"],
+            registry=self._registry,
+        )
+
+        unrealized_pnl = Gauge(
+            "trading_unrealized_pnl",
+            "Unrealized PnL (USDT)",
+            ["bot_name"],
+            registry=self._registry,
+        )
+
+        daily_pnl = Gauge(
+            "trading_daily_pnl",
+            "Daily realized PnL (USDT)",
+            ["bot_name"],
+            registry=self._registry,
+        )
+
+        daily_pnl_pct = Gauge(
+            "trading_daily_pnl_pct",
+            "Daily PnL percentage",
+            ["bot_name"],
+            registry=self._registry,
+        )
+
+        drawdown_pct = Gauge(
+            "trading_drawdown_pct",
+            "Current drawdown percentage",
+            ["bot_name"],
+            registry=self._registry,
+        )
+
+        win_rate = Gauge(
+            "trading_win_rate",
+            "Trading win rate (0-1)",
+            ["bot_name"],
+            registry=self._registry,
+        )
+
         # 인스턴스 변수에 저장
         self._trades_total = trades_total
         self._trade_duration = trade_duration
@@ -225,6 +289,13 @@ class TradingMetrics:
         self._open_positions = open_positions
         self._bot_uptime = bot_uptime
         self._rsi_value = rsi_value
+        self._account_balance = account_balance
+        self._available_balance = available_balance
+        self._unrealized_pnl = unrealized_pnl
+        self._daily_pnl = daily_pnl
+        self._daily_pnl_pct = daily_pnl_pct
+        self._drawdown_pct = drawdown_pct
+        self._win_rate = win_rate
 
         # 기본 레지스트리면 클래스 변수에도 저장
         if self._use_default:
@@ -243,6 +314,13 @@ class TradingMetrics:
             TradingMetrics._default_open_positions = open_positions
             TradingMetrics._default_bot_uptime = bot_uptime
             TradingMetrics._default_rsi_value = rsi_value
+            TradingMetrics._default_account_balance = account_balance
+            TradingMetrics._default_available_balance = available_balance
+            TradingMetrics._default_unrealized_pnl = unrealized_pnl
+            TradingMetrics._default_daily_pnl = daily_pnl
+            TradingMetrics._default_daily_pnl_pct = daily_pnl_pct
+            TradingMetrics._default_drawdown_pct = drawdown_pct
+            TradingMetrics._default_win_rate = win_rate
 
     @property
     def trades_total(self) -> Counter:
@@ -508,6 +586,76 @@ class TradingMetrics:
         """
         self.signal_confidence.labels(bot_name=bot_name).set(confidence)
 
+    def record_account_balance(self, bot_name: str, balance: float) -> None:
+        """총 계좌 잔고 기록.
+
+        Args:
+            bot_name: 봇 이름
+            balance: 총 잔고 (USDT)
+        """
+        if self._account_balance is not None:
+            self._account_balance.labels(bot_name=bot_name).set(balance)
+
+    def record_available_balance(self, bot_name: str, balance: float) -> None:
+        """가용 잔고 기록.
+
+        Args:
+            bot_name: 봇 이름
+            balance: 가용 잔고 (USDT)
+        """
+        if self._available_balance is not None:
+            self._available_balance.labels(bot_name=bot_name).set(balance)
+
+    def record_unrealized_pnl(self, bot_name: str, pnl: float) -> None:
+        """미실현 손익 기록.
+
+        Args:
+            bot_name: 봇 이름
+            pnl: 미실현 PnL (USDT)
+        """
+        if self._unrealized_pnl is not None:
+            self._unrealized_pnl.labels(bot_name=bot_name).set(pnl)
+
+    def record_daily_pnl(self, bot_name: str, pnl: float) -> None:
+        """일일 실현 손익 기록.
+
+        Args:
+            bot_name: 봇 이름
+            pnl: 일일 PnL (USDT)
+        """
+        if self._daily_pnl is not None:
+            self._daily_pnl.labels(bot_name=bot_name).set(pnl)
+
+    def record_daily_pnl_pct(self, bot_name: str, pnl_pct: float) -> None:
+        """일일 수익률 기록.
+
+        Args:
+            bot_name: 봇 이름
+            pnl_pct: 일일 PnL 비율 (%)
+        """
+        if self._daily_pnl_pct is not None:
+            self._daily_pnl_pct.labels(bot_name=bot_name).set(pnl_pct)
+
+    def record_drawdown_pct(self, bot_name: str, drawdown: float) -> None:
+        """드로다운 기록.
+
+        Args:
+            bot_name: 봇 이름
+            drawdown: 현재 드로다운 비율 (%)
+        """
+        if self._drawdown_pct is not None:
+            self._drawdown_pct.labels(bot_name=bot_name).set(drawdown)
+
+    def record_win_rate(self, bot_name: str, win_rate: float) -> None:
+        """승률 기록.
+
+        Args:
+            bot_name: 봇 이름
+            win_rate: 승률 (0-1)
+        """
+        if self._win_rate is not None:
+            self._win_rate.labels(bot_name=bot_name).set(win_rate)
+
     def clear_position_metrics(self, bot_name: str) -> None:
         """포지션 청산 시 메트릭 클리어.
 
@@ -627,3 +775,37 @@ def record_rsi(
 ) -> None:
     """RSI 값 기록 (편의 함수)."""
     _get_metrics().record_rsi(bot_name, rsi_value)
+
+def record_account_balance(bot_name: str, balance: float) -> None:
+    """총 계좌 잔고 기록 (편의 함수)."""
+    _get_metrics().record_account_balance(bot_name, balance)
+
+
+def record_available_balance(bot_name: str, balance: float) -> None:
+    """가용 잔고 기록 (편의 함수)."""
+    _get_metrics().record_available_balance(bot_name, balance)
+
+
+def record_unrealized_pnl(bot_name: str, pnl: float) -> None:
+    """미실현 손익 기록 (편의 함수)."""
+    _get_metrics().record_unrealized_pnl(bot_name, pnl)
+
+
+def record_daily_pnl(bot_name: str, pnl: float) -> None:
+    """일일 실현 손익 기록 (편의 함수)."""
+    _get_metrics().record_daily_pnl(bot_name, pnl)
+
+
+def record_daily_pnl_pct(bot_name: str, pnl_pct: float) -> None:
+    """일일 수익률 기록 (편의 함수)."""
+    _get_metrics().record_daily_pnl_pct(bot_name, pnl_pct)
+
+
+def record_drawdown_pct(bot_name: str, drawdown: float) -> None:
+    """드로다운 기록 (편의 함수)."""
+    _get_metrics().record_drawdown_pct(bot_name, drawdown)
+
+
+def record_win_rate(bot_name: str, win_rate: float) -> None:
+    """승률 기록 (편의 함수)."""
+    _get_metrics().record_win_rate(bot_name, win_rate)

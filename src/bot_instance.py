@@ -1928,6 +1928,31 @@ class BotInstance:
             try:
                 balance_info = await self._binance_client.get_account_balance()
                 await self._risk_manager.update_balance(balance_info["available"])
+
+                # 계좌 메트릭 기록
+                if self._metrics:
+                    self._metrics.record_account_balance(
+                        self.bot_name, balance_info["balance"]
+                    )
+                    self._metrics.record_available_balance(
+                        self.bot_name, balance_info["available"]
+                    )
+                    self._metrics.record_unrealized_pnl(
+                        self.bot_name, balance_info.get("unrealized_pnl", 0.0)
+                    )
+                    stats = self._risk_manager.get_stats()
+                    self._metrics.record_daily_pnl(
+                        self.bot_name, stats["daily_pnl"]
+                    )
+                    self._metrics.record_daily_pnl_pct(
+                        self.bot_name, stats["daily_pnl_pct"]
+                    )
+                    self._metrics.record_drawdown_pct(
+                        self.bot_name, stats["current_drawdown"]
+                    )
+                    self._metrics.record_win_rate(
+                        self.bot_name, stats["win_rate"]
+                    )
             except Exception as e:
                 self._log.debug(f"잔고 업데이트 실패: {e}")
 
