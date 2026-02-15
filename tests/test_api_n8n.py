@@ -76,7 +76,7 @@ class TestN8NSignal:
             "/api/n8n/signal",
             json={
                 "signal": "LONG",
-                "source": "tradingview",
+                "source": "n8n",
                 "confidence": 0.85,
             },
             headers=api_headers,
@@ -151,7 +151,7 @@ class TestN8NSignal:
             "/api/n8n/signal",
             json={
                 "signal": "LONG",
-                "source": "tradingview",
+                "source": "n8n",
                 "confidence": 0.9,
                 "metadata": {
                     "strategy": "rsi_divergence",

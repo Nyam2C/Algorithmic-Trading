@@ -11,7 +11,7 @@ import hmac
 import os
 import time
 from collections import defaultdict
-from typing import Any, Union
+from typing import Any
 
 from fastapi import Header, HTTPException, Request
 from loguru import logger
@@ -24,7 +24,7 @@ from src.storage.redis_state import DummyRedisStateManager, RedisStateManager
 # 전역 상태 (앱 시작 시 설정됨)
 _bot_manager: MultiBotManager | None = None
 _api_config: APIConfig | None = None
-_redis_state_manager: Union[RedisStateManager, DummyRedisStateManager] | None = None
+_redis_state_manager: RedisStateManager | DummyRedisStateManager | None = None
 _trade_analyzer: TradeHistoryAnalyzer | None = None
 _signal_tracker: Any | None = None  # SignalTracker 타입
 
@@ -84,7 +84,7 @@ def get_api_config() -> APIConfig:
 
 
 def set_redis_state_manager(
-    manager: Union[RedisStateManager, DummyRedisStateManager]
+    manager: RedisStateManager | DummyRedisStateManager,
 ) -> None:
     """Redis 상태 관리자 설정.
 
@@ -96,7 +96,7 @@ def set_redis_state_manager(
 
 
 def get_redis_state_manager(
-) -> Union[RedisStateManager, DummyRedisStateManager] | None:
+) -> RedisStateManager | DummyRedisStateManager | None:
     """Redis 상태 관리자 반환.
 
     Returns:

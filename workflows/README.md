@@ -87,7 +87,7 @@ Content-Type: application/json
 {
   "bot_name": "btc-bot",
   "signal": "LONG",
-  "source": "tradingview",
+  "source": "n8n",
   "confidence": 0.85,
   "metadata": {
     "strategy": "rsi_divergence",

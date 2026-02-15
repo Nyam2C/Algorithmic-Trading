@@ -252,7 +252,7 @@ class TestMain:
     async def test_main_no_redis_no_db_no_discord(self, mock_config):
         """Redis, DB, Discord 없는 기본 main"""
         with patch("src.main.get_config", return_value=mock_config):
-            with patch("src.main.load_bots_from_yaml_optional", return_value=(self._yaml_configs(), None)):
+            with patch("src.main.load_bots_from_yaml", return_value=(self._yaml_configs(), None)):
                 with patch("src.main.create_app") as mock_create_app:
                     mock_create_app.return_value = MagicMock()
                     with patch("src.main.send_discord_embed", new_callable=AsyncMock) as mock_embed:
@@ -291,7 +291,7 @@ class TestMain:
     async def test_main_no_yaml_raises_system_exit(self, mock_config):
         """YAML 봇 설정 없으면 SystemExit"""
         with patch("src.main.get_config", return_value=mock_config):
-            with patch("src.main.load_bots_from_yaml_optional", return_value=([], None)):
+            with patch("src.main.load_bots_from_yaml", return_value=([], None)):
                 with pytest.raises(SystemExit):
                     from src.main import main
                     await main()
@@ -308,7 +308,7 @@ class TestMain:
 
         with patch("src.main.get_config", return_value=mock_config):
             with patch("src.main.create_redis_manager", new_callable=AsyncMock, return_value=mock_redis):
-                with patch("src.main.load_bots_from_yaml_optional", return_value=(self._yaml_configs(), None)):
+                with patch("src.main.load_bots_from_yaml", return_value=(self._yaml_configs(), None)):
                     with patch("src.main.create_app") as mock_create_app:
                         mock_create_app.return_value = MagicMock()
                         with patch("src.main.send_discord_embed", new_callable=AsyncMock, return_value=True):
@@ -348,7 +348,7 @@ class TestMain:
                 new_callable=AsyncMock,
                 side_effect=Exception("Redis connection failed"),
             ):
-                with patch("src.main.load_bots_from_yaml_optional", return_value=(self._yaml_configs(), None)):
+                with patch("src.main.load_bots_from_yaml", return_value=(self._yaml_configs(), None)):
                     with patch("src.main.create_app") as mock_create_app:
                         mock_create_app.return_value = MagicMock()
                         with patch("src.main.send_discord_embed", new_callable=AsyncMock, return_value=True):
@@ -386,7 +386,7 @@ class TestMain:
         mock_db.disconnect = AsyncMock()
 
         with patch("src.main.get_config", return_value=mock_config):
-            with patch("src.main.load_bots_from_yaml_optional", return_value=(self._yaml_configs(), None)):
+            with patch("src.main.load_bots_from_yaml", return_value=(self._yaml_configs(), None)):
                 with patch("src.main.TradeHistoryDB", return_value=mock_db):
                     with patch("src.main.create_app") as mock_create_app:
                         mock_create_app.return_value = MagicMock()
@@ -427,7 +427,7 @@ class TestMain:
         mock_db.disconnect = AsyncMock()
 
         with patch("src.main.get_config", return_value=mock_config):
-            with patch("src.main.load_bots_from_yaml_optional", return_value=(self._yaml_configs(), None)):
+            with patch("src.main.load_bots_from_yaml", return_value=(self._yaml_configs(), None)):
                 with patch("src.main.TradeHistoryDB", return_value=mock_db):
                     with patch("src.main.create_app") as mock_create_app:
                         mock_create_app.return_value = MagicMock()
@@ -466,7 +466,7 @@ class TestMain:
         ]
 
         with patch("src.main.get_config", return_value=mock_config):
-            with patch("src.main.load_bots_from_yaml_optional", return_value=(yaml_configs, MagicMock())):
+            with patch("src.main.load_bots_from_yaml", return_value=(yaml_configs, MagicMock())):
                 with patch("src.main.create_app") as mock_create_app:
                     mock_create_app.return_value = MagicMock()
                     with patch("src.main.send_discord_embed", new_callable=AsyncMock, return_value=True):
@@ -503,7 +503,7 @@ class TestMain:
         mock_config.discord_bot_token = "valid_discord_token"
 
         with patch("src.main.get_config", return_value=mock_config):
-            with patch("src.main.load_bots_from_yaml_optional", return_value=(self._yaml_configs(), None)):
+            with patch("src.main.load_bots_from_yaml", return_value=(self._yaml_configs(), None)):
                 with patch("src.main.create_app") as mock_create_app:
                     mock_create_app.return_value = MagicMock()
                     with patch("src.main.send_discord_embed", new_callable=AsyncMock, return_value=True):
@@ -538,7 +538,7 @@ class TestMain:
         mock_config.discord_bot_token = "your_bot_token_here"
 
         with patch("src.main.get_config", return_value=mock_config):
-            with patch("src.main.load_bots_from_yaml_optional", return_value=(self._yaml_configs(), None)):
+            with patch("src.main.load_bots_from_yaml", return_value=(self._yaml_configs(), None)):
                 with patch("src.main.create_app") as mock_create_app:
                     mock_create_app.return_value = MagicMock()
                     with patch("src.main.send_discord_embed", new_callable=AsyncMock, return_value=True):
@@ -581,7 +581,7 @@ class TestMain:
 
         with patch("src.main.get_config", return_value=mock_config):
             with patch("src.main.create_redis_manager", new_callable=AsyncMock, return_value=mock_redis):
-                with patch("src.main.load_bots_from_yaml_optional", return_value=(self._yaml_configs(), None)):
+                with patch("src.main.load_bots_from_yaml", return_value=(self._yaml_configs(), None)):
                     with patch("src.main.create_app") as mock_create_app:
                         mock_create_app.return_value = MagicMock()
                         with patch("src.main.send_discord_embed", new_callable=AsyncMock, return_value=True):
@@ -615,7 +615,7 @@ class TestMain:
         mock_config.discord_bot_token = "valid_token"
 
         with patch("src.main.get_config", return_value=mock_config):
-            with patch("src.main.load_bots_from_yaml_optional", return_value=(self._yaml_configs(), None)):
+            with patch("src.main.load_bots_from_yaml", return_value=(self._yaml_configs(), None)):
                 with patch("src.main.create_app") as mock_create_app:
                     mock_create_app.return_value = MagicMock()
                     with patch("src.main.send_discord_embed", new_callable=AsyncMock, return_value=True):
@@ -659,7 +659,7 @@ class TestMain:
 
         with patch("src.main.get_config", return_value=mock_config):
             with patch("src.main.create_redis_manager", new_callable=AsyncMock, return_value=mock_redis):
-                with patch("src.main.load_bots_from_yaml_optional", return_value=(self._yaml_configs(), None)):
+                with patch("src.main.load_bots_from_yaml", return_value=(self._yaml_configs(), None)):
                     with patch("src.main.create_app") as mock_create_app:
                         mock_create_app.return_value = MagicMock()
                         with patch("src.main.send_discord_embed", new_callable=AsyncMock, return_value=True):
@@ -699,7 +699,7 @@ class TestMain:
         mock_db.disconnect = AsyncMock()
 
         with patch("src.main.get_config", return_value=mock_config):
-            with patch("src.main.load_bots_from_yaml_optional", return_value=(self._yaml_configs(), None)):
+            with patch("src.main.load_bots_from_yaml", return_value=(self._yaml_configs(), None)):
                 with patch("src.main.TradeHistoryDB", return_value=mock_db):
                     with patch("src.main.create_app") as mock_create_app:
                         mock_create_app.return_value = MagicMock()

@@ -6,7 +6,7 @@ Phase 5.4: 멀티봇 총 노출도 제한
 """
 import asyncio
 import contextlib
-from typing import Any, Union
+from typing import Any
 
 from loguru import logger
 
@@ -48,10 +48,7 @@ class MultiBotManager:
         database_url: str | None = None,
         loop_interval_seconds: int = 300,
         configs: list[BotConfig] | None = None,
-        redis_state_manager: Union[
-            RedisStateManager, DummyRedisStateManager
-        ]
-        | None = None,
+        redis_state_manager: RedisStateManager | DummyRedisStateManager | None = None,
         # Phase 5.4: 총 노출도 제한
         max_total_exposure: float = 0.0,  # 0 = 제한 없음
     ) -> None:
@@ -146,7 +143,7 @@ class MultiBotManager:
     @property
     def redis_state_manager(
         self,
-    ) -> Union[RedisStateManager, DummyRedisStateManager] | None:
+    ) -> RedisStateManager | DummyRedisStateManager | None:
         """Redis 상태 관리자."""
         return self._redis_state_manager
 
@@ -329,7 +326,7 @@ class MultiBotManager:
     # =========================================================================
 
     def set_redis_state_manager(
-        self, manager: Union[RedisStateManager, DummyRedisStateManager]
+        self, manager: RedisStateManager | DummyRedisStateManager
     ) -> None:
         """Redis 상태 관리자 설정.
 

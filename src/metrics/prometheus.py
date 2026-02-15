@@ -4,13 +4,12 @@ Phase 7.2: 실시간 모니터링 대시보드
 - 거래 메트릭 (trades_total, position_pnl, trade_duration)
 - 시스템 메트릭 (api_latency, signal_confidence)
 """
-from typing import Optional
 
 from loguru import logger
 from prometheus_client import REGISTRY, CollectorRegistry, Counter, Gauge, Histogram
 
 # 기본 레지스트리 (싱글톤)
-_metrics_instance: Optional["TradingMetrics"] = None
+_metrics_instance: "TradingMetrics | None" = None
 _initialized: bool = False
 
 

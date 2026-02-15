@@ -264,15 +264,6 @@ class MarketDataFormatter:
 이유: (한 문장)"""
 
 
-    def estimate_tokens(self, text: str) -> int:
-        """대략적인 토큰 수 추정 (영어 기준 4문자 = 1토큰).
-
-        한글은 약 2문자 = 1토큰.
-        """
-        # 간단한 추정: 공백으로 분리된 단어 수 + 특수문자
-        words = text.split()
-        return len(words) + len(text) // 4
-
 
 # 싱글톤 인스턴스
 formatter = MarketDataFormatter()

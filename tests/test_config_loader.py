@@ -8,8 +8,8 @@ import pytest
 from src.config_loader import (
     BotYamlEntry,
     GlobalConfig,
+    _load_bots_from_yaml,
     load_bots_from_yaml,
-    load_bots_from_yaml_optional,
 )
 
 
@@ -105,7 +105,7 @@ bots:
         yaml_file = tmp_path / "bots.yaml"
         yaml_file.write_text(yaml_content)
 
-        bot_configs, global_config = load_bots_from_yaml(str(yaml_file))
+        bot_configs, global_config = _load_bots_from_yaml(str(yaml_file))
 
         # 글로벌 설정 확인
         assert global_config.is_testnet is True
@@ -149,7 +149,7 @@ bots:
         yaml_file = tmp_path / "bots.yaml"
         yaml_file.write_text(yaml_content)
 
-        bot_configs, global_config = load_bots_from_yaml(str(yaml_file))
+        bot_configs, global_config = _load_bots_from_yaml(str(yaml_file))
 
         # 기본 글로벌 설정
         assert global_config.is_testnet is True
@@ -162,7 +162,7 @@ bots:
     def test_load_yaml_file_not_found(self):
         """존재하지 않는 파일 테스트"""
         with pytest.raises(FileNotFoundError):
-            load_bots_from_yaml("/nonexistent/path/bots.yaml")
+            _load_bots_from_yaml("/nonexistent/path/bots.yaml")
 
     def test_load_yaml_empty_bots(self, tmp_path):
         """빈 봇 리스트 테스트"""
@@ -175,7 +175,7 @@ bots: []
         yaml_file = tmp_path / "bots.yaml"
         yaml_file.write_text(yaml_content)
 
-        bot_configs, global_config = load_bots_from_yaml(str(yaml_file))
+        bot_configs, global_config = _load_bots_from_yaml(str(yaml_file))
 
         assert len(bot_configs) == 0
         assert global_config.is_testnet is False
@@ -185,7 +185,7 @@ bots: []
         yaml_file = tmp_path / "empty.yaml"
         yaml_file.write_text("")
 
-        bot_configs, global_config = load_bots_from_yaml(str(yaml_file))
+        bot_configs, global_config = _load_bots_from_yaml(str(yaml_file))
 
         # 기본값 적용
         assert len(bot_configs) == 0
@@ -207,14 +207,14 @@ bots:
         yaml_file = tmp_path / "bots.yaml"
         yaml_file.write_text(yaml_content)
 
-        bot_configs, global_config = load_bots_from_yaml_optional(str(yaml_file))
+        bot_configs, global_config = load_bots_from_yaml(str(yaml_file))
 
         assert len(bot_configs) == 1
         assert bot_configs[0].bot_name == "test-bot"
 
     def test_optional_file_not_found(self):
         """파일 없을 때 빈 리스트 반환"""
-        bot_configs, global_config = load_bots_from_yaml_optional("/nonexistent/bots.yaml")
+        bot_configs, global_config = load_bots_from_yaml("/nonexistent/bots.yaml")
 
         assert bot_configs == []
         assert global_config is None
@@ -236,7 +236,7 @@ bots:
         # 현재 작업 디렉토리 변경
         monkeypatch.chdir(tmp_path)
 
-        bot_configs, global_config = load_bots_from_yaml_optional()
+        bot_configs, global_config = load_bots_from_yaml()
 
         assert len(bot_configs) == 1
         assert bot_configs[0].bot_name == "default-bot"
@@ -271,7 +271,7 @@ bots:
         yaml_file = tmp_path / "bots.yaml"
         yaml_file.write_text(yaml_content)
 
-        bot_configs, _ = load_bots_from_yaml(str(yaml_file))
+        bot_configs, _ = _load_bots_from_yaml(str(yaml_file))
 
         # 각 봇의 효과적인 설정값 확인
         # low: leverage=3, position=3%, tp=0.6%, sl=0.3%
@@ -312,7 +312,7 @@ bots:
         yaml_file = tmp_path / "bots.yaml"
         yaml_file.write_text(yaml_content)
 
-        bot_configs, _ = load_bots_from_yaml(str(yaml_file))
+        bot_configs, _ = _load_bots_from_yaml(str(yaml_file))
 
         active_bots = [b for b in bot_configs if b.is_active]
         assert len(active_bots) == 1

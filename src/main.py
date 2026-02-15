@@ -15,7 +15,6 @@ import signal
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Union
 
 import aiohttp
 from loguru import logger
@@ -23,7 +22,7 @@ from loguru import logger
 from src.api.main import create_app
 from src.bot_manager import MultiBotManager
 from src.config import get_config
-from src.config_loader import load_bots_from_yaml_optional
+from src.config_loader import load_bots_from_yaml
 from src.discord_bot.client import start_discord_bot
 from src.storage.redis_state import (
     DummyRedisStateManager,
@@ -180,7 +179,7 @@ async def main() -> None:
     config = get_config()
 
     # 2. Redis 초기화
-    redis_manager: Union[RedisStateManager, DummyRedisStateManager] | None = None
+    redis_manager: RedisStateManager | DummyRedisStateManager | None = None
     if config.enable_redis_state and config.redis_url:
         try:
             redis_manager = await create_redis_manager(
@@ -224,7 +223,7 @@ async def main() -> None:
     )
 
     # 5. 봇 설정 로드 (YAML 필수)
-    yaml_bot_configs, _yaml_global = load_bots_from_yaml_optional()
+    yaml_bot_configs, _yaml_global = load_bots_from_yaml()
 
     if not yaml_bot_configs:
         logger.error("YAML 봇 설정 파일이 없습니다. bots.yaml을 생성하세요.")

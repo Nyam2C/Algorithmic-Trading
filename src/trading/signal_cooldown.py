@@ -5,7 +5,7 @@ Redis 미연결 시 모든 체크가 통과(fail-open)됩니다.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -32,7 +32,7 @@ class SignalCooldownManager:
 
     def __init__(
         self,
-        redis_manager: Union[RedisStateManager, DummyRedisStateManager],
+        redis_manager: RedisStateManager | DummyRedisStateManager,
         bot_name: str,
         symbol: str,
         signal_cooldown_seconds: int = 300,

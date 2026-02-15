@@ -3,7 +3,7 @@
 Redis를 통해 독립 봇 프로세스를 모니터링하고 제어합니다.
 ORCHESTRATOR_MODE=true 시 사용.
 """
-from typing import Any, Union
+from typing import Any
 
 from loguru import logger
 
@@ -26,7 +26,7 @@ class OrchestrationService:
 
     def __init__(
         self,
-        redis_manager: Union[RedisStateManager, DummyRedisStateManager],
+        redis_manager: RedisStateManager | DummyRedisStateManager,
     ) -> None:
         """초기화.
 

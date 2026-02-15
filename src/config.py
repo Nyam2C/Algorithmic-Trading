@@ -3,7 +3,7 @@ import os
 
 from dotenv import load_dotenv
 from loguru import logger
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 # Load environment variables
 load_dotenv()
@@ -90,8 +90,9 @@ class TradingConfig(BaseModel):
     api_port: int = Field(default=8000, ge=1, le=65535)
     api_debug: bool = Field(default=False)
 
-    @validator("symbol")
-    def validate_symbol(cls, v):
+    @field_validator("symbol")
+    @classmethod
+    def validate_symbol(cls, v: str) -> str:
         """Validate symbol format."""
         # 먼저 대문자로 변환
         v = v.upper()
@@ -100,22 +101,24 @@ class TradingConfig(BaseModel):
             raise ValueError("Symbol must end with USDT")
         return v
 
-    @validator("position_size_pct")
-    def validate_position_size(cls, v):
+    @field_validator("position_size_pct")
+    @classmethod
+    def validate_position_size(cls, v: float) -> float:
         """Validate position size is reasonable."""
         max_position_pct = 0.1  # Max 10% of capital
         if v > max_position_pct:
             logger.warning(f"Position size {v*100}% is high, recommended: <=10%")
         return v
 
-    @validator("binance_secret_key")
-    def validate_binance_keys(cls, v, values):
+    @field_validator("binance_secret_key")
+    @classmethod
+    def validate_binance_keys(cls, v: str, info: ValidationInfo) -> str:
         """메인넷에서 빈 API 키 차단.
 
         테스트넷에서는 경고만 출력하고, 메인넷에서는 ValueError 발생.
         """
-        is_testnet = values.get("binance_testnet", True)
-        api_key = values.get("binance_api_key", "")
+        is_testnet = info.data.get("binance_testnet", True)
+        api_key = info.data.get("binance_api_key", "")
 
         if not api_key or not v:
             if not is_testnet:
@@ -155,8 +158,7 @@ class TradingConfig(BaseModel):
             )
         return True
 
-    class Config:
-        validate_assignment = True
+    model_config = ConfigDict(validate_assignment=True)
 
 
 def load_config() -> TradingConfig:

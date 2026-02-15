@@ -13,7 +13,7 @@ import math
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, Union
+from typing import Any
 
 from loguru import logger
 
@@ -76,9 +76,7 @@ class BotInstance:
         # 의존성 주입 (테스트용)
         binance_client: BinanceTestnetClient | None = None,
         trade_db: TradeHistoryDB | None = None,
-        redis_state_manager: (
-            Union[RedisStateManager, DummyRedisStateManager] | None
-        ) = None,
+        redis_state_manager: RedisStateManager | DummyRedisStateManager | None = None,
         # Phase 4: AI 메모리 시스템
         enhanced_gemini: EnhancedGeminiSignalGenerator | None = None,
         use_memory_signals: bool = False,
@@ -611,7 +609,7 @@ class BotInstance:
         # else: no position on either side -> nothing to do
 
     def set_redis_state_manager(
-        self, manager: Union[RedisStateManager, DummyRedisStateManager]
+        self, manager: RedisStateManager | DummyRedisStateManager
     ) -> None:
         """Redis 상태 관리자 설정.
 

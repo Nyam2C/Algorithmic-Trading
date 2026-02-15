@@ -3,8 +3,8 @@
 멀티봇 YAML 설정 파일을 로드하고 BotConfig 리스트로 변환합니다.
 
 Example:
-    >>> from src.config_loader import load_bots_from_yaml_optional
-    >>> bot_configs, global_config = load_bots_from_yaml_optional()
+    >>> from src.config_loader import load_bots_from_yaml
+    >>> bot_configs, global_config = load_bots_from_yaml()
     >>> for config in bot_configs:
     ...     if config.is_active:
     ...         manager.add_bot(config)
@@ -85,7 +85,7 @@ class BotYamlEntry(BaseModel):
         )
 
 
-def load_bots_from_yaml(
+def _load_bots_from_yaml(
     yaml_path: str,
 ) -> tuple[list[BotConfig], GlobalConfig]:
     """YAML 파일에서 봇 설정을 로드.
@@ -128,7 +128,7 @@ def load_bots_from_yaml(
     return bot_configs, global_config
 
 
-def load_bots_from_yaml_optional(
+def load_bots_from_yaml(
     yaml_path: str | None = None,
 ) -> tuple[list[BotConfig], GlobalConfig | None]:
     """YAML 파일에서 봇 설정을 선택적으로 로드 (하위 호환성).
@@ -145,7 +145,7 @@ def load_bots_from_yaml_optional(
         yaml_path = "configs/bots.yaml"
 
     try:
-        return load_bots_from_yaml(yaml_path)
+        return _load_bots_from_yaml(yaml_path)
     except FileNotFoundError:
         logger.debug(f"YAML 설정 파일 없음 (선택적): {yaml_path}")
         return [], None

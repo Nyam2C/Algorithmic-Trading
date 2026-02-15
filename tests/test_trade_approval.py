@@ -417,11 +417,9 @@ class TestTradeApprovalSignalConsistency:
         assert request.original_signal == ""
         assert request.validate_signal_consistency("SHORT") is True
 
-    def test_create_request_sets_original_signal(self):
+    @pytest.mark.asyncio
+    async def test_create_request_sets_original_signal(self):
         """create_request가 original_signal을 설정"""
-        import asyncio
         manager = TradeApprovalManager()
-        request = asyncio.get_event_loop().run_until_complete(
-            manager.create_request("bot", "SHORT", 50000, 0.001)
-        )
+        request = await manager.create_request("bot", "SHORT", 50000, 0.001)
         assert request.original_signal == "SHORT"

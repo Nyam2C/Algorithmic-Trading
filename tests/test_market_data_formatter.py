@@ -273,27 +273,6 @@ class TestBuildGeminiPrompt:
         assert "포지션:LONG" in prompt
 
 
-class TestEstimateTokens:
-    """estimate_tokens 메서드 테스트"""
-
-    @pytest.fixture
-    def formatter_instance(self):
-        return MarketDataFormatter()
-
-    def test_estimate_tokens_short_text(self, formatter_instance):
-        """짧은 텍스트"""
-        text = "Hello world"
-        tokens = formatter_instance.estimate_tokens(text)
-
-        assert tokens > 0
-        assert tokens < 10
-
-    def test_estimate_tokens_long_text(self, formatter_instance):
-        """긴 텍스트"""
-        text = "This is a longer text with more words and characters"
-        tokens = formatter_instance.estimate_tokens(text)
-
-        assert tokens > 10
 
 
 class TestConvenienceFunctions:

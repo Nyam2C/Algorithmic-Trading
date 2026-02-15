@@ -3,8 +3,6 @@ Tests for Backtest Framework
 
 Phase 6.5: 백테스트 프레임워크
 """
-from typing import Dict, List
-
 import pytest
 
 from src.backtest.engine import (
@@ -16,7 +14,7 @@ from src.backtest.engine import (
 
 
 @pytest.fixture
-def sample_candles() -> List[Dict]:
+def sample_candles() -> list[dict]:
     """샘플 캔들 데이터"""
     return [
         {"timestamp": 1, "open": 100, "high": 105, "low": 99, "close": 104, "volume": 1000},

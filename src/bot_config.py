@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from loguru import logger
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # =============================================================================
 # 위험도별 기본값 상수
@@ -364,6 +364,4 @@ class BotConfig(BaseModel):
             "description": self.description,
         }
 
-    class Config:
-        """Pydantic 설정."""
-        validate_assignment = True
+    model_config = ConfigDict(validate_assignment=True)

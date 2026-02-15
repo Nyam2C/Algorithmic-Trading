@@ -16,7 +16,7 @@ class N8NSignalPayload(BaseModel):
     Attributes:
         bot_name: 대상 봇 이름 (선택, 없으면 전체 봇에 적용)
         signal: 시그널 (LONG, SHORT, WAIT, CLOSE)
-        source: 시그널 소스 (예: tradingview, custom)
+        source: 시그널 소스 (예: n8n, custom, webhook)
         confidence: 신뢰도 (0-1)
         metadata: 추가 메타데이터 (선택)
     """
