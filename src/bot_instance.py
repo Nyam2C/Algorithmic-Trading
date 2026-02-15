@@ -765,41 +765,47 @@ class BotInstance:
             except Exception as e:
                 self._log.warning(f"승인 매니저 초기화 실패: {e}")
 
-        # Phase 5.2: 리스크 매니저 일일 통계 초기화
-        try:
-            if self._binance_client:
+        # Phase 5.2: Binance 연결 + 리스크 매니저 초기화
+        # (1) Binance 연결 (별도 try-except — 실패 원인 정확히 로깅)
+        connected = False
+        if self._binance_client:
+            try:
                 await self._binance_client.connect()
+                connected = True
+            except Exception as e:
+                self._log.error(f"Binance 클라이언트 연결 실패: {e}")
+
+        # (2) 메트릭 기본값 등록 (연결 무관 — Grafana template variable 활성화)
+        if self._metrics:
+            m = self._metrics
+            bn = self.bot_name
+            m.record_account_balance(bn, 0.0)
+            m.record_available_balance(bn, 0.0)
+            m.record_unrealized_pnl(bn, 0.0)
+            stats = self._risk_manager.get_stats()
+            m.record_daily_pnl(bn, stats["daily_pnl"])
+            m.record_daily_pnl_pct(bn, stats["daily_pnl_pct"])
+            m.record_drawdown_pct(bn, stats["current_drawdown"])
+            m.record_win_rate(bn, stats["win_rate"])
+
+        # (3) 잔고 조회 + 메트릭 실제값 갱신 (연결 성공 시)
+        if connected:
+            try:
                 balance_info = await self._binance_client.get_account_balance()
                 await self._risk_manager.reset_daily_stats(balance_info["available"])
                 self._log.info(
                     f"리스크 매니저 초기화: 시작 잔고=${balance_info['available']:,.2f}"
                 )
-
-                # 계좌 메트릭 초기값 기록 (대시보드 즉시 표시)
                 if self._metrics:
-                    m = self._metrics
-                    bn = self.bot_name
-                    m.record_account_balance(
-                        bn, balance_info["balance"]
-                    )
-                    m.record_available_balance(
-                        bn, balance_info["available"]
-                    )
+                    m.record_account_balance(bn, balance_info["balance"])
+                    m.record_available_balance(bn, balance_info["available"])
                     m.record_unrealized_pnl(
-                        bn,
-                        balance_info.get("unrealized_pnl", 0.0),
+                        bn, balance_info.get("unrealized_pnl", 0.0)
                     )
-                    stats = self._risk_manager.get_stats()
-                    m.record_daily_pnl(bn, stats["daily_pnl"])
-                    m.record_daily_pnl_pct(
-                        bn, stats["daily_pnl_pct"]
-                    )
-                    m.record_drawdown_pct(
-                        bn, stats["current_drawdown"]
-                    )
-                    m.record_win_rate(bn, stats["win_rate"])
-        except Exception as e:
-            self._log.warning(f"리스크 매니저 초기화 실패 (기본값 사용): {e}")
+            except Exception as e:
+                self._log.warning(f"잔고 조회 실패 (기본값 사용): {e}")
+                await self._risk_manager.reset_daily_stats(1000.0)
+        else:
             await self._risk_manager.reset_daily_stats(1000.0)
 
         # 시그널 모드 로그
