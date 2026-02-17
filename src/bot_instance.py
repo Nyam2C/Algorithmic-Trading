@@ -169,6 +169,10 @@ class BotInstance:
         self._regime_detector = RegimeDetector()
         self._current_regime: MarketRegime = MarketRegime.UNKNOWN
 
+        # APEX-V Phase D: Kelly sizer + Execution tracker
+        self._kelly_sizer: Any | None = None
+        self._execution_tracker: Any | None = None
+
         # Phase 5 통합: SignalTracker (인메모리)
         self._signal_tracker = SignalTracker(db_pool=None)
         self._last_signal_id: str | None = None
@@ -402,6 +406,24 @@ class BotInstance:
                 self.bot_name, self._risk_manager.to_dict()
             )
 
+            # Phase D: Kelly sizer + Execution tracker 영속화
+            if self._kelly_sizer:
+                try:
+                    await self._redis_state_manager.save_bot_state(
+                        f"{self.bot_name}:kelly",
+                        self._kelly_sizer.to_dict(),
+                    )
+                except Exception as e:
+                    self._log.debug(f"Kelly 상태 저장 실패: {e}")
+            if self._execution_tracker:
+                try:
+                    await self._redis_state_manager.save_bot_state(
+                        f"{self.bot_name}:exec_tracker",
+                        self._execution_tracker.to_dict(),
+                    )
+                except Exception as e:
+                    self._log.debug(f"ExecTracker 상태 저장 실패: {e}")
+
             # Phase 1: 하트비트 기록 (TTL = loop_interval x 2)
             heartbeat_ttl = self._loop_interval_seconds * 2
             heartbeat_data = {
@@ -449,6 +471,28 @@ class BotInstance:
                 self._log.info(
                     f"리스크 상태 복구: daily_pnl={risk_state.get('daily_pnl', 0):.2f}"
                 )
+
+            # Phase D: Kelly sizer + Execution tracker 복구
+            if self._kelly_sizer:
+                try:
+                    kelly_data = await self._redis_state_manager.load_bot_state(
+                        f"{self.bot_name}:kelly"
+                    )
+                    if kelly_data:
+                        self._kelly_sizer.from_dict(kelly_data)
+                        self._log.info("KellySizer 상태 복구 완료")
+                except Exception as e:
+                    self._log.debug(f"Kelly 상태 복구 실패: {e}")
+            if self._execution_tracker:
+                try:
+                    exec_data = await self._redis_state_manager.load_bot_state(
+                        f"{self.bot_name}:exec_tracker"
+                    )
+                    if exec_data:
+                        self._execution_tracker.from_dict(exec_data)
+                        self._log.info("ExecutionTracker 상태 복구 완료")
+                except Exception as e:
+                    self._log.debug(f"ExecTracker 상태 복구 실패: {e}")
 
             # 포지션 복구
             saved_position = await self._redis_state_manager.load_position(
@@ -796,6 +840,30 @@ class BotInstance:
             except Exception as e:
                 self._log.warning(f"앙상블 생성기 초기화 실패: {e}")
 
+        # APEX-V Phase D: Kelly Sizer 초기화
+        if getattr(self.config, "use_kelly_sizing", False):
+            try:
+                from src.trading.kelly_sizer import KellySizer
+                self._kelly_sizer = KellySizer(
+                    kelly_fraction=getattr(self.config, "kelly_fraction", 0.25),
+                    min_size_pct=getattr(self.config, "kelly_min_size_pct", 0.003),
+                    max_size_pct=getattr(self.config, "kelly_max_size_pct", 0.02),
+                )
+                self._log.info("KellySizer 초기화 완료")
+            except Exception as e:
+                self._log.warning(f"KellySizer 초기화 실패: {e}")
+
+        # APEX-V Phase D: Execution Tracker 초기화
+        if getattr(self.config, "use_execution_feedback", False):
+            try:
+                from src.trading.execution_tracker import (
+                    ExecutionTracker,
+                )
+                self._execution_tracker = ExecutionTracker()
+                self._log.info("ExecutionTracker 초기화 완료")
+            except Exception as e:
+                self._log.warning(f"ExecutionTracker 초기화 실패: {e}")
+
         # Phase 5 통합: TradeApprovalManager 초기화
         if getattr(self.config, "manual_approval_enabled", False):
             try:
@@ -1124,7 +1192,12 @@ class BotInstance:
             self._log.warning(f"리스크 검증 실패 - 진입 중단: {risk_reason}")
             return None
 
-        order = await self._executor.open_position(signal, current_price, entry_atr)
+        # APEX-V Phase D: 동적 포지션 사이징
+        dynamic_size_pct = self._compute_dynamic_size()
+
+        order = await self._executor.open_position(
+            signal, current_price, entry_atr, dynamic_size_pct=dynamic_size_pct
+        )
 
         if order:
             self._current_position = self._executor.current_position
@@ -1197,6 +1270,45 @@ class BotInstance:
             )
 
         return order
+
+    def _compute_dynamic_size(self) -> float | None:
+        """APEX-V Phase D: 동적 포지션 사이징 계산.
+
+        Kelly sizer → drawdown sizing → 기본값 순으로 적용.
+
+        Returns:
+            동적 포지션 크기 비율 또는 None (기본값 사용).
+        """
+        dynamic_size_pct: float | None = None
+
+        if self._kelly_sizer:
+            regime_str = (
+                self._current_regime.value
+                if self._current_regime
+                else "UNKNOWN"
+            )
+            config_default = self.config.get_effective_position_size_pct()
+            drawdown_pct = self._risk_manager.get_current_drawdown()
+
+            dynamic_size_pct = self._kelly_sizer.calculate_final_size(
+                regime=regime_str,
+                config_default=config_default,
+                drawdown_pct=drawdown_pct,
+            )
+
+            # Execution tracker modifier 적용
+            if self._execution_tracker:
+                exec_mod = self._execution_tracker.get_size_modifier()
+                if exec_mod == 0.0:
+                    self._log.warning("실행 품질 미달 — 진입 스킵")
+                    return 0.0
+                dynamic_size_pct *= exec_mod
+
+        elif getattr(self.config, "use_drawdown_sizing", False):
+            dd_mult = self._risk_manager.get_drawdown_size_multiplier()
+            dynamic_size_pct = self.config.get_effective_position_size_pct() * dd_mult
+
+        return dynamic_size_pct
 
     async def _close_position(  # noqa: PLR0915
         self,
@@ -1404,6 +1516,49 @@ class BotInstance:
                 engine = self._ensemble_generator._confluence_engine
                 if hasattr(engine, "_vitality") and engine._vitality:
                     engine._vitality.record_trade(pnl_pct / 100.0)
+
+            # Phase D: Kelly sizer에 거래 결과 기록
+            if self._kelly_sizer and exit_closed:
+                regime_str = (
+                    self._current_regime.value
+                    if self._current_regime
+                    else "UNKNOWN"
+                )
+                self._kelly_sizer.record_trade(regime_str, pnl_pct / 100.0)
+
+            # Phase D: Execution tracker에 실행 품질 기록
+            if self._execution_tracker and exit_closed:
+                slippage = (
+                    abs(exit_price - current_price) / current_price
+                    if current_price > 0
+                    else 0.0
+                )
+                self._execution_tracker.record_execution(
+                    entry_price=entry_price,
+                    exit_price=exit_price,
+                    side=side,
+                    pnl_actual=pnl_usd,
+                    pnl_theoretical=pnl_usd,  # 이론적 PnL (실제와 동일로 시작)
+                    slippage_pct=slippage,
+                )
+                # CostCalculator에 보정된 슬리피지 피드백
+                if (
+                    self._ensemble_generator
+                    and hasattr(self._ensemble_generator, "_confluence_engine")
+                    and self._ensemble_generator._confluence_engine
+                ):
+                    eng = self._ensemble_generator._confluence_engine
+                    if hasattr(eng, "_cost_calculator") and eng._cost_calculator:
+                        cal_slip = (
+                            self._execution_tracker
+                            .get_calibrated_slippage_factor()
+                        )
+                        eng._cost_calculator.update_slippage_factor(cal_slip)
+
+                # 전략 일시정지 체크
+                if self._execution_tracker.should_pause_strategy():
+                    self._log.warning("실행 품질 미달 — 자동 일시정지")
+                    self.pause()
 
         return order
 

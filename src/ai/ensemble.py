@@ -215,8 +215,8 @@ class EnsembleSignalGenerator:
         individual_signals: list[IndividualSignal] = []
 
         # 1. 각 소스에서 신호 수집
-        # Gemini AI
-        if self._gemini:
+        # Gemini AI (Phase D: confluence 활성 시 Gemini는 Step 8 검증 전용)
+        if self._gemini and not self._confluence_engine:
             try:
                 gemini_signal = await self._get_gemini_signal(market_data)
                 individual_signals.append(gemini_signal)

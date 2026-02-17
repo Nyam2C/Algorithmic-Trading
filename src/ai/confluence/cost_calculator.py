@@ -86,3 +86,13 @@ class CostCalculator:
         )
 
         return net_edge, cost_penalty
+
+    def update_slippage_factor(self, new_factor: float) -> None:
+        """실행 피드백에서 슬리피지 계수 업데이트.
+
+        Args:
+            new_factor: 새 슬리피지 계수 (0.01 ~ 0.5 범위로 클램프)
+        """
+        self.slippage_factor = max(0.01, min(0.5, new_factor))
+        logger.debug(f"슬리피지 계수 업데이트: {self.slippage_factor:.4f}")
+

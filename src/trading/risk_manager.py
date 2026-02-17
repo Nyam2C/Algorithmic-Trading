@@ -9,6 +9,10 @@ from datetime import datetime, timedelta, timezone
 
 from loguru import logger
 
+# 드로다운 임계값
+_DD_TIER1_THRESHOLD = 0.05
+_DD_MAX_THRESHOLD = 0.10
+
 
 class RiskManager:
     """리스크 매니저.
@@ -300,6 +304,30 @@ class RiskManager:
             return True, reason
 
         return False, ""
+
+
+    def get_drawdown_size_multiplier(self) -> float:
+        """연속 드로다운 기반 포지션 크기 감소 배수.
+
+        0% DD -> 1.0, 5% DD -> 0.7, 10% DD -> 0.3.
+        선형 보간 적용.
+
+        Returns:
+            포지션 크기 배수 (0.3 ~ 1.0)
+        """
+        dd = self._current_drawdown
+
+        if dd <= 0:
+            return 1.0
+        if dd >= _DD_MAX_THRESHOLD:
+            return 0.3
+
+        # 선형 보간: 0%->1.0, 5%->0.7, 10%->0.3
+        if dd <= _DD_TIER1_THRESHOLD:
+            # 0% ~ 5%: 1.0 -> 0.7
+            return 1.0 - (dd / _DD_TIER1_THRESHOLD) * 0.3
+        # 5% ~ 10%: 0.7 -> 0.3
+        return 0.7 - ((dd - _DD_TIER1_THRESHOLD) / _DD_TIER1_THRESHOLD) * 0.4
 
     # =========================================================================
     # 상태 직렬화 (Phase 9: 재시작 시 복구용)

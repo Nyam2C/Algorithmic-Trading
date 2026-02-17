@@ -126,13 +126,15 @@ class TradingExecutor:
         return balance
 
     def _calculate_position_size(
-        self, current_price: float, capital: float | None = None
+        self, current_price: float, capital: float | None = None,
+        dynamic_size_pct: float | None = None,
     ) -> float:
         """Calculate position size based on configuration (동기 버전 - 테스트 호환).
 
         Args:
             current_price: Current market price
             capital: Capital to use (None = default 1000.0)
+            dynamic_size_pct: 동적 포지션 크기 비율 (None = config 기본값)
 
         Returns:
             Position quantity in base asset
@@ -143,7 +145,12 @@ class TradingExecutor:
             logger.warning("기본 자본 $1000 사용 - use_real_balance 설정 권장")
 
         # Calculate position value in USDT
-        position_value = capital * self.config.position_size_pct * self.config.leverage
+        size_pct = (
+            dynamic_size_pct
+            if dynamic_size_pct is not None
+            else self.config.position_size_pct
+        )
+        position_value = capital * size_pct * self.config.leverage
 
         # Calculate quantity
         quantity = position_value / current_price
@@ -167,7 +174,7 @@ class TradingExecutor:
         return quantity
 
     async def _calculate_position_size_with_balance(
-        self, current_price: float
+        self, current_price: float, dynamic_size_pct: float | None = None,
     ) -> float:
         """Calculate position size based on real account balance (비동기 버전).
 
@@ -175,6 +182,7 @@ class TradingExecutor:
 
         Args:
             current_price: Current market price
+            dynamic_size_pct: 동적 포지션 크기 비율 (None = config 기본값)
 
         Returns:
             Position quantity in base asset
@@ -208,7 +216,7 @@ class TradingExecutor:
         else:
             capital = 1000.0
 
-        return self._calculate_position_size(current_price, capital)
+        return self._calculate_position_size(current_price, capital, dynamic_size_pct)
 
     def _calculate_tp_sl_prices(
         self, side: str, entry_price: float, entry_atr: float | None = None
@@ -292,6 +300,7 @@ class TradingExecutor:
         entry_atr: float | None = None,
         order_type: str = "MARKET",  # noqa: ARG002
         use_maker: bool = False,
+        dynamic_size_pct: float | None = None,
     ) -> dict | None:
         """포지션 오픈 공통 로직.
 
@@ -303,6 +312,7 @@ class TradingExecutor:
             entry_atr: ATR value at entry (Phase 6.1: for dynamic TP/SL)
             order_type: "MARKET" or "MAKER"
             use_maker: Use Maker order (limit order) if True
+            dynamic_size_pct: 동적 포지션 크기 비율 (None = config 기본값)
 
         Returns:
             Order details or None if failed
@@ -322,7 +332,9 @@ class TradingExecutor:
             return None
 
         # Calculate position size (Phase 5.1: 실제 잔고 사용 가능)
-        quantity = await self._calculate_position_size_with_balance(current_price)
+        quantity = await self._calculate_position_size_with_balance(
+            current_price, dynamic_size_pct,
+        )
 
         # Determine order side
         side = SIDE_BUY if signal == "LONG" else SIDE_SELL
@@ -469,7 +481,8 @@ class TradingExecutor:
         return order
 
     async def open_position(
-        self, signal: str, current_price: float, entry_atr: float | None = None
+        self, signal: str, current_price: float, entry_atr: float | None = None,
+        dynamic_size_pct: float | None = None,
     ) -> dict | None:
         """Open a new position based on signal.
 
@@ -477,6 +490,7 @@ class TradingExecutor:
             signal: "LONG" or "SHORT"
             current_price: Current market price
             entry_atr: ATR value at entry (Phase 6.1: for dynamic TP/SL)
+            dynamic_size_pct: 동적 포지션 크기 비율 (None = config 기본값)
 
         Returns:
             Order details or None if failed
@@ -488,6 +502,7 @@ class TradingExecutor:
                 entry_atr=entry_atr,
                 order_type="MARKET",
                 use_maker=False,
+                dynamic_size_pct=dynamic_size_pct,
             )
         except Exception as e:
             logger.error(f"Failed to open position: {e}")
@@ -504,6 +519,7 @@ class TradingExecutor:
             current_price: Current market price
             use_maker: Use Maker order (default: True)
             entry_atr: ATR value at entry (Phase 6.1: for dynamic TP/SL)
+            dynamic_size_pct: 동적 포지션 크기 비율 (None = config 기본값)
 
         Returns:
             Order details or None if failed

@@ -133,6 +133,14 @@ class BotConfig(BaseModel):
     # APEX-V Phase C: Confluence Engine
     use_confluence_engine: bool = Field(default=False)
 
+    # APEX-V Phase D: Kelly + Risk Enhancement
+    use_kelly_sizing: bool = Field(default=False)
+    kelly_fraction: float = Field(default=0.25, gt=0, le=1.0)
+    kelly_max_size_pct: float = Field(default=0.02, gt=0, le=0.1)
+    kelly_min_size_pct: float = Field(default=0.003, gt=0)
+    use_execution_feedback: bool = Field(default=False)
+    use_drawdown_sizing: bool = Field(default=False)
+
     # Phase 6.2: 마켓 레짐 필터링
     use_regime_filter: bool = Field(default=False)  # True면 횡보장 진입 회피
     allow_weak_trend: bool = Field(default=True)  # 약한 추세에서 거래 허용
