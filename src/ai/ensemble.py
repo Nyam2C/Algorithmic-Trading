@@ -21,6 +21,10 @@ class SignalSource(Enum):
     RULE_BASED = "rule_based"
     SCORING = "scoring"
     MEMORY_GEMINI = "memory_gemini"
+    FUNDING_BASIS = "funding_basis"
+    LEVERAGE_TOPOLOGY = "leverage_topology"
+    SMART_MONEY = "smart_money"
+    TSMOM = "tsmom"
 
 
 @dataclass
@@ -143,6 +147,12 @@ class EnsembleSignalGenerator:
         self._rule_based = rule_based_generator
         self._scoring = scoring_generator
 
+        # APEX-V Phase B: 4채널 슬롯
+        self._funding_channel: Any | None = None
+        self._leverage_channel: Any | None = None
+        self._smart_money_channel: Any | None = None
+        self._tsmom_channel: Any | None = None
+
         self._ai_logger = AIDecisionLogger()
         self._log = logger.bind(module="ensemble")
         self._log.info(
@@ -161,16 +171,36 @@ class EnsembleSignalGenerator:
         """스코어링 생성기 설정."""
         self._scoring = generator
 
+    def set_funding_channel(self, channel: Any) -> None:
+        """FundingBasis 채널 설정."""
+        self._funding_channel = channel
+
+    def set_leverage_channel(self, channel: Any) -> None:
+        """LeverageTopology 채널 설정."""
+        self._leverage_channel = channel
+
+    def set_smart_money_channel(self, channel: Any) -> None:
+        """SmartMoneyDivergence 채널 설정."""
+        self._smart_money_channel = channel
+
+    def set_tsmom_channel(self, channel: Any) -> None:
+        """TSMOM 채널 설정."""
+        self._tsmom_channel = channel
+
     async def generate_ensemble_signal(
         self,
         market_data: dict[str, Any],
         bot_id: str = "",
+        sentiment_data: dict[str, Any] | None = None,
+        klines_df: Any | None = None,
     ) -> EnsembleResult:
         """앙상블 신호 생성.
 
         Args:
             market_data: 시장 데이터
             bot_id: 봇 ID
+            sentiment_data: 심리 데이터 (Phase B 채널용)
+            klines_df: OHLCV DataFrame (TSMOM 채널용)
 
         Returns:
             EnsembleResult
@@ -201,6 +231,12 @@ class EnsembleSignalGenerator:
                 individual_signals.append(scoring_signal)
             except Exception as e:
                 self._log.warning(f"스코어링 신호 생성 실패: {e}")
+
+        # APEX-V Phase B: 4채널 시그널 수집
+        channel_signals = await self._collect_channel_signals(
+            sentiment_data, klines_df
+        )
+        individual_signals.extend(channel_signals)
 
         # 신호가 없으면 WAIT
         if not individual_signals:
@@ -250,6 +286,64 @@ class EnsembleSignalGenerator:
         )
 
         return result
+
+    async def _collect_channel_signals(
+        self,
+        sentiment_data: dict[str, Any] | None,
+        klines_df: Any | None,
+    ) -> list[IndividualSignal]:
+        """4채널 시그널 수집 (TSMOM, Funding, Leverage, SmartMoney)."""
+        signals: list[IndividualSignal] = []
+
+        if self._tsmom_channel and klines_df is not None:
+            try:
+                sig = await self._tsmom_channel.generate_signal(klines_df)
+                signals.append(sig)
+            except Exception as e:
+                self._log.warning(f"TSMOM 채널 실패: {e}")
+
+        if not sentiment_data:
+            return signals
+
+        if self._funding_channel:
+            try:
+                sig = await self._funding_channel.generate_signal(
+                    sentiment_data.get("funding_rate"),
+                    sentiment_data.get("long_short_ratio"),
+                )
+                signals.append(sig)
+            except Exception as e:
+                self._log.warning(f"FundingBasis 채널 실패: {e}")
+
+        if self._leverage_channel:
+            try:
+                sig = await self._leverage_channel.generate_signal(
+                    sentiment_data.get("open_interest"),
+                    sentiment_data.get("current_price"),
+                    sentiment_data.get("oi_history"),
+                )
+                signals.append(sig)
+            except Exception as e:
+                self._log.warning(f"LeverageTopology 채널 실패: {e}")
+
+        if self._smart_money_channel:
+            try:
+                ls_ratio = sentiment_data.get("long_short_ratio")
+                price = sentiment_data.get("current_price", 0)
+                ls_hist = sentiment_data.get("ls_history", [])
+                price_change_pct = 0.0
+                if ls_hist and price > 0:
+                    prev_price = ls_hist[-1].get("price", price)
+                    if prev_price > 0:
+                        price_change_pct = (price - prev_price) / prev_price
+                sig = await self._smart_money_channel.generate_signal(
+                    ls_ratio, price_change_pct, ls_hist
+                )
+                signals.append(sig)
+            except Exception as e:
+                self._log.warning(f"SmartMoney 채널 실패: {e}")
+
+        return signals
 
     async def _get_gemini_signal(
         self, market_data: dict[str, Any]

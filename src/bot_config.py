@@ -124,6 +124,12 @@ class BotConfig(BaseModel):
     # APEX-V Phase A: ADX 기반 레짐 감지
     use_adx_regime: bool = Field(default=False)
 
+    # APEX-V Phase B: 4채널 시그널 생성기
+    use_tsmom_channel: bool = Field(default=False)
+    use_funding_basis_channel: bool = Field(default=False)
+    use_leverage_topology_channel: bool = Field(default=False)
+    use_smart_money_channel: bool = Field(default=False)
+
     # Phase 6.2: 마켓 레짐 필터링
     use_regime_filter: bool = Field(default=False)  # True면 횡보장 진입 회피
     allow_weak_trend: bool = Field(default=True)  # 약한 추세에서 거래 허용

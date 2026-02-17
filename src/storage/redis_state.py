@@ -812,6 +812,99 @@ class RedisStateManager:
             self._log.error(f"노출도 조회 실패: {e}")
             return {}
 
+
+    # =========================================================================
+    # OI / LS 스냅샷 캐시 (Phase B)
+    # =========================================================================
+
+    async def save_oi_snapshot(
+        self, symbol: str, oi: float, price: float
+    ) -> None:
+        """OI 스냅샷 저장 (FIFO 12개 유지).
+
+        Args:
+            symbol: 심볼 (예: BTCUSDT)
+            oi: Open Interest
+            price: 현재 가격
+        """
+        if self._client is None:
+            return
+
+        try:
+            key = f"{self._key_prefix}:oi_history:{symbol}"
+            snapshot = json.dumps({"oi": oi, "price": price})
+            await self._client.rpush(key, snapshot)  # type: ignore[misc]
+            await self._client.ltrim(key, -12, -1)  # type: ignore[misc]
+        except Exception as e:
+            self._log.error(f"OI 스냅샷 저장 실패: {symbol}, {e}")
+
+    async def load_oi_history(
+        self, symbol: str, count: int = 12
+    ) -> list[dict]:
+        """OI 히스토리 로드.
+
+        Args:
+            symbol: 심볼
+            count: 로드할 개수
+
+        Returns:
+            OI 스냅샷 리스트
+        """
+        if self._client is None:
+            return []
+
+        try:
+            key = f"{self._key_prefix}:oi_history:{symbol}"
+            raw_list = await self._client.lrange(key, -count, -1)  # type: ignore[misc]
+            return [json.loads(item) for item in raw_list]
+        except Exception as e:
+            self._log.error(f"OI 히스토리 로드 실패: {symbol}, {e}")
+            return []
+
+    async def save_ls_snapshot(
+        self, symbol: str, ratio: float, price: float
+    ) -> None:
+        """Long/Short ratio 스냅샷 저장 (FIFO 12개 유지).
+
+        Args:
+            symbol: 심볼
+            ratio: Long/Short ratio
+            price: 현재 가격
+        """
+        if self._client is None:
+            return
+
+        try:
+            key = f"{self._key_prefix}:ls_history:{symbol}"
+            snapshot = json.dumps({"ratio": ratio, "price": price})
+            await self._client.rpush(key, snapshot)  # type: ignore[misc]
+            await self._client.ltrim(key, -12, -1)  # type: ignore[misc]
+        except Exception as e:
+            self._log.error(f"LS 스냅샷 저장 실패: {symbol}, {e}")
+
+    async def load_ls_history(
+        self, symbol: str, count: int = 12
+    ) -> list[dict]:
+        """Long/Short ratio 히스토리 로드.
+
+        Args:
+            symbol: 심볼
+            count: 로드할 개수
+
+        Returns:
+            LS 스냅샷 리스트
+        """
+        if self._client is None:
+            return []
+
+        try:
+            key = f"{self._key_prefix}:ls_history:{symbol}"
+            raw_list = await self._client.lrange(key, -count, -1)  # type: ignore[misc]
+            return [json.loads(item) for item in raw_list]
+        except Exception as e:
+            self._log.error(f"LS 히스토리 로드 실패: {symbol}, {e}")
+            return []
+
     # =========================================================================
     # 직렬화/역직렬화
     # =========================================================================
@@ -982,6 +1075,21 @@ class DummyRedisStateManager:
 
     async def get_total_exposure(self) -> dict[str, float]:
         return {}
+
+
+    async def save_oi_snapshot(self, _symbol: str, _oi: float, _price: float) -> None:
+        pass
+
+    async def load_oi_history(self, _symbol: str, _count: int = 12) -> list[dict]:
+        return []
+
+    async def save_ls_snapshot(
+        self, _symbol: str, _ratio: float, _price: float
+    ) -> None:
+        pass
+
+    async def load_ls_history(self, _symbol: str, _count: int = 12) -> list[dict]:
+        return []
 
     async def save_market_context(self, _data: dict[str, Any]) -> bool:
         return False

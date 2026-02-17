@@ -739,6 +739,33 @@ class BotInstance:
                 except Exception as e2:
                     self._log.warning(f"IndicatorScorer 연결 실패: {e2}")
 
+                # APEX-V Phase B: 채널 연결
+                if self.config.use_tsmom_channel:
+                    from src.ai.channels.tsmom import TSMOMChannel  # noqa: PLC0415
+                    self._ensemble_generator.set_tsmom_channel(TSMOMChannel())
+                    self._log.info("TSMOM 채널 연결")
+
+                if self.config.use_funding_basis_channel:
+                    from src.ai.channels.funding_basis import (  # noqa: PLC0415
+                        FundingBasisChannel,
+                    )
+                    self._ensemble_generator.set_funding_channel(FundingBasisChannel())
+                    self._log.info("FundingBasis 채널 연결")
+
+                if self.config.use_leverage_topology_channel:
+                    from src.ai.channels.leverage_topology import (  # noqa: PLC0415
+                        LeverageTopologyChannel,
+                    )
+                    self._ensemble_generator.set_leverage_channel(LeverageTopologyChannel())
+                    self._log.info("LeverageTopology 채널 연결")
+
+                if self.config.use_smart_money_channel:
+                    from src.ai.channels.smart_money_divergence import (  # noqa: PLC0415
+                        SmartMoneyDivergenceChannel,
+                    )
+                    self._ensemble_generator.set_smart_money_channel(SmartMoneyDivergenceChannel())
+                    self._log.info("SmartMoney 채널 연결")
+
             except Exception as e:
                 self._log.warning(f"앙상블 생성기 초기화 실패: {e}")
 
@@ -893,6 +920,82 @@ class BotInstance:
             "indicators": indicators,
             "higher_tf_data": higher_tf_data,
         }
+
+    async def _fetch_sentiment_data(self) -> dict[str, Any] | None:
+        """시장 심리 데이터 수집 (Phase B 채널용)."""
+        cfg = self.config
+        if not any([
+            cfg.use_funding_basis_channel,
+            cfg.use_leverage_topology_channel,
+            cfg.use_smart_money_channel,
+        ]):
+            return None
+
+        if self._binance_client is None:
+            return None
+
+        try:
+            sentiment = await self._binance_client.get_market_sentiment(self.symbol)
+
+            # 단위 변환: Binance는 percentage(0.05=0.05%), 채널은 raw(0.0005=0.05%)
+            raw_fr = sentiment["funding_rate"] / 100.0
+
+            current_price = self._current_price
+
+            # Redis에 OI/LS 스냅샷 저장
+            if self._redis_state_manager:
+                oi = sentiment.get("open_interest", 0.0)
+                ls = sentiment.get("long_short_ratio", 1.0)
+                if oi > 0:
+                    await self._redis_state_manager.save_oi_snapshot(
+                        self.symbol, oi, current_price
+                    )
+                if ls > 0:
+                    await self._redis_state_manager.save_ls_snapshot(
+                        self.symbol, ls, current_price
+                    )
+
+            # Redis에서 히스토리 로드
+            oi_history: list[dict] = []
+            ls_history: list[dict] = []
+            if self._redis_state_manager:
+                oi_history = await self._redis_state_manager.load_oi_history(
+                    self.symbol
+                )
+                ls_history = await self._redis_state_manager.load_ls_history(
+                    self.symbol
+                )
+
+            return {
+                "funding_rate": raw_fr,
+                "long_short_ratio": sentiment["long_short_ratio"],
+                "open_interest": sentiment["open_interest"],
+                "current_price": current_price,
+                "oi_history": oi_history,
+                "ls_history": ls_history,
+            }
+        except Exception as e:
+            self._log.warning(f"심리 데이터 수집 실패: {e}")
+            return None
+
+    def _get_klines_df(self, market_data: dict[str, Any]) -> Any:
+        """klines를 TSMOM용 DataFrame으로 변환."""
+        if not self.config.use_tsmom_channel:
+            return None
+        klines = market_data.get("klines")
+        if not klines:
+            return None
+        try:
+            import pandas as pd  # noqa: PLC0415
+            df = pd.DataFrame(klines, columns=[
+                "timestamp", "open", "high", "low", "close",
+                "volume", "close_time", "quote_volume",
+                "trades", "taker_buy_base", "taker_buy_quote", "ignore",
+            ])
+            df["close"] = df["close"].astype(float)
+            return df
+        except Exception:
+            return None
 
     # =========================================================================
     # 시그널 생성
@@ -1410,7 +1513,9 @@ class BotInstance:
         return True
 
     async def _generate_combined_signal(
-        self, market_data: dict[str, Any]
+        self,
+        market_data: dict[str, Any],
+        sentiment_data: dict[str, Any] | None = None,
     ) -> tuple[str, str]:
         """4-source 시그널 생성 (injected > ensemble > memory > rule_based).
 
@@ -1437,6 +1542,8 @@ class BotInstance:
                 result = await self._ensemble_generator.generate_ensemble_signal(
                     market_data.get("indicators", {}),
                     bot_id=str(self.config.bot_id),
+                    sentiment_data=sentiment_data,
+                    klines_df=self._get_klines_df(market_data),
                 )
                 signal = result.final_signal
                 signal_source = "ensemble"
@@ -1484,7 +1591,7 @@ class BotInstance:
         self._log.info(f"시그널: {signal} @ ${current_price:,.2f}")
         return signal, "rule_based"
 
-    def _apply_signal_filters(
+    def _apply_signal_filters(  # noqa: PLR0915
         self, signal: str, indicators: dict[str, Any]
     ) -> str:
         """레짐/MTF/WAIT 필터 적용.
@@ -1492,6 +1599,20 @@ class BotInstance:
         Returns:
             필터링된 시그널
         """
+        # Gate 0: MTI (Market Tradability Index)
+        atr_pct = indicators.get("atr_pct", 0.0)
+        volume_ratio = indicators.get("volume_ratio", 1.0)
+        if atr_pct > 0 and volume_ratio > 0:
+            from src.data.tradability import MarketTradabilityIndex  # noqa: PLC0415
+            mti = MarketTradabilityIndex()
+            mti_score = mti.evaluate(atr_pct, volume_ratio)
+            if not mti_score.is_tradable:
+                self._log.info(
+                    f"MTI 게이트 차단: {mti_score.total_score:.1f} "
+                    f"({mti_score.grade}) — {mti_score.reason}"
+                )
+                return "WAIT"
+
         # 레짐 감지 및 필터링
         self._current_regime = self._regime_detector.detect(indicators)
 
@@ -1986,8 +2107,13 @@ class BotInstance:
             except Exception as e:
                 self._log.debug(f"잔고 업데이트 실패: {e}")
 
+        # Phase B: 심리 데이터 수집
+        sentiment_data = await self._fetch_sentiment_data()
+
         # 3. 시그널 생성
-        signal, signal_source = await self._generate_combined_signal(market_data)
+        signal, signal_source = await self._generate_combined_signal(
+            market_data, sentiment_data=sentiment_data
+        )
 
         # 시그널 유효성 검증 게이트
         if not validate_signal(signal):
