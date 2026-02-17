@@ -173,6 +173,11 @@ class BotInstance:
         self._kelly_sizer: Any | None = None
         self._execution_tracker: Any | None = None
 
+        # APEX-V 5-Gate Pipeline
+        self._pipeline_size_pct: float | None = None
+        self._last_ensemble_result: Any | None = None  # EnsembleResult 캐시
+        self._last_mti_grade: str = "OPTIMAL"
+
         # Phase 5 통합: SignalTracker (인메모리)
         self._signal_tracker = SignalTracker(db_pool=None)
         self._last_signal_id: str | None = None
@@ -1192,8 +1197,13 @@ class BotInstance:
             self._log.warning(f"리스크 검증 실패 - 진입 중단: {risk_reason}")
             return None
 
-        # APEX-V Phase D: 동적 포지션 사이징
-        dynamic_size_pct = self._compute_dynamic_size()
+        # APEX-V: Pipeline이 사전 계산한 사이즈 우선 사용
+        dynamic_size_pct: float | None
+        if self._pipeline_size_pct is not None:
+            dynamic_size_pct = self._pipeline_size_pct
+            self._pipeline_size_pct = None  # 한번 사용 후 클리어
+        else:
+            dynamic_size_pct = self._compute_dynamic_size()
 
         order = await self._executor.open_position(
             signal, current_price, entry_atr, dynamic_size_pct=dynamic_size_pct
@@ -1887,6 +1897,242 @@ class BotInstance:
 
         return signal
 
+    def _track_wait_streak(self, signal: str, indicators: dict[str, Any]) -> None:
+        """WAIT streak 추적 및 진단 (5-Gate Pipeline + Legacy 공용)."""
+        _wait_log_interval = 1
+        _wait_alert_threshold = 3
+        if signal == "WAIT":
+            self._consecutive_wait_count += 1
+            if (
+                self._consecutive_wait_count % _wait_log_interval == 0
+                and hasattr(self._signal_generator, 'get_signal_diagnostic')
+            ):
+                diag = self._signal_generator.get_signal_diagnostic(indicators)
+                self._log.warning(
+                    f"연속 WAIT #{self._consecutive_wait_count}: {diag}"
+                )
+            if self._consecutive_wait_count >= _wait_alert_threshold:
+                self._log.warning(
+                    f"\u26a0 {self._consecutive_wait_count}회 연속 WAIT"
+                    " - 시그널 조건 점검 필요"
+                )
+            if self._metrics:
+                try:
+                    self._metrics.record_consecutive_wait(
+                        self.bot_name, self._consecutive_wait_count
+                    )
+                except Exception as e:
+                    self._log.debug(f"연속 WAIT 메트릭 기록 실패: {e}")
+        else:
+            self._consecutive_wait_count = 0
+            if self._metrics:
+                try:
+                    self._metrics.record_consecutive_wait(self.bot_name, 0)
+                except Exception as e:
+                    self._log.debug(f"연속 WAIT 리셋 메트릭 기록 실패: {e}")
+
+    async def _run_five_gate_pipeline(
+        self,
+        market_data: dict[str, Any],
+        indicators: dict[str, Any],
+        sentiment_data: dict[str, Any] | None,
+    ) -> tuple[str, str]:
+        """5-Gate APEX-V Pipeline.
+
+        Gate 0: MTI -> STANDBY = 전체 스킵
+        Gate 1: Regime Detection -> 컨텍스트 설정
+        Gate 2+3: Signal + Confluence -> ConfluenceResult
+        (Gate 4: sizing은 _compute_dynamic_size_with_modifiers에서 처리)
+
+        Returns:
+            (signal, signal_source) 튜플
+        """
+        # Gate 0: MTI (Market Tradability Index)
+        atr_pct = indicators.get("atr_pct", 0.0)
+        volume_ratio = indicators.get("volume_ratio", 1.0)
+        self._last_mti_grade = "OPTIMAL"
+
+        if atr_pct > 0 and volume_ratio > 0:
+            from src.data.tradability import MarketTradabilityIndex
+            mti = MarketTradabilityIndex()
+            mti_score = mti.evaluate(atr_pct, volume_ratio)
+            self._last_mti_grade = mti_score.grade
+            if self._metrics:
+                with contextlib.suppress(Exception):
+                    self._metrics.record_gate_outcome(
+                        self.bot_name, "mti",
+                        "pass" if mti_score.is_tradable else "block",
+                    )
+            if not mti_score.is_tradable:
+                self._log.info(
+                    f"[5G] Gate 0 MTI 차단: {mti_score.grade}"
+                    f" ({mti_score.total_score:.1f})"
+                )
+                self._track_wait_streak("WAIT", indicators)
+                return "WAIT", "pipeline:mti_block"
+
+        # Gate 1: Regime Detection
+        self._current_regime = self._regime_detector.detect(indicators)
+        indicators["regime"] = self._current_regime
+        indicators["leverage"] = self.config.get_effective_leverage()
+        self._log.info(f"[5G] Gate 1 레짐: {self._current_regime.value}")
+
+        # Prometheus: RSI 기록
+        _rsi = indicators.get("rsi")
+        if self._metrics and _rsi is not None and not math.isnan(float(_rsi)):
+            with contextlib.suppress(Exception):
+                self._metrics.record_rsi(self.bot_name, float(_rsi))
+
+        # Gate 2+3: Signal + Confluence
+        signal, signal_source = await self._generate_combined_signal(
+            market_data, sentiment_data=sentiment_data
+        )
+        if not validate_signal(signal):
+            signal = "WAIT"
+
+        # ConfluenceResult 추출
+        if (
+            self._ensemble_generator
+            and hasattr(self._ensemble_generator, "_last_ensemble_result")
+            and self._ensemble_generator._last_ensemble_result
+        ):
+            self._last_ensemble_result = (
+                self._ensemble_generator._last_ensemble_result
+            )
+
+        # Prometheus: confluence gate
+        if self._metrics:
+            with contextlib.suppress(Exception):
+                self._metrics.record_gate_outcome(
+                    self.bot_name, "confluence",
+                    "pass" if signal in ("LONG", "SHORT") else "block",
+                )
+
+        # Regime direction filter (안전장치)
+        if self.config.use_regime_filter and signal in ("LONG", "SHORT"):
+            filtered = self._regime_detector.filter_signal(
+                signal, self._current_regime, self.config.allow_weak_trend
+            )
+            if filtered != signal:
+                self._log.info(
+                    f"[5G] 레짐 방향 필터: {signal} -> {filtered}"
+                )
+                signal = filtered
+
+        # MTF 필터링
+        if getattr(self.config, "use_mtf_filter", False) and self._higher_tf_data:
+            _mtf_stale = False
+            _mtf_max_age_seconds = 900
+            if self._higher_tf_fetch_time:
+                _mtf_age = (
+                    datetime.now() - self._higher_tf_fetch_time
+                ).total_seconds()
+                if _mtf_age > _mtf_max_age_seconds:
+                    self._log.warning(
+                        f"MTF 데이터 만료 (>{_mtf_age:.0f}초), 필터 건너뜀"
+                    )
+                    _mtf_stale = True
+            if not _mtf_stale:
+                original_signal = signal
+                signal = self._mtf_analyzer.filter_signal(
+                    signal, self._higher_tf_data
+                )
+                if signal != original_signal:
+                    self._log.info(
+                        f"[5G] MTF 필터링: {original_signal} -> {signal}"
+                    )
+
+        # WAIT streak
+        self._track_wait_streak(signal, indicators)
+        return signal, signal_source
+
+    # 5-Gate sizing thresholds
+    _MARGIN_HIGH = 0.15
+    _MARGIN_LOW = 0.05
+
+    def _compute_dynamic_size_with_modifiers(self) -> float | None:
+        """5-Gate Pipeline 전용: 모든 수정자 적용 동적 사이징."""
+        entry_tier = 1.0
+        mti_mod = 1.0
+        cost_adj = 1.0
+        vitality_mod = 1.0
+
+        # MTI grade -> mti_mod
+        if getattr(self, "_last_mti_grade", "OPTIMAL") == "REDUCED":
+            mti_mod = 0.7
+
+        # ConfluenceResult -> entry_tier, cost_adj, vitality_mod
+        cr = getattr(self._last_ensemble_result, "confluence_result", None)
+        if cr:
+            # entry_tier: threshold 대비 margin
+            margin = cr.confluence_score - cr.threshold_used
+            if margin > self._MARGIN_HIGH:
+                entry_tier = 1.2
+            elif margin > self._MARGIN_LOW:
+                entry_tier = 1.0
+            else:
+                entry_tier = 0.8
+
+            # cost_adj: net_edge/score 비율
+            if cr.confluence_score > 0:
+                cost_ratio = cr.net_edge / cr.confluence_score
+                cost_adj = max(0.5, min(1.0, cost_ratio))
+
+            # vitality_mod
+            if cr.vitality:
+                vmap = {
+                    "healthy": 1.0,
+                    "caution": 0.85,
+                    "warning": 0.65,
+                    "critical": 0.4,
+                }
+                level = cr.vitality.level
+                level_str = (
+                    level.value.lower()
+                    if hasattr(level, "value")
+                    else str(level).lower()
+                )
+                vitality_mod = vmap.get(level_str, 1.0)
+
+        # Kelly 또는 기본값에 수정자 적용
+        if self._kelly_sizer:
+            regime_str = (
+                self._current_regime.value
+                if self._current_regime
+                else "UNKNOWN"
+            )
+            dynamic = self._kelly_sizer.calculate_final_size(
+                regime=regime_str,
+                config_default=self.config.get_effective_position_size_pct(),
+                entry_tier=entry_tier,
+                mti_mod=mti_mod,
+                cost_adj=cost_adj,
+                vitality_mod=vitality_mod,
+                drawdown_pct=self._risk_manager.get_current_drawdown(),
+            )
+        else:
+            base = self.config.get_effective_position_size_pct()
+            if getattr(self.config, "use_drawdown_sizing", False):
+                base *= self._risk_manager.get_drawdown_size_multiplier()
+            dynamic = base * entry_tier * mti_mod * cost_adj * vitality_mod
+
+        # Execution tracker
+        if self._execution_tracker:
+            exec_mod = self._execution_tracker.get_size_modifier()
+            if exec_mod == 0.0:
+                self._log.warning("[5G] 실행 품질 미달 - 진입 스킵")
+                return 0.0
+            dynamic *= exec_mod
+
+        # Prometheus
+        if self._metrics:
+            with contextlib.suppress(Exception):
+                self._metrics.record_gate_outcome(
+                    self.bot_name, "risk_kelly", "pass"
+                )
+
+        return dynamic
+
     async def _record_signal(
         self,
         signal: str,
@@ -2304,29 +2550,38 @@ class BotInstance:
         # Phase B: 심리 데이터 수집
         sentiment_data = await self._fetch_sentiment_data()
 
-        # Phase C: Confluence Engine은 시그널 생성 전 레짐 필요
         indicators = market_data.get("indicators", {})
+
         if getattr(self.config, "use_confluence_engine", False):
-            self._current_regime = self._regime_detector.detect(indicators)
-            indicators["regime"] = self._current_regime
-            indicators["leverage"] = self.config.get_effective_leverage()
+            # === 5-Gate Pipeline ===
+            signal, signal_source = await self._run_five_gate_pipeline(
+                market_data, indicators, sentiment_data
+            )
+            # Pipeline 사이징 사전 계산
+            if signal in ("LONG", "SHORT"):
+                self._pipeline_size_pct = (
+                    self._compute_dynamic_size_with_modifiers()
+                )
+            else:
+                self._pipeline_size_pct = None
+        else:
+            # === Legacy Flow ===
+            self._pipeline_size_pct = None
+            # 시그널 생성
+            signal, signal_source = await self._generate_combined_signal(
+                market_data, sentiment_data=sentiment_data
+            )
+            # 시그널 유효성 검증
+            if not validate_signal(signal):
+                self._log.warning(
+                    f"유효하지 않은 시그널 '{signal}', WAIT으로 변경"
+                )
+                signal = "WAIT"
+                self._last_signal = signal
+            # 필터 적용 (레짐/MTF/WAIT)
+            signal = self._apply_signal_filters(signal, indicators)
 
-        # 3. 시그널 생성
-        signal, signal_source = await self._generate_combined_signal(
-            market_data, sentiment_data=sentiment_data
-        )
-
-        # 시그널 유효성 검증 게이트
-        if not validate_signal(signal):
-            self._log.warning(f"유효하지 않은 시그널 '{signal}', WAIT으로 변경")
-            signal = "WAIT"
-            self._last_signal = signal
-
-        # 4. 필터 적용 (레짐/MTF/WAIT)
-        indicators = market_data.get("indicators", {})
-        signal = self._apply_signal_filters(signal, indicators)
-
-        # 5. 시그널 기록
+        # 시그널 기록
         await self._record_signal(signal, signal_source, current_price, indicators)
 
         # 6. 긴급 청산 확인

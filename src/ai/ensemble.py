@@ -75,6 +75,7 @@ class EnsembleResult:
     consensus_ratio: float = 0.0
     weighted_score: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
+    confluence_result: Any = None  # ConfluenceResult | None (순환 import 방지)
 
     def to_dict(self) -> dict[str, Any]:
         """딕셔너리로 변환."""
@@ -157,6 +158,7 @@ class EnsembleSignalGenerator:
         self._confluence_engine: Any | None = None
 
         self._ai_logger = AIDecisionLogger()
+        self._last_ensemble_result: EnsembleResult | None = None
         self._log = logger.bind(module="ensemble")
         self._log.info(
             f"EnsembleSignalGenerator 초기화: weights={self.weights}"
@@ -262,7 +264,7 @@ class EnsembleSignalGenerator:
             confluence_result = await self._confluence_engine.evaluate(
                 individual_signals, regime, market_data
             )
-            return EnsembleResult(
+            result = EnsembleResult(
                 final_signal=confluence_result.final_signal,
                 individual_signals=individual_signals,
                 consensus_ratio=0.0,
@@ -272,7 +274,10 @@ class EnsembleSignalGenerator:
                     "sources_used": len(individual_signals),
                     "confluence": confluence_result.step_details,
                 },
+                confluence_result=confluence_result,
             )
+            self._last_ensemble_result = result
+            return result
 
         # 2. 가중 투표
         final_signal, weighted_score, consensus_ratio = self._weighted_vote(
@@ -289,6 +294,7 @@ class EnsembleSignalGenerator:
                 "sources_used": len(individual_signals),
             },
         )
+        self._last_ensemble_result = result
 
         self._log.info(
             f"앙상블 신호: {final_signal} "

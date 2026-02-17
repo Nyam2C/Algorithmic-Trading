@@ -55,6 +55,7 @@ class TradingMetrics:
     _default_daily_pnl_pct: Gauge | None = None
     _default_drawdown_pct: Gauge | None = None
     _default_win_rate: Gauge | None = None
+    _default_gate_total: Counter | None = None
 
     def __init__(self, registry: CollectorRegistry | None = None) -> None:
         """메트릭 초기화.
@@ -92,6 +93,7 @@ class TradingMetrics:
             self._daily_pnl_pct = TradingMetrics._default_daily_pnl_pct
             self._drawdown_pct = TradingMetrics._default_drawdown_pct
             self._win_rate = TradingMetrics._default_win_rate
+            self._gate_total = TradingMetrics._default_gate_total
             return
 
         # 새 레지스트리거나 처음 초기화
@@ -273,7 +275,16 @@ class TradingMetrics:
             registry=self._registry,
         )
 
+        # Gate 메트릭 (5-Gate Pipeline)
+        gate_total = Counter(
+            "trading_gate_total",
+            "Gate pass/block count in 5-Gate Pipeline",
+            ["bot_name", "gate", "outcome"],
+            registry=self._registry,
+        )
+
         # 인스턴스 변수에 저장
+        self._gate_total = gate_total
         self._trades_total = trades_total
         self._trade_duration = trade_duration
         self._position_pnl = position_pnl
@@ -321,6 +332,7 @@ class TradingMetrics:
             TradingMetrics._default_daily_pnl_pct = daily_pnl_pct
             TradingMetrics._default_drawdown_pct = drawdown_pct
             TradingMetrics._default_win_rate = win_rate
+            TradingMetrics._default_gate_total = gate_total
 
     @property
     def trades_total(self) -> Counter:
@@ -656,6 +668,24 @@ class TradingMetrics:
         if self._win_rate is not None:
             self._win_rate.labels(bot_name=bot_name).set(win_rate)
 
+    def record_gate_outcome(
+        self,
+        bot_name: str,
+        gate: str,
+        outcome: str,
+    ) -> None:
+        """5-Gate Pipeline gate 결과 기록.
+
+        Args:
+            bot_name: 봇 이름
+            gate: 게이트 이름 (mti, regime, confluence, risk_kelly)
+            outcome: 결과 (pass, block)
+        """
+        if self._gate_total is not None:
+            self._gate_total.labels(
+                bot_name=bot_name, gate=gate, outcome=outcome
+            ).inc()
+
     def clear_position_metrics(self, bot_name: str) -> None:
         """포지션 청산 시 메트릭 클리어.
 
@@ -809,3 +839,8 @@ def record_drawdown_pct(bot_name: str, drawdown: float) -> None:
 def record_win_rate(bot_name: str, win_rate: float) -> None:
     """승률 기록 (편의 함수)."""
     _get_metrics().record_win_rate(bot_name, win_rate)
+
+
+def record_gate_outcome(bot_name: str, gate: str, outcome: str) -> None:
+    """5-Gate Pipeline gate 결과 기록 (편의 함수)."""
+    _get_metrics().record_gate_outcome(bot_name, gate, outcome)
