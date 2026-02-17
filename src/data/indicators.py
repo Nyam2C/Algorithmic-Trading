@@ -3,8 +3,8 @@
 import pandas as pd
 from loguru import logger
 from ta.momentum import RSIIndicator
-from ta.trend import SMAIndicator
-from ta.volatility import AverageTrueRange
+from ta.trend import ADXIndicator, EMAIndicator, SMAIndicator
+from ta.volatility import AverageTrueRange, BollingerBands
 
 # 지표 분석 상수
 RSI_TREND_THRESHOLD = 2
@@ -195,6 +195,132 @@ def analyze_candle_pattern(df: pd.DataFrame) -> dict:
     }
 
 
+
+def calculate_adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Calculate ADX (Average Directional Index).
+
+    Args:
+        df: DataFrame with 'high', 'low', 'close' columns
+        period: ADX period (default: 14)
+
+    Returns:
+        Series with ADX values
+    """
+    try:
+        adx_indicator = ADXIndicator(
+            high=df["high"], low=df["low"], close=df["close"], window=period
+        )
+        adx = adx_indicator.adx()
+        logger.debug(f"ADX({period}) calculated: {adx.iloc[-1]:.2f}")
+        return adx
+    except Exception as e:
+        logger.error(f"Failed to calculate ADX: {e}")
+        raise
+
+
+def calculate_adx_components(
+    df: pd.DataFrame, period: int = 14
+) -> dict[str, pd.Series]:
+    """Calculate ADX with DI+ and DI- components.
+
+    Args:
+        df: DataFrame with 'high', 'low', 'close' columns
+        period: ADX period (default: 14)
+
+    Returns:
+        Dictionary with 'adx', 'di_plus', 'di_minus' Series
+    """
+    try:
+        adx_indicator = ADXIndicator(
+            high=df["high"], low=df["low"], close=df["close"], window=period
+        )
+        return {
+            "adx": adx_indicator.adx(),
+            "di_plus": adx_indicator.adx_pos(),
+            "di_minus": adx_indicator.adx_neg(),
+        }
+    except Exception as e:
+        logger.error(f"Failed to calculate ADX components: {e}")
+        raise
+
+
+def calculate_ema(df: pd.DataFrame, period: int) -> pd.Series:
+    """Calculate Exponential Moving Average.
+
+    Args:
+        df: DataFrame with 'close' column
+        period: EMA period
+
+    Returns:
+        Series with EMA values
+    """
+    try:
+        ema_indicator = EMAIndicator(close=df["close"], window=period)
+        ema = ema_indicator.ema_indicator()
+        logger.debug(f"EMA({period}) calculated: {ema.iloc[-1]:.2f}")
+        return ema
+    except Exception as e:
+        logger.error(f"Failed to calculate EMA: {e}")
+        raise
+
+
+def calculate_bollinger_bandwidth(df: pd.DataFrame, period: int = 20) -> pd.Series:
+    """Calculate Bollinger Bandwidth (BB width normalized by middle band).
+
+    Used for regime transition detection - narrow bands indicate consolidation.
+
+    Args:
+        df: DataFrame with 'close' column
+        period: Bollinger period (default: 20)
+
+    Returns:
+        Series with bandwidth values (0-1 typical range)
+    """
+    try:
+        bb = BollingerBands(close=df["close"], window=period)
+        upper = bb.bollinger_hband()
+        lower = bb.bollinger_lband()
+        middle = bb.bollinger_mavg()
+        bandwidth = (upper - lower) / middle
+        bandwidth = bandwidth.fillna(0.0)
+        logger.debug(f"BB Bandwidth({period}) calculated: {bandwidth.iloc[-1]:.4f}")
+        return bandwidth
+    except Exception as e:
+        logger.error(f"Failed to calculate Bollinger Bandwidth: {e}")
+        raise
+
+
+def calculate_returns(
+    df: pd.DataFrame, periods: list[int] | None = None
+) -> dict[str, pd.Series]:
+    """Calculate volatility-adjusted returns for multiple lookback windows.
+
+    Used by TSMOM channel for momentum scoring.
+
+    Args:
+        df: DataFrame with 'close' column
+        periods: List of lookback periods (default: [5, 10, 20])
+
+    Returns:
+        Dictionary of returns Series keyed by period (e.g., 'returns_5')
+    """
+    if periods is None:
+        periods = [5, 10, 20]
+    try:
+        results = {}
+        for period in periods:
+            pct_change = df["close"].pct_change(period)
+            # Volatility-adjusted: returns / rolling std
+            rolling_std = df["close"].pct_change().rolling(window=period).std()
+            vol_adjusted = pct_change / rolling_std.replace(0, float("nan"))
+            results[f"returns_{period}"] = vol_adjusted
+        logger.debug(f"Returns calculated for periods {periods}")
+        return results
+    except Exception as e:
+        logger.error(f"Failed to calculate returns: {e}")
+        raise
+
+
 def analyze_market(
     df: pd.DataFrame, ticker_24h: dict, current_price: float
 ) -> dict:
@@ -252,6 +378,18 @@ def analyze_market(
             else "normal"
         )
 
+        # ADX (Trend strength)
+        adx_series = calculate_adx(df)
+        adx = adx_series.iloc[-1] if not adx_series.empty else 0.0
+
+        # EMA 20
+        ema_20_series = calculate_ema(df, period=20)
+        ema_20 = ema_20_series.iloc[-1] if not ema_20_series.empty else 0.0
+
+        # Bollinger Bandwidth
+        bb_width_series = calculate_bollinger_bandwidth(df)
+        bb_width = bb_width_series.iloc[-1] if not bb_width_series.empty else 0.0
+
         # Candle pattern
         candle_analysis = analyze_candle_pattern(df)
 
@@ -292,6 +430,10 @@ def analyze_market(
             "atr": atr,
             "atr_pct": atr_pct,
             "volatility_state": volatility_state,
+            # New indicators (APEX-V)
+            "adx": adx,
+            "ema_20": ema_20,
+            "bb_width": bb_width,
             # Candle patterns
             "trend_2h_pct": candle_analysis["trend_2h_pct"],
             "trend_30min_pct": candle_analysis["trend_30min_pct"],

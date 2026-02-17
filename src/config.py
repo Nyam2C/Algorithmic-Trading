@@ -47,6 +47,14 @@ class TradingConfig(BaseModel):
     atr_tp_multiplier: float = Field(default=2.0, gt=0)
     atr_sl_multiplier: float = Field(default=1.0, gt=0)
 
+    # APEX-V: Split TP
+    use_split_tp: bool = Field(default=False)
+    split_tp_ratios: list[float] = Field(default=[0.5, 0.3, 0.2])
+    split_tp_atr_multipliers: list[float] = Field(default=[1.0, 1.5, 2.5])
+
+    # APEX-V: ADX regime
+    use_adx_regime: bool = Field(default=False)
+
     # Slippage protection
     max_slippage_pct: float = Field(default=0.005)  # 0.5% default
     close_on_excessive_slippage: bool = Field(default=False)

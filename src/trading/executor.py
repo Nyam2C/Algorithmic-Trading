@@ -842,6 +842,13 @@ class TradingExecutor:
         """
         close_side = "SELL" if side == "LONG" else "BUY"
 
+        # APEX-V: 분할 TP 모드
+        use_split_tp = getattr(self.config, "use_split_tp", False)
+        if use_split_tp and entry_atr:
+            return await self._place_split_tp_sl(
+                symbol, side, quantity, entry_price, entry_atr
+            )
+
         tp_price, sl_price = self._calculate_tp_sl_prices(
             side, entry_price, entry_atr
         )
@@ -896,6 +903,98 @@ class TradingExecutor:
             f"거래소 TP/SL 주문 배치 완료: "
             f"TP=, SL= ({side})"
         )
+        return True
+
+    async def _place_split_tp_sl(
+        self,
+        symbol: str,
+        side: str,
+        quantity: float,
+        entry_price: float,
+        entry_atr: float | None = None,
+    ) -> bool:
+        """분할 TP + SL 주문 배치.
+
+        3단계 TP: 50%@ATR*1.0, 30%@ATR*1.5, 20%@ATR*2.5 (기본값)
+        SL은 단일 주문으로 전체 물량.
+
+        Args:
+            symbol: 거래쌍
+            side: 포지션 방향 ("LONG" or "SHORT")
+            quantity: 전체 포지션 수량
+            entry_price: 진입 가격
+            entry_atr: ATR 값
+
+        Returns:
+            True if SL placed successfully
+        """
+        close_side = "SELL" if side == "LONG" else "BUY"
+
+        # SL 가격 계산 (전체 물량)
+        _, sl_price = self._calculate_tp_sl_prices(side, entry_price, entry_atr)
+
+        # SL 유효성 검증
+        if sl_price <= 0 or sl_price < self.MIN_STOP_PRICE:
+            logger.error(f"분할 TP: SL 가격 무효 ({sl_price})")
+            return False
+
+        # SL 주문 (전체 물량, 필수)
+        try:
+            await self.client.create_stop_market_order(
+                symbol=symbol,
+                side=close_side,
+                quantity=quantity,
+                stop_price=sl_price,
+            )
+        except Exception as e:
+            logger.error(f"분할 TP: SL 주문 실패 (필수): {e}")
+            return False
+
+        # 분할 TP 주문
+        ratios = getattr(self.config, "split_tp_ratios", [0.5, 0.3, 0.2])
+        atr_muls = getattr(self.config, "split_tp_atr_multipliers", [1.0, 1.5, 2.5])
+
+        for i, (ratio, atr_mul) in enumerate(zip(ratios, atr_muls, strict=False)):
+            tp_qty = round(quantity * ratio, 3)
+            if tp_qty < self.MIN_ORDER_QTY:
+                logger.warning(
+                    f"분할 TP{i+1}: 수량 {tp_qty} < 최소 {self.MIN_ORDER_QTY}, 스킵"
+                )
+                continue
+
+            # TP 가격: ATR 기반이면 entry +/- atr * multiplier
+            if entry_atr:
+                if side == "LONG":
+                    tp_price = round(entry_price + entry_atr * atr_mul, 2)
+                else:
+                    tp_price = round(entry_price - entry_atr * atr_mul, 2)
+            else:
+                # ATR 없으면 고정 비율 사용 (tp_pct * (i+1))
+                tp_pct = self.config.take_profit_pct * (i + 1)
+                if side == "LONG":
+                    tp_price = round(entry_price * (1 + tp_pct), 2)
+                else:
+                    tp_price = round(entry_price * (1 - tp_pct), 2)
+
+            if tp_price < self.MIN_STOP_PRICE:
+                logger.warning(f"분할 TP{i+1}: 가격 {tp_price} 무효, 스킵")
+                continue
+
+            try:
+                await self.client.create_take_profit_market_order(
+                    symbol=symbol,
+                    side=close_side,
+                    quantity=tp_qty,
+                    stop_price=tp_price,
+                )
+                logger.info(
+                    f"분할 TP{i+1} 배치: {ratio*100:.0f}% ({tp_qty}) "
+                    rf"@ \${tp_price:,.2f}"
+                )
+            except Exception as e:
+                logger.warning(f"분할 TP{i+1} 배치 실패 (비필수): {e}")
+
+        logger.info(rf"분할 TP/SL 주문 완료: SL=\${sl_price:,.2f} ({side})")
         return True
 
     def check_timecut(self, position: dict) -> bool:

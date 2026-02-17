@@ -116,6 +116,14 @@ class BotConfig(BaseModel):
     atr_tp_multiplier: float = Field(default=2.0, gt=0)  # TP = entry ± ATR x multiplier
     atr_sl_multiplier: float = Field(default=1.0, gt=0)  # SL = entry ± ATR x multiplier
 
+    # APEX-V Phase A: 분할 TP
+    use_split_tp: bool = Field(default=False)
+    split_tp_ratios: list[float] = Field(default=[0.5, 0.3, 0.2])
+    split_tp_atr_multipliers: list[float] = Field(default=[1.0, 1.5, 2.5])
+
+    # APEX-V Phase A: ADX 기반 레짐 감지
+    use_adx_regime: bool = Field(default=False)
+
     # Phase 6.2: 마켓 레짐 필터링
     use_regime_filter: bool = Field(default=False)  # True면 횡보장 진입 회피
     allow_weak_trend: bool = Field(default=True)  # 약한 추세에서 거래 허용
@@ -166,6 +174,14 @@ class BotConfig(BaseModel):
         valid_levels = ["low", "medium", "high"]
         if v not in valid_levels:
             raise ValueError(f"risk_level must be one of {valid_levels}")
+        return v
+
+    @field_validator("split_tp_ratios")
+    @classmethod
+    def validate_split_tp_ratios(cls, v: list[float]) -> list[float]:
+        """분할 TP 비율 합이 1.0이어야 함."""
+        if abs(sum(v) - 1.0) > 0.01:  # noqa: PLR2004
+            raise ValueError(f"split_tp_ratios sum must be 1.0, got {sum(v)}")
         return v
 
     @field_validator("position_size_pct")
@@ -276,6 +292,10 @@ class BotConfig(BaseModel):
             use_atr_tp_sl=self.use_atr_tp_sl,  # Phase 6.1
             atr_tp_multiplier=self.atr_tp_multiplier,  # Phase 6.1
             atr_sl_multiplier=self.atr_sl_multiplier,  # Phase 6.1
+            use_split_tp=self.use_split_tp,  # APEX-V
+            split_tp_ratios=self.split_tp_ratios,  # APEX-V
+            split_tp_atr_multipliers=self.split_tp_atr_multipliers,  # APEX-V
+            use_adx_regime=self.use_adx_regime,  # APEX-V
             use_regime_filter=self.use_regime_filter,  # Phase 6.2
             allow_weak_trend=self.allow_weak_trend,  # Phase 6.2
             use_mtf_filter=self.use_mtf_filter,  # Phase 5 통합

@@ -34,6 +34,7 @@ MIN_CANDLES_FOR_MARKET = 25
 MIN_CANDLES_FOR_MACD = 26
 MIN_CANDLES_FOR_BB = 20
 MIN_TRADES_FOR_SHARPE = 2
+MIN_SAMPLES_FOR_STD = 2
 
 
 @dataclass
@@ -356,6 +357,16 @@ class BacktestEngine:
             bb_data = self._calculate_bollinger_bands(closes[-20:])
             market_data.update(bb_data)
 
+        # ADX (14 periods) - APEX-V
+        if len(window) >= MIN_CANDLES_FOR_MACD:  # Need enough for smoothing
+            adx_data = self._calculate_adx(window)
+            market_data.update(adx_data)
+
+        # Volatility-adjusted returns — APEX-V
+        if len(closes) >= MIN_CANDLES_FOR_MACD:  # Need enough history
+            returns_data = self._calculate_returns(closes)
+            market_data.update(returns_data)
+
         # 현재 캔들 정보
         market_data["current_price"] = closes[-1]
         market_data["current_volume"] = window[-1].get("volume", 0)
@@ -474,6 +485,142 @@ class BacktestEngine:
             "bb_lower": lower,
             "bb_width": (upper - lower) / sma if sma > 0 else 0,
         }
+
+    def _calculate_adx(  # noqa: PLR0912
+        self,
+        candles: list[dict],
+        period: int = 14,
+    ) -> dict[str, float]:
+        """ADX 계산 (APEX-V).
+
+        Simplified ADX calculation for backtesting.
+        Uses Wilder's smoothing method.
+        """
+        if len(candles) < period + 1:
+            return {}
+
+        # Calculate +DM, -DM, TR
+        plus_dm_list = []
+        minus_dm_list = []
+        tr_list = []
+
+        for i in range(1, len(candles)):
+            high = candles[i]["high"]
+            low = candles[i]["low"]
+            prev_high = candles[i - 1]["high"]
+            prev_low = candles[i - 1]["low"]
+            prev_close = candles[i - 1]["close"]
+
+            # True Range
+            tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+            tr_list.append(tr)
+
+            # +DM, -DM
+            up_move = high - prev_high
+            down_move = prev_low - low
+
+            if up_move > down_move and up_move > 0:
+                plus_dm_list.append(up_move)
+            else:
+                plus_dm_list.append(0.0)
+
+            if down_move > up_move and down_move > 0:
+                minus_dm_list.append(down_move)
+            else:
+                minus_dm_list.append(0.0)
+
+        if len(tr_list) < period:
+            return {}
+
+        # Wilder's smoothing (simple average for initial, then EMA-like)
+        atr_val = sum(tr_list[:period]) / period
+        plus_dm_smooth = sum(plus_dm_list[:period]) / period
+        minus_dm_smooth = sum(minus_dm_list[:period]) / period
+
+        dx_list = []
+
+        for i in range(period, len(tr_list)):
+            atr_val = (atr_val * (period - 1) + tr_list[i]) / period
+            plus_dm_smooth = (plus_dm_smooth * (period - 1) + plus_dm_list[i]) / period
+            minus_dm_smooth = (
+                (minus_dm_smooth * (period - 1) + minus_dm_list[i]) / period
+            )
+
+            if atr_val > 0:
+                plus_di = (plus_dm_smooth / atr_val) * 100
+                minus_di = (minus_dm_smooth / atr_val) * 100
+            else:
+                plus_di = 0.0
+                minus_di = 0.0
+
+            di_sum = plus_di + minus_di
+            dx = abs(plus_di - minus_di) / di_sum * 100 if di_sum > 0 else 0.0
+            dx_list.append(dx)
+
+        if not dx_list:
+            return {}
+
+        # ADX = smoothed DX
+        adx = sum(dx_list[-period:]) / min(len(dx_list), period)
+
+        # Get last DI values
+        if atr_val > 0:
+            di_plus = (plus_dm_smooth / atr_val) * 100
+            di_minus = (minus_dm_smooth / atr_val) * 100
+        else:
+            di_plus = 0.0
+            di_minus = 0.0
+
+        return {
+            "adx": adx,
+            "di_plus": di_plus,
+            "di_minus": di_minus,
+        }
+
+    def _calculate_returns(
+        self,
+        closes: list[float],
+        periods: list[int] | None = None,
+    ) -> dict[str, float]:
+        """Volatility-adjusted returns (APEX-V).
+
+        Returns the last value for each period's vol-adjusted return.
+        """
+        if periods is None:
+            periods = [5, 10, 20]
+
+        results = {}
+        for period in periods:
+            if len(closes) < period + 1:
+                continue
+
+            # Simple return over period
+            current = closes[-1]
+            past = closes[-(period + 1)]
+            if past == 0:
+                continue
+            ret = (current - past) / past
+
+            # Volatility (std of returns over window)
+            returns = []
+            for i in range(1, min(len(closes), period + 1)):
+                if closes[-(i + 1)] > 0:
+                    returns.append(
+                        (closes[-i] - closes[-(i + 1)]) / closes[-(i + 1)]
+                    )
+
+            if returns and len(returns) >= MIN_SAMPLES_FOR_STD:
+                mean_r = sum(returns) / len(returns)
+                variance = sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1)
+                std = variance ** 0.5
+                if std > 0:
+                    results[f"returns_{period}"] = ret / std
+                else:
+                    results[f"returns_{period}"] = 0.0
+            else:
+                results[f"returns_{period}"] = 0.0
+
+        return results
 
     def _open_position(self, candle: dict, side: str) -> None:
         """포지션 진입.

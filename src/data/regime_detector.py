@@ -19,6 +19,7 @@ class MarketRegime(Enum):
     RANGING = "ranging"                     # 횡보장 (레인지)
     WEAK_DOWNTREND = "weak_downtrend"      # 약한 하락 추세
     STRONG_DOWNTREND = "strong_downtrend"  # 강한 하락 추세
+    UNCERTAINTY = "uncertainty"             # ADX 20~30 불확실 구간
     UNKNOWN = "unknown"                     # 알 수 없음
 
 
@@ -48,6 +49,10 @@ class RegimeDetector:
         atr_strong_threshold: float = 1.0,  # 1%
         atr_weak_threshold: float = 0.5,    # 0.5%
         partial_trend_mode: bool = True,
+        use_adx: bool = False,
+        adx_trend_threshold: float = 25.0,
+        adx_uncertainty_low: float = 20.0,
+        adx_uncertainty_high: float = 30.0,
     ) -> None:
         """레짐 감지기 초기화.
 
@@ -55,14 +60,23 @@ class RegimeDetector:
             atr_strong_threshold: 강한 추세 ATR 비율 임계값 (%)
             atr_weak_threshold: 약한 추세 ATR 비율 임계값 (%)
             partial_trend_mode: MA7/MA25만으로 부분 추세 감지 여부
+            use_adx: ADX 기반 레짐 감지 사용 여부 (APEX-V)
+            adx_trend_threshold: ADX 추세 판단 임계값 (기본 25.0)
+            adx_uncertainty_low: UNCERTAINTY 구간 하한 (기본 20.0)
+            adx_uncertainty_high: UNCERTAINTY 구간 상한 (기본 30.0)
         """
         self.atr_strong_threshold = atr_strong_threshold
         self.atr_weak_threshold = atr_weak_threshold
         self.partial_trend_mode = partial_trend_mode
+        self.use_adx = use_adx
+        self.adx_trend_threshold = adx_trend_threshold
+        self.adx_uncertainty_low = adx_uncertainty_low
+        self.adx_uncertainty_high = adx_uncertainty_high
+        self._bb_squeeze_threshold = 0.03  # BB 수축 판단 임계값
 
         logger.debug(
             f"RegimeDetector 초기화: strong_threshold={atr_strong_threshold}%, "
-            f"weak_threshold={atr_weak_threshold}%"
+            f"weak_threshold={atr_weak_threshold}%, use_adx={use_adx}"
         )
 
     def detect(self, market_data: dict) -> MarketRegime:
@@ -108,6 +122,20 @@ class RegimeDetector:
             else:
                 # ATR 데이터가 없으면 atr_pct로 시도
                 atr_pct = market_data.get("atr_pct", 0.0)
+
+            # ADX 기반 레짐 감지 (APEX-V)
+            if self.use_adx:
+                adx = market_data.get("adx")
+                bb_width = market_data.get("bb_width")
+                di_plus = market_data.get("di_plus")
+                di_minus = market_data.get("di_minus")
+
+                if adx is not None and not (isinstance(adx, float) and math.isnan(adx)):
+                    return self._determine_regime_adx(
+                        adx, bb_width, di_plus, di_minus, atr_pct
+                    )
+                # ADX 데이터 없으면 기존 MA 기반으로 fallback
+                logger.warning("ADX 데이터 없음, MA 기반 레짐 감지로 fallback")
 
             # MA 정렬 확인 (mypy: None 체크는 위에서 완료)
             if ma_7 is None or ma_25 is None or ma_99 is None:
@@ -186,6 +214,57 @@ class RegimeDetector:
         # MA가 혼재된 상태 (정렬 안 됨)
         return MarketRegime.RANGING
 
+    def _determine_regime_adx(
+        self,
+        adx: float,
+        bb_width: float | None,
+        di_plus: float | None,
+        di_minus: float | None,
+        atr_pct: float,
+    ) -> MarketRegime:
+        """ADX + BB 기반 레짐 결정 (APEX-V).
+
+        ADX >= 25 + DI 방향: STRONG/WEAK TREND
+        ADX < 25 + BB 수축: RANGING
+        ADX 20~30 (불확실): UNCERTAINTY
+
+        Args:
+            adx: Average Directional Index 값
+            bb_width: Bollinger Bandwidth (optional)
+            di_plus: DI+ 값 (optional)
+            di_minus: DI- 값 (optional)
+            atr_pct: ATR 퍼센트
+
+        Returns:
+            MarketRegime
+        """
+        is_strong = atr_pct >= self.atr_strong_threshold
+
+        # ADX가 강한 추세 나타냄
+        if adx >= self.adx_trend_threshold:
+            # DI 방향으로 추세 방향 결정
+            if di_plus is not None and di_minus is not None:
+                if di_plus > di_minus:
+                    if is_strong:
+                        return MarketRegime.STRONG_UPTREND
+                    return MarketRegime.WEAK_UPTREND
+                if is_strong:
+                    return MarketRegime.STRONG_DOWNTREND
+                return MarketRegime.WEAK_DOWNTREND
+            # DI 정보 없으면 ATR로만 강약 판단 (방향 불명)
+            return MarketRegime.WEAK_UPTREND if is_strong else MarketRegime.RANGING
+
+        # UNCERTAINTY 구간 (ADX 20~30)
+        if self.adx_uncertainty_low <= adx < self.adx_uncertainty_high:
+            logger.info(f"ADX 불확실 구간: {adx:.1f} -> UNCERTAINTY")
+            return MarketRegime.UNCERTAINTY
+
+        # ADX 낮음 (< 20) + BB 수축이면 횡보
+        if bb_width is not None and bb_width < self._bb_squeeze_threshold:
+            return MarketRegime.RANGING
+
+        return MarketRegime.RANGING
+
     def filter_signal(
         self,
         signal: str,
@@ -208,6 +287,11 @@ class RegimeDetector:
         # 횡보장에서는 진입 안 함
         if regime == MarketRegime.RANGING:
             logger.info(f"횡보장 - {signal} 시그널 무시 → WAIT")
+            return "WAIT"
+
+        # UNCERTAINTY: Dead Zone - 보수적 접근
+        if regime == MarketRegime.UNCERTAINTY:
+            logger.info(f"불확실 구간 - {signal} 시그널 무시 → WAIT")
             return "WAIT"
 
         # UNKNOWN: 데이터 부족 시 필터 건너뜀 (경고 로그)
@@ -275,6 +359,12 @@ class RegimeDetector:
                 "description": "MA 하락 정렬 + 높은 변동성",
                 "recommended_action": "SHORT 선호, LONG 회피",
                 "risk_level": "medium",
+            },
+            MarketRegime.UNCERTAINTY: {
+                "name": "불확실 구간",
+                "description": "ADX 20~30, 추세/횡보 전환 가능",
+                "recommended_action": "진입 회피, Dead Zone",
+                "risk_level": "high",
             },
             MarketRegime.UNKNOWN: {
                 "name": "알 수 없음",

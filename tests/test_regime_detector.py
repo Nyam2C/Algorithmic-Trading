@@ -403,3 +403,125 @@ class TestPhase9PartialTrendModeRanging:
         }
         regime = partial_detector.detect(market_data)
         assert regime == MarketRegime.STRONG_UPTREND
+
+
+class TestADXRegimeDetection:
+    """ADX 기반 레짐 감지 테스트 (APEX-V)"""
+
+    @pytest.fixture
+    def adx_detector(self):
+        """ADX 모드 활성화된 RegimeDetector"""
+        return RegimeDetector(
+            atr_strong_threshold=1.0,
+            atr_weak_threshold=0.5,
+            use_adx=True,
+        )
+
+    def test_adx_strong_uptrend(self, adx_detector):
+        """ADX >= 25 + DI+ > DI- + 높은 ATR -> STRONG_UPTREND"""
+        market_data = {
+            "ma_7": 100500.0, "ma_25": 100000.0, "ma_99": 99000.0,
+            "atr": 1500.0, "price": 100500.0,
+            "adx": 35.0, "di_plus": 30.0, "di_minus": 15.0,
+        }
+        regime = adx_detector.detect(market_data)
+        assert regime == MarketRegime.STRONG_UPTREND
+
+    def test_adx_weak_uptrend(self, adx_detector):
+        """ADX >= 25 + DI+ > DI- + 낮은 ATR -> WEAK_UPTREND"""
+        market_data = {
+            "ma_7": 100500.0, "ma_25": 100000.0, "ma_99": 99000.0,
+            "atr": 400.0, "price": 100500.0,
+            "adx": 30.0, "di_plus": 28.0, "di_minus": 12.0,
+        }
+        regime = adx_detector.detect(market_data)
+        assert regime == MarketRegime.WEAK_UPTREND
+
+    def test_adx_strong_downtrend(self, adx_detector):
+        """ADX >= 25 + DI- > DI+ + 높은 ATR -> STRONG_DOWNTREND"""
+        market_data = {
+            "ma_7": 99000.0, "ma_25": 99500.0, "ma_99": 100000.0,
+            "atr": 1500.0, "price": 99000.0,
+            "adx": 35.0, "di_plus": 10.0, "di_minus": 30.0,
+        }
+        regime = adx_detector.detect(market_data)
+        assert regime == MarketRegime.STRONG_DOWNTREND
+
+    def test_adx_weak_downtrend(self, adx_detector):
+        """ADX >= 25 + DI- > DI+ + 낮은 ATR -> WEAK_DOWNTREND"""
+        market_data = {
+            "ma_7": 99000.0, "ma_25": 99500.0, "ma_99": 100000.0,
+            "atr": 400.0, "price": 99000.0,
+            "adx": 28.0, "di_plus": 12.0, "di_minus": 25.0,
+        }
+        regime = adx_detector.detect(market_data)
+        assert regime == MarketRegime.WEAK_DOWNTREND
+
+    def test_adx_uncertainty(self, adx_detector):
+        """ADX 20~30 -> UNCERTAINTY"""
+        market_data = {
+            "ma_7": 100000.0, "ma_25": 100000.0, "ma_99": 100000.0,
+            "atr": 400.0, "price": 100000.0,
+            "adx": 22.0,
+        }
+        regime = adx_detector.detect(market_data)
+        assert regime == MarketRegime.UNCERTAINTY
+
+    def test_adx_ranging_low_bb(self, adx_detector):
+        """ADX < 20 + BB 수축 -> RANGING"""
+        market_data = {
+            "ma_7": 100000.0, "ma_25": 100000.0, "ma_99": 100000.0,
+            "atr": 300.0, "price": 100000.0,
+            "adx": 15.0, "bb_width": 0.02,
+        }
+        regime = adx_detector.detect(market_data)
+        assert regime == MarketRegime.RANGING
+
+    def test_adx_no_adx_data_fallback(self, adx_detector):
+        """ADX 데이터 없으면 MA 기반 fallback"""
+        market_data = {
+            "ma_7": 100500.0, "ma_25": 100000.0, "ma_99": 99000.0,
+            "atr": 1500.0, "price": 100500.0,
+        }
+        regime = adx_detector.detect(market_data)
+        assert regime == MarketRegime.STRONG_UPTREND
+
+    def test_adx_disabled_ignores_adx(self):
+        """use_adx=False면 ADX 데이터 무시"""
+        detector = RegimeDetector(use_adx=False, partial_trend_mode=False)
+        market_data = {
+            "ma_7": 100500.0, "ma_25": 100000.0, "ma_99": 99000.0,
+            "atr": 1500.0, "price": 100500.0,
+            "adx": 10.0,  # 낮은 ADX -- use_adx=False면 무시
+        }
+        regime = detector.detect(market_data)
+        assert regime == MarketRegime.STRONG_UPTREND
+
+
+class TestUncertaintyFiltering:
+    """UNCERTAINTY 레짐 필터링 테스트"""
+
+    @pytest.fixture
+    def detector(self):
+        return RegimeDetector()
+
+    def test_uncertainty_blocks_long(self, detector):
+        """UNCERTAINTY에서 LONG 차단"""
+        result = detector.filter_signal("LONG", MarketRegime.UNCERTAINTY)
+        assert result == "WAIT"
+
+    def test_uncertainty_blocks_short(self, detector):
+        """UNCERTAINTY에서 SHORT 차단"""
+        result = detector.filter_signal("SHORT", MarketRegime.UNCERTAINTY)
+        assert result == "WAIT"
+
+    def test_uncertainty_passes_wait(self, detector):
+        """UNCERTAINTY에서 WAIT는 그대로"""
+        result = detector.filter_signal("WAIT", MarketRegime.UNCERTAINTY)
+        assert result == "WAIT"
+
+    def test_uncertainty_info(self, detector):
+        """UNCERTAINTY 레짐 정보"""
+        info = detector.get_regime_info(MarketRegime.UNCERTAINTY)
+        assert info["name"] == "불확실 구간"
+        assert info["risk_level"] == "high"

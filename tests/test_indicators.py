@@ -9,9 +9,14 @@ from src.data.indicators import (
     analyze_candle_pattern,
     analyze_market,
     analyze_rsi_trend,
+    calculate_adx,
+    calculate_adx_components,
     calculate_atr,
+    calculate_bollinger_bandwidth,
+    calculate_ema,
     calculate_ma,
     calculate_price_vs_ma,
+    calculate_returns,
     calculate_rsi,
     calculate_volume_ratio,
 )
@@ -312,3 +317,165 @@ class TestAnalyzeMarket:
         # 저항/지지는 현재가 근처
         assert analysis['resistance'] >= current_price
         assert analysis['support'] <= current_price
+
+
+
+class TestCalculateADX:
+    """ADX 계산 테스트"""
+
+    def test_adx_calculation(self, sample_candle_data):
+        """ADX가 정상적으로 계산되는지"""
+        adx = calculate_adx(sample_candle_data)
+        assert len(adx) == len(sample_candle_data)
+        valid = adx[~adx.isna()]
+        assert len(valid) > 0
+        assert (valid >= 0).all()
+        assert (valid <= 100).all()
+
+    def test_adx_strong_trend(self, uptrend_data):
+        """상승 추세에서 ADX가 높게 나오는지"""
+        adx = calculate_adx(uptrend_data)
+        last_adx = adx.iloc[-1]
+        assert last_adx > 20  # 추세 존재
+
+    def test_adx_components(self, sample_candle_data):
+        """ADX 컴포넌트(DI+, DI-) 정상 반환"""
+        components = calculate_adx_components(sample_candle_data)
+        assert "adx" in components
+        assert "di_plus" in components
+        assert "di_minus" in components
+        for key in components:
+            valid = components[key][~components[key].isna()]
+            assert len(valid) > 0
+
+    def test_adx_uptrend_di_plus_dominates(self, uptrend_data):
+        """상승 추세에서 DI+ > DI-"""
+        components = calculate_adx_components(uptrend_data)
+        last_di_plus = components["di_plus"].iloc[-1]
+        last_di_minus = components["di_minus"].iloc[-1]
+        assert last_di_plus > last_di_minus
+
+
+class TestCalculateEMA:
+    """EMA 계산 테스트"""
+
+    def test_ema_calculation(self, sample_candle_data):
+        """EMA가 정상적으로 계산되는지"""
+        ema = calculate_ema(sample_candle_data, period=20)
+        assert len(ema) == len(sample_candle_data)
+        valid = ema[~ema.isna()]
+        assert len(valid) > 0
+        assert (valid > 0).all()
+
+    def test_ema_follows_uptrend(self, uptrend_data):
+        """상승 추세에서 EMA가 가격 아래에 있는지"""
+        ema = calculate_ema(uptrend_data, period=10)
+        last_ema = ema.iloc[-1]
+        last_close = uptrend_data["close"].iloc[-1]
+        assert last_close > last_ema
+
+    def test_ema_different_periods(self, sample_candle_data):
+        """다른 주기의 EMA가 정상 계산되는지"""
+        ema_10 = calculate_ema(sample_candle_data, period=10)
+        ema_20 = calculate_ema(sample_candle_data, period=20)
+        # 짧은 주기 EMA가 더 빨리 유효값을 가짐
+        valid_10 = ema_10[~ema_10.isna()]
+        valid_20 = ema_20[~ema_20.isna()]
+        assert len(valid_10) >= len(valid_20)
+
+
+class TestCalculateBollingerBandwidth:
+    """Bollinger Bandwidth 테스트"""
+
+    def test_bb_bandwidth_calculation(self, sample_candle_data):
+        """BB 대역폭이 정상 계산되는지"""
+        bw = calculate_bollinger_bandwidth(sample_candle_data)
+        assert len(bw) == len(sample_candle_data)
+        valid = bw[~bw.isna()]
+        assert len(valid) > 0
+        assert (valid >= 0).all()
+
+    def test_bb_bandwidth_narrow_range(self):
+        """좁은 범위 데이터에서 대역폭이 좁은지"""
+        closes = [100.0] * 30 + [100.1, 99.9] * 5
+        df = pd.DataFrame({
+            "close": closes,
+            "high": [c + 0.1 for c in closes],
+            "low": [c - 0.1 for c in closes],
+        })
+        bw = calculate_bollinger_bandwidth(df)
+        last_bw = bw.iloc[-1]
+        assert last_bw < 0.01  # 매우 좁은 범위
+
+    def test_bb_bandwidth_wide_range(self):
+        """넓은 변동성 데이터에서 대역폭이 넓은지"""
+        import numpy as np
+        closes = list(np.linspace(100, 130, 20)) + list(np.linspace(130, 100, 20))
+        df = pd.DataFrame({
+            "close": closes,
+            "high": [c + 5 for c in closes],
+            "low": [c - 5 for c in closes],
+        })
+        bw = calculate_bollinger_bandwidth(df)
+        valid = bw[~bw.isna()]
+        if len(valid) > 0:
+            assert valid.iloc[-1] > 0.01
+
+
+class TestCalculateReturns:
+    """Returns 계산 테스트"""
+
+    def test_returns_default_periods(self, sample_candle_data):
+        """기본 주기 리턴 계산"""
+        returns = calculate_returns(sample_candle_data)
+        assert "returns_5" in returns
+        assert "returns_10" in returns
+        assert "returns_20" in returns
+        for key in returns:
+            assert len(returns[key]) == len(sample_candle_data)
+
+    def test_returns_custom_periods(self, sample_candle_data):
+        """커스텀 주기 리턴 계산"""
+        returns = calculate_returns(sample_candle_data, periods=[3, 7])
+        assert "returns_3" in returns
+        assert "returns_7" in returns
+        assert "returns_5" not in returns
+
+    def test_returns_uptrend_positive(self, uptrend_data):
+        """상승 추세에서 리턴이 양수"""
+        returns = calculate_returns(uptrend_data, periods=[10])
+        valid = returns["returns_10"].dropna()
+        if len(valid) > 0:
+            assert valid.iloc[-1] > 0
+
+    def test_returns_downtrend_negative(self, downtrend_data):
+        """하락 추세에서 리턴이 음수"""
+        returns = calculate_returns(downtrend_data, periods=[10])
+        valid = returns["returns_10"].dropna()
+        if len(valid) > 0:
+            assert valid.iloc[-1] < 0
+
+
+class TestAnalyzeMarketExpanded:
+    """analyze_market 확장 필드 테스트"""
+
+    def test_analyze_market_has_adx(self, sample_candle_data):
+        """analyze_market 결과에 adx 필드 존재"""
+        ticker = {"high_24h": 115.0, "low_24h": 95.0, "change_24h": 1.5}
+        result = analyze_market(sample_candle_data, ticker, 105.0)
+        assert "adx" in result
+        assert isinstance(result["adx"], float)
+
+    def test_analyze_market_has_ema_20(self, sample_candle_data):
+        """analyze_market 결과에 ema_20 필드 존재"""
+        ticker = {"high_24h": 115.0, "low_24h": 95.0, "change_24h": 1.5}
+        result = analyze_market(sample_candle_data, ticker, 105.0)
+        assert "ema_20" in result
+        assert isinstance(result["ema_20"], float)
+
+    def test_analyze_market_has_bb_width(self, sample_candle_data):
+        """analyze_market 결과에 bb_width 필드 존재"""
+        ticker = {"high_24h": 115.0, "low_24h": 95.0, "change_24h": 1.5}
+        result = analyze_market(sample_candle_data, ticker, 105.0)
+        assert "bb_width" in result
+        assert isinstance(result["bb_width"], float)
