@@ -176,7 +176,7 @@ class BotInstance:
         # Phase 5 통합: Prometheus 메트릭
         self._metrics: Any | None = None
         try:
-            from src.metrics.prometheus import _get_metrics  # noqa: PLC0415
+            from src.metrics.prometheus import _get_metrics
             self._metrics = _get_metrics()
         except Exception:  # noqa: S110
             pass  # prometheus_client 미설치 시 스킵
@@ -471,7 +471,7 @@ class BotInstance:
                     self._log.warning(f"복구 마커 발견: {recovery_data}")
                     if self._trade_db:
                         try:
-                            from datetime import datetime as dt  # noqa: PLC0415
+                            from datetime import datetime as dt
                             entry_time_str = recovery_data.get("entry_time", "")
                             entry_time = (
                                 dt.fromisoformat(entry_time_str)
@@ -504,7 +504,7 @@ class BotInstance:
                     self._log.warning(f"청산 복구 마커 발견: {exit_recovery}")
                     if self._trade_db:
                         try:
-                            from datetime import datetime as dt  # noqa: PLC0415
+                            from datetime import datetime as dt
                             exit_time_str = exit_recovery.get("exit_time", "")
                             exit_time = (
                                 dt.fromisoformat(exit_time_str)
@@ -721,7 +721,7 @@ class BotInstance:
         # Phase 5 통합: EnsembleSignalGenerator 초기화
         if getattr(self.config, "use_ensemble", False):
             try:
-                from src.ai.ensemble import EnsembleSignalGenerator  # noqa: PLC0415
+                from src.ai.ensemble import EnsembleSignalGenerator
                 self._ensemble_generator = EnsembleSignalGenerator(
                     rule_based_generator=self._signal_generator,
                 )
@@ -732,7 +732,7 @@ class BotInstance:
 
                 # Phase 5 통합: IndicatorScorer 연결
                 try:
-                    from src.ai.scoring import IndicatorScorer  # noqa: PLC0415
+                    from src.ai.scoring import IndicatorScorer
                     scorer = IndicatorScorer()
                     self._ensemble_generator.set_scoring_generator(scorer)
                     self._log.info("IndicatorScorer 앙상블에 연결 완료")
@@ -741,30 +741,57 @@ class BotInstance:
 
                 # APEX-V Phase B: 채널 연결
                 if self.config.use_tsmom_channel:
-                    from src.ai.channels.tsmom import TSMOMChannel  # noqa: PLC0415
+                    from src.ai.channels.tsmom import TSMOMChannel
                     self._ensemble_generator.set_tsmom_channel(TSMOMChannel())
                     self._log.info("TSMOM 채널 연결")
 
                 if self.config.use_funding_basis_channel:
-                    from src.ai.channels.funding_basis import (  # noqa: PLC0415
+                    from src.ai.channels.funding_basis import (
                         FundingBasisChannel,
                     )
                     self._ensemble_generator.set_funding_channel(FundingBasisChannel())
                     self._log.info("FundingBasis 채널 연결")
 
                 if self.config.use_leverage_topology_channel:
-                    from src.ai.channels.leverage_topology import (  # noqa: PLC0415
+                    from src.ai.channels.leverage_topology import (
                         LeverageTopologyChannel,
                     )
                     self._ensemble_generator.set_leverage_channel(LeverageTopologyChannel())
                     self._log.info("LeverageTopology 채널 연결")
 
                 if self.config.use_smart_money_channel:
-                    from src.ai.channels.smart_money_divergence import (  # noqa: PLC0415
+                    from src.ai.channels.smart_money_divergence import (
                         SmartMoneyDivergenceChannel,
                     )
                     self._ensemble_generator.set_smart_money_channel(SmartMoneyDivergenceChannel())
                     self._log.info("SmartMoney 채널 연결")
+
+                # APEX-V Phase C: Confluence Engine 초기화
+                if getattr(self.config, "use_confluence_engine", False):
+                    from src.ai.confluence.confluence_engine import (
+                        ConfluenceEngine,
+                    )
+                    from src.ai.confluence.cost_calculator import (
+                        CostCalculator,
+                    )
+                    from src.ai.confluence.session_classifier import (
+                        SessionClassifier,
+                    )
+                    from src.ai.confluence.signal_dedup import (
+                        SignalDeduplicator,
+                    )
+                    from src.ai.confluence.vitality_tracker import (
+                        VitalityTracker,
+                    )
+                    _confluence = ConfluenceEngine(
+                        deduplicator=SignalDeduplicator(),
+                        cost_calculator=CostCalculator(),
+                        vitality_tracker=VitalityTracker(),
+                        session_classifier=SessionClassifier(),
+                        gemini_verifier=self._enhanced_gemini,
+                    )
+                    self._ensemble_generator.set_confluence_engine(_confluence)
+                    self._log.info("Confluence Engine 초기화 완료")
 
             except Exception as e:
                 self._log.warning(f"앙상블 생성기 초기화 실패: {e}")
@@ -772,7 +799,7 @@ class BotInstance:
         # Phase 5 통합: TradeApprovalManager 초기화
         if getattr(self.config, "manual_approval_enabled", False):
             try:
-                from src.trading.trade_approval import (  # noqa: PLC0415
+                from src.trading.trade_approval import (
                     TradeApprovalManager,
                 )
                 self._trade_approval = TradeApprovalManager(
@@ -986,7 +1013,7 @@ class BotInstance:
         if not klines:
             return None
         try:
-            import pandas as pd  # noqa: PLC0415
+            import pandas as pd
             df = pd.DataFrame(klines, columns=[
                 "timestamp", "open", "high", "low", "close",
                 "volume", "close_time", "quote_volume",
@@ -1368,6 +1395,16 @@ class BotInstance:
                 pnl_pct=pnl_pct,
             )
 
+            # Phase C: Vitality Tracker에 거래 결과 기록
+            if (
+                self._ensemble_generator
+                and hasattr(self._ensemble_generator, "_confluence_engine")
+                and self._ensemble_generator._confluence_engine
+            ):
+                engine = self._ensemble_generator._confluence_engine
+                if hasattr(engine, "_vitality") and engine._vitality:
+                    engine._vitality.record_trade(pnl_pct / 100.0)
+
         return order
 
     # =========================================================================
@@ -1603,7 +1640,7 @@ class BotInstance:
         atr_pct = indicators.get("atr_pct", 0.0)
         volume_ratio = indicators.get("volume_ratio", 1.0)
         if atr_pct > 0 and volume_ratio > 0:
-            from src.data.tradability import MarketTradabilityIndex  # noqa: PLC0415
+            from src.data.tradability import MarketTradabilityIndex
             mti = MarketTradabilityIndex()
             mti_score = mti.evaluate(atr_pct, volume_ratio)
             if not mti_score.is_tradable:
@@ -1614,7 +1651,9 @@ class BotInstance:
                 return "WAIT"
 
         # 레짐 감지 및 필터링
-        self._current_regime = self._regime_detector.detect(indicators)
+        # Confluence 모드에서는 시그널 생성 전 조기 감지됨 → 스킵
+        if not getattr(self.config, "use_confluence_engine", False):
+            self._current_regime = self._regime_detector.detect(indicators)
 
         # Prometheus: RSI 기록 (NaN guard)
         _rsi = indicators.get("rsi")
@@ -1955,7 +1994,7 @@ class BotInstance:
         if self._trade_approval and signal in ("LONG", "SHORT"):
             # 대기 중인 승인 요청이 있는지 확인
             if self._pending_approval_request:
-                from src.trading.trade_approval import ApprovalStatus  # noqa: PLC0415
+                from src.trading.trade_approval import ApprovalStatus
                 req = self._pending_approval_request
                 if req.status == ApprovalStatus.APPROVED:
                     # Validate signal consistency
@@ -2109,6 +2148,13 @@ class BotInstance:
 
         # Phase B: 심리 데이터 수집
         sentiment_data = await self._fetch_sentiment_data()
+
+        # Phase C: Confluence Engine은 시그널 생성 전 레짐 필요
+        indicators = market_data.get("indicators", {})
+        if getattr(self.config, "use_confluence_engine", False):
+            self._current_regime = self._regime_detector.detect(indicators)
+            indicators["regime"] = self._current_regime
+            indicators["leverage"] = self.config.get_effective_leverage()
 
         # 3. 시그널 생성
         signal, signal_source = await self._generate_combined_signal(

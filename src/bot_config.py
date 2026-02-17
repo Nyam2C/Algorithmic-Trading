@@ -130,6 +130,9 @@ class BotConfig(BaseModel):
     use_leverage_topology_channel: bool = Field(default=False)
     use_smart_money_channel: bool = Field(default=False)
 
+    # APEX-V Phase C: Confluence Engine
+    use_confluence_engine: bool = Field(default=False)
+
     # Phase 6.2: 마켓 레짐 필터링
     use_regime_filter: bool = Field(default=False)  # True면 횡보장 진입 회피
     allow_weak_trend: bool = Field(default=True)  # 약한 추세에서 거래 허용

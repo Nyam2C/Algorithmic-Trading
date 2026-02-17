@@ -103,7 +103,7 @@ ignore = [
 "src/main.py" = ["PLR0912", "PLR0915"]
 
 # 봇 인스턴스 — 복잡도 허용
-"src/bot_instance.py" = ["PLR0912"]
+"src/bot_instance.py" = ["PLR0912", "PLC0415"]
 
 # 복잡도 허용 파일들 — PLR0911 (too-many-return-statements)
 "src/data/multi_timeframe.py" = ["PLR0911"]

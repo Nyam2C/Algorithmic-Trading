@@ -153,6 +153,9 @@ class EnsembleSignalGenerator:
         self._smart_money_channel: Any | None = None
         self._tsmom_channel: Any | None = None
 
+        # APEX-V Phase C: Confluence Engine
+        self._confluence_engine: Any | None = None
+
         self._ai_logger = AIDecisionLogger()
         self._log = logger.bind(module="ensemble")
         self._log.info(
@@ -186,6 +189,10 @@ class EnsembleSignalGenerator:
     def set_tsmom_channel(self, channel: Any) -> None:
         """TSMOM 채널 설정."""
         self._tsmom_channel = channel
+
+    def set_confluence_engine(self, engine: Any) -> None:
+        """Confluence Engine 설정 (Phase C)."""
+        self._confluence_engine = engine
 
     async def generate_ensemble_signal(
         self,
@@ -245,6 +252,26 @@ class EnsembleSignalGenerator:
                 final_signal="WAIT",
                 individual_signals=[],
                 metadata={"error": "신호 소스 없음"},
+            )
+
+        # Phase C: Confluence Engine 라우팅
+        if self._confluence_engine is not None:
+            from src.data.regime_detector import MarketRegime  # noqa: PLC0415
+            indicators = market_data.get("indicators", {})
+            regime = indicators.get("regime", MarketRegime.UNKNOWN)
+            confluence_result = await self._confluence_engine.evaluate(
+                individual_signals, regime, market_data
+            )
+            return EnsembleResult(
+                final_signal=confluence_result.final_signal,
+                individual_signals=individual_signals,
+                consensus_ratio=0.0,
+                weighted_score=confluence_result.confluence_score,
+                metadata={
+                    "bot_id": bot_id,
+                    "sources_used": len(individual_signals),
+                    "confluence": confluence_result.step_details,
+                },
             )
 
         # 2. 가중 투표
