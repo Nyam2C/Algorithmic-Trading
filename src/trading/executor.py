@@ -45,6 +45,9 @@ class TradingExecutor:
         self._balance_cache_time: datetime | None = None
         self._balance_cache_ttl_seconds: int = 60  # 1분 캐싱 (변동성 시장 대응)
 
+        # APEX-V Phase A-4: 분할 TP 소프트웨어 모니터링 상태
+        self._pending_split_tp_state: dict | None = None
+
         logger.info("Trading executor initialized")
 
     async def setup_leverage(self) -> bool:
@@ -419,6 +422,11 @@ class TradingExecutor:
                 logger.critical(f"SL 실패 후 포지션 청산도 실패: {close_err}")
             self.current_position = None
             return None
+
+        # APEX-V: 분할 TP 상태 주입
+        if self._pending_split_tp_state and self.current_position:
+            self.current_position["split_tp_state"] = self._pending_split_tp_state
+            self._pending_split_tp_state = None
 
         return order
 
@@ -929,10 +937,10 @@ class TradingExecutor:
         entry_price: float,
         entry_atr: float | None = None,
     ) -> bool:
-        """분할 TP + SL 주문 배치.
+        """분할 TP 소프트웨어 모니터링 + exchange-side SL 배치.
 
-        3단계 TP: 50%@ATR*1.0, 30%@ATR*1.5, 20%@ATR*2.5 (기본값)
-        SL은 단일 주문으로 전체 물량.
+        Exchange-side TP는 closePosition 버그로 부분 청산 불가.
+        TP 레벨을 소프트웨어 상태로 관리하고, SL만 거래소에 배치.
 
         Args:
             symbol: 거래쌍
@@ -954,7 +962,7 @@ class TradingExecutor:
             logger.error(f"분할 TP: SL 가격 무효 ({sl_price})")
             return False
 
-        # SL 주문 (전체 물량, 필수)
+        # SL 주문 (closePosition=True, 크래시 보호)
         try:
             await self.client.create_stop_market_order(
                 symbol=symbol,
@@ -966,51 +974,274 @@ class TradingExecutor:
             logger.error(f"분할 TP: SL 주문 실패 (필수): {e}")
             return False
 
-        # 분할 TP 주문
+        # TP 레벨을 소프트웨어 상태로 저장 (exchange 주문 없음)
         ratios = getattr(self.config, "split_tp_ratios", [0.5, 0.3, 0.2])
         atr_muls = getattr(self.config, "split_tp_atr_multipliers", [1.0, 1.5, 2.5])
 
-        for i, (ratio, atr_mul) in enumerate(zip(ratios, atr_muls, strict=False)):
-            tp_qty = round(quantity * ratio, 3)
-            if tp_qty < self.MIN_ORDER_QTY:
-                logger.warning(
-                    f"분할 TP{i+1}: 수량 {tp_qty} < 최소 {self.MIN_ORDER_QTY}, 스킵"
-                )
-                continue
-
-            # TP 가격: ATR 기반이면 entry +/- atr * multiplier
+        levels: list[dict] = []
+        for ratio, atr_mul in zip(ratios, atr_muls, strict=False):
             if entry_atr:
                 if side == "LONG":
                     tp_price = round(entry_price + entry_atr * atr_mul, 2)
                 else:
                     tp_price = round(entry_price - entry_atr * atr_mul, 2)
             else:
-                # ATR 없으면 고정 비율 사용 (tp_pct * (i+1))
-                tp_pct = self.config.take_profit_pct * (i + 1)
+                tp_pct = self.config.take_profit_pct * (len(levels) + 1)
                 if side == "LONG":
                     tp_price = round(entry_price * (1 + tp_pct), 2)
                 else:
                     tp_price = round(entry_price * (1 - tp_pct), 2)
 
-            if tp_price < self.MIN_STOP_PRICE:
-                logger.warning(f"분할 TP{i+1}: 가격 {tp_price} 무효, 스킵")
+            levels.append({
+                "ratio": ratio,
+                "atr_mul": atr_mul,
+                "price": tp_price,
+                "hit": False,
+            })
+
+        self._pending_split_tp_state = {
+            "enabled": True,
+            "levels": levels,
+            "original_quantity": quantity,
+            "remaining_quantity": quantity,
+            "accumulated_pnl_usd": 0.0,
+            "sl_moved_to_be": False,
+        }
+
+        logger.info(
+            f"분할 TP 상태 초기화: {len(levels)}레벨, "
+            f"SL=${sl_price:,.2f} ({side})"
+        )
+        return True
+
+    async def check_split_tp(
+        self, current_price: float
+    ) -> str | None:
+        """분할 TP 소프트웨어 모니터링.
+
+        current_position의 split_tp_state를 확인하여
+        TP 레벨 도달 여부를 판단합니다.
+
+        Args:
+            current_price: 현재 가격
+
+        Returns:
+            "SPLIT_TP1", "SPLIT_TP2" (부분 청산),
+            "TP" (마지막 레벨, 전체 청산),
+            "SL" (손절),
+            None (미달)
+        """
+        if not self.current_position:
+            return None
+
+        state = self.current_position.get("split_tp_state")
+        if not state or not state.get("enabled"):
+            # split_tp_state 없으면 기존 로직 위임
+            return await self.check_tp_sl_dynamic(self.current_position, current_price)
+
+        side = str(
+            self.current_position.get("side") or self.current_position.get("signal")
+        )
+        entry_price = self.current_position["entry_price"]
+
+        # SL 체크
+        sl_result = self._check_split_sl(state, side, entry_price, current_price)
+        if sl_result:
+            return sl_result
+
+        # TP 레벨 체크: 첫 번째 hit=False 레벨
+        return self._check_split_tp_levels(state, side, current_price)
+
+    def _check_split_sl(
+        self, state: dict, side: str, entry_price: float, current_price: float
+    ) -> str | None:
+        """분할 TP SL 체크 헬퍼."""
+        sl_price = (
+            entry_price if state.get("sl_moved_to_be")
+            else self.current_position.get("sl_price", 0.0)  # type: ignore[union-attr]
+        )
+        if sl_price <= 0:
+            return None
+
+        be_tag = " (BE)" if state.get("sl_moved_to_be") else ""
+        hit = (
+            (side == "LONG" and current_price <= sl_price)
+            or (side == "SHORT" and current_price >= sl_price)
+        )
+        if hit:
+            logger.info(
+                f"분할 TP SL 도달 ({side}): "
+                f"${current_price:,.2f} vs ${sl_price:,.2f}{be_tag}"
+            )
+            return "SL"
+        return None
+
+    @staticmethod
+    def _check_split_tp_levels(
+        state: dict, side: str, current_price: float
+    ) -> str | None:
+        """분할 TP 레벨 도달 체크 헬퍼."""
+        levels = state.get("levels", [])
+        for i, level in enumerate(levels):
+            if level["hit"]:
                 continue
 
-            try:
-                await self.client.create_take_profit_market_order(
-                    symbol=symbol,
-                    side=close_side,
-                    quantity=tp_qty,
-                    stop_price=tp_price,
-                )
-                logger.info(
-                    f"분할 TP{i+1} 배치: {ratio*100:.0f}% ({tp_qty}) "
-                    rf"@ \${tp_price:,.2f}"
-                )
-            except Exception as e:
-                logger.warning(f"분할 TP{i+1} 배치 실패 (비필수): {e}")
+            tp_price = level["price"]
+            is_last = i == len(levels) - 1
 
-        logger.info(rf"분할 TP/SL 주문 완료: SL=\${sl_price:,.2f} ({side})")
+            reached = (
+                (side == "LONG" and current_price >= tp_price)
+                or (side == "SHORT" and current_price <= tp_price)
+            )
+            if reached:
+                if is_last:
+                    logger.info(
+                        f"분할 TP 최종 도달: "
+                        f"${current_price:,.2f} vs ${tp_price:,.2f}"
+                    )
+                    return "TP"
+                logger.info(
+                    f"분할 TP{i+1} 도달: "
+                    f"${current_price:,.2f} vs ${tp_price:,.2f}"
+                )
+                return f"SPLIT_TP{i+1}"
+
+            # 가격 순서 상 이 레벨 미달이면 이후도 미달
+            break
+
+        return None
+
+    async def execute_partial_close(
+        self, tp_level_index: int, current_price: float
+    ) -> dict | None:
+        """분할 TP 부분 청산 실행.
+
+        Args:
+            tp_level_index: TP 레벨 인덱스 (0-based)
+            current_price: 현재 가격
+
+        Returns:
+            주문 결과 또는 None
+        """
+        if not self.current_position:
+            return None
+
+        state = self.current_position.get("split_tp_state")
+        if not state:
+            return None
+
+        levels = state.get("levels", [])
+        if tp_level_index >= len(levels):
+            return None
+
+        level = levels[tp_level_index]
+        if level["hit"]:
+            return None
+
+        side = self.current_position.get("side") or self.current_position.get("signal")
+        entry_price = self.current_position["entry_price"]
+        close_side = "SELL" if side == "LONG" else "BUY"
+
+        close_qty = round(state["original_quantity"] * level["ratio"], 3)
+
+        # 최소 주문 수량 미만이면 hit 마크하고 스킵
+        if close_qty < self.MIN_ORDER_QTY:
+            logger.warning(
+                f"분할 TP{tp_level_index+1}: 수량 {close_qty} < "
+                f"최소 {self.MIN_ORDER_QTY}, 스킵 (hit 마크)"
+            )
+            level["hit"] = True
+            return None
+
+        try:
+            order = await self.client.create_market_order(
+                symbol=self.config.symbol,
+                side=close_side,
+                quantity=close_qty,
+            )
+        except Exception as e:
+            logger.error(f"분할 TP{tp_level_index+1} 부분 청산 실패: {e}")
+            return None
+
+        # State 업데이트
+        level["hit"] = True
+        state["remaining_quantity"] = round(
+            state["remaining_quantity"] - close_qty, 3
+        )
+
+        # PnL 누적
+        if side == "LONG":
+            partial_pnl = (current_price - entry_price) * close_qty
+        else:
+            partial_pnl = (entry_price - current_price) * close_qty
+
+        # 수수료 추정 차감
+        _fee_rate = getattr(self.config, "estimated_fee_rate", 0.0008)
+        if _fee_rate > 0:
+            partial_pnl -= close_qty * current_price * _fee_rate
+
+        state["accumulated_pnl_usd"] += partial_pnl
+
+        logger.info(
+            f"분할 TP{tp_level_index+1} 부분 청산: "
+            f"{close_qty} @ ${current_price:,.2f}, "
+            f"PnL=${partial_pnl:+,.2f}, "
+            f"누적=${state['accumulated_pnl_usd']:+,.2f}, "
+            f"잔여={state['remaining_quantity']}"
+        )
+
+        # TP1 후 SL을 break-even으로 이동
+        if tp_level_index == 0 and not state.get("sl_moved_to_be"):
+            await self._move_sl_to_breakeven()
+
+        return order
+
+    async def _move_sl_to_breakeven(self) -> bool:
+        """SL을 break-even (진입가)으로 이동.
+
+        기존 SL을 취소하고 진입가에 새 SL을 배치합니다.
+
+        Returns:
+            True if successful
+        """
+        if not self.current_position:
+            return False
+
+        state = self.current_position.get("split_tp_state")
+        if not state:
+            return False
+
+        side = self.current_position.get("side") or self.current_position.get("signal")
+        entry_price = self.current_position["entry_price"]
+        close_side = "SELL" if side == "LONG" else "BUY"
+        remaining_qty = state["remaining_quantity"]
+
+        # 기존 SL 주문 취소
+        try:
+            await self.client.cancel_all_open_orders(self.config.symbol)
+        except Exception as e:
+            logger.warning(f"BE SL 이동: 기존 주문 취소 실패: {e}")
+            return False
+
+        # 새 SL을 진입가로 배치
+        try:
+            await self.client.create_stop_market_order(
+                symbol=self.config.symbol,
+                side=close_side,
+                quantity=remaining_qty,
+                stop_price=entry_price,
+            )
+        except Exception as e:
+            logger.warning(f"BE SL 배치 실패 (원래 SL 유효할 수 있음): {e}")
+            return False
+
+        self.current_position["sl_price"] = entry_price
+        state["sl_moved_to_be"] = True
+
+        logger.info(
+            f"SL → break-even 이동 완료: ${entry_price:,.2f}, "
+            f"잔여 수량={remaining_qty}"
+        )
         return True
 
     def check_timecut(self, position: dict) -> bool:

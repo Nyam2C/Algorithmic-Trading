@@ -1388,11 +1388,20 @@ class BotInstance:
             else:
                 pnl_usd = (entry_price - exit_price) * abs(position["position_amt"])
 
-            # Phase 9: 추정 수수료 차감 (진입+청산 왕복)
+            # Phase 9: 추정 수수료 차감 (잔여분만, 부분 청산 수수료는 이미 누적됨)
             _fee_rate = getattr(self.config, "estimated_fee_rate", 0.0008)
             if _fee_rate > 0:
                 _fee = abs(position["position_amt"]) * exit_price * _fee_rate * 2
                 pnl_usd -= _fee
+
+            # APEX-V: 분할 TP 누적 PnL 합산
+            _split_state = (
+                self._executor.current_position.get("split_tp_state")
+                if self._executor.current_position
+                else None
+            )
+            if _split_state:
+                pnl_usd += _split_state.get("accumulated_pnl_usd", 0.0)
 
             # Phase 5 통합: 감사 로그 기록
             if self._audit_log:
@@ -2238,6 +2247,11 @@ class BotInstance:
             _fee = position_amt * current_price * _fee_rate * 2
             pnl_usd -= _fee
 
+        # APEX-V: 분할 TP 누적 PnL 합산
+        _split_state = tracked.get("split_tp_state")
+        if _split_state:
+            pnl_usd += _split_state.get("accumulated_pnl_usd", 0.0)
+
         # DB에 기록
         if self._trade_db and tracked.get("trade_id"):
             entry_time = tracked.get("entry_time", datetime.now())
@@ -2314,7 +2328,49 @@ class BotInstance:
                 self._log.debug(f"거래소 측 종료 메트릭 기록 실패: {e}")
         return True
 
-    async def _handle_existing_position(
+    async def _handle_partial_close(
+        self, tp_level_index: int, current_price: float
+    ) -> None:
+        """분할 TP 부분 청산 처리.
+
+        Args:
+            tp_level_index: TP 레벨 인덱스 (0-based)
+            current_price: 현재 가격
+        """
+        if self._executor is None:
+            return
+
+        result = await self._executor.execute_partial_close(
+            tp_level_index, current_price
+        )
+        if result is None:
+            return
+
+        state = (
+            self._executor.current_position.get("split_tp_state")
+            if self._executor.current_position
+            else None
+        )
+        if state:
+            self._log.bind(event_type="SPLIT_TP").info(
+                f"분할 TP{tp_level_index+1} 체결: "
+                f"잔여={state['remaining_quantity']}, "
+                f"누적 PnL=${state['accumulated_pnl_usd']:+,.2f}"
+            )
+
+        # Prometheus 메트릭
+        if self._metrics:
+            try:
+                self._metrics.record_gate_outcome(
+                    self.bot_name, f"split_tp{tp_level_index+1}", "hit"
+                )
+            except Exception as e:
+                self._log.debug(f"분할 TP 메트릭 기록 실패: {e}")
+
+        # Redis 상태 동기화 (split_tp_state 변경 영속화)
+        await self._sync_state_to_redis()
+
+    async def _handle_existing_position(  # noqa: PLR0911
         self, position: dict[str, Any], current_price: float
     ) -> bool:
         """기존 포지션 관리 (PnL 추적, Timecut, TP/SL 체크).
@@ -2347,6 +2403,25 @@ class BotInstance:
                 self._log.info("Timecut 조건 충족")
                 await self._close_position(current_price, "TIME_CUT")
                 return True
+
+        # APEX-V: 분할 TP 체크 (split_tp_state 있으면 우선)
+        split_state = (
+            self._executor.current_position.get("split_tp_state")
+            if self._executor.current_position
+            else None
+        )
+        if split_state and split_state.get("enabled"):
+            exit_reason = await self._executor.check_split_tp(current_price)
+            if exit_reason and exit_reason.startswith("SPLIT_TP"):
+                # 부분 청산 (포지션 유지)
+                tp_idx = int(exit_reason.replace("SPLIT_TP", "")) - 1
+                await self._handle_partial_close(tp_idx, current_price)
+                return False
+            if exit_reason in ("TP", "SL"):
+                self._log.info(f"분할 TP 종료 조건 충족: {exit_reason}")
+                await self._close_position(current_price, exit_reason)
+                return True
+            return False
 
         # TP/SL 체크 (ATR 기반 동적 TP/SL 지원)
         exit_reason = await self._executor.check_tp_sl_dynamic(
