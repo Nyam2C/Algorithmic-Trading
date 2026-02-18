@@ -32,6 +32,10 @@ _VOL_VERY_LOW = 0.3
 _VOL_LOW = 0.7
 _VOL_HIGH = 1.5
 
+# 스프레드 구간 경계
+_SPREAD_LOW = 0.5   # < 0.5% → 100점
+_SPREAD_HIGH = 2.0  # > 2.0% → 20점
+
 # 세션별 점수 (UTC 시간 기준)
 SESSION_SCORES = {
     "US": 100,        # 13:30~21:00 UTC (NYSE open)
@@ -101,6 +105,7 @@ class MarketTradabilityIndex:
         atr_pct: float,
         volume_ratio: float,
         current_time: datetime | None = None,
+        bid_ask_spread_pct: float | None = None,
     ) -> TradabilityScore:
         """시장 거래 적합성 평가.
 
@@ -108,6 +113,7 @@ class MarketTradabilityIndex:
             atr_pct: ATR 퍼센트 (ATR/price * 100)
             volume_ratio: 현재 볼륨 / 평균 볼륨
             current_time: 평가 시간 (기본: 현재 UTC)
+            bid_ask_spread_pct: 호가 스프레드 % (제공 시 5요소 모드)
 
         Returns:
             TradabilityScore
@@ -119,16 +125,32 @@ class MarketTradabilityIndex:
         sess_score = self._session_score(current_time)
         vol_ratio_score = self._volume_score(volume_ratio)
 
-        total = (vol_score + sess_score + vol_ratio_score) / 3
+        if bid_ask_spread_pct is not None:
+            # 5요소: Spread/Volume/Volatility/Event/Session 각 20%
+            spread_score = self._spread_score(bid_ask_spread_pct)
+            event_score = 80.0  # 정적 기본값 (캘린더 미연동)
+            total = (
+                spread_score + vol_ratio_score + vol_score
+                + event_score + sess_score
+            ) / 5
+            components = {
+                "volatility_score": round(vol_score, 1),
+                "session_score": round(sess_score, 1),
+                "volume_score": round(vol_ratio_score, 1),
+                "spread_score": round(spread_score, 1),
+                "event_score": round(event_score, 1),
+            }
+        else:
+            # 기존 3요소 모드 (하위호환)
+            total = (vol_score + sess_score + vol_ratio_score) / 3
+            components = {
+                "volatility_score": round(vol_score, 1),
+                "session_score": round(sess_score, 1),
+                "volume_score": round(vol_ratio_score, 1),
+            }
 
         grade = self._determine_grade(total)
         is_tradable = total >= self.reduced_threshold
-
-        components = {
-            "volatility_score": round(vol_score, 1),
-            "session_score": round(sess_score, 1),
-            "volume_score": round(vol_ratio_score, 1),
-        }
 
         reasons = []
         if vol_score < _REASON_VOL_THRESHOLD:
@@ -142,12 +164,23 @@ class MarketTradabilityIndex:
             reasons.append(
                 f"거래량 부족 (ratio={volume_ratio:.2f})"
             )
+        if bid_ask_spread_pct is not None:
+            spread_sc = self._spread_score(bid_ask_spread_pct)
+            if spread_sc < _REASON_VOLRATIO_THRESHOLD:
+                reasons.append(
+                    f"스프레드 과대 (spread={bid_ask_spread_pct:.2f}%)"
+                )
         reason = ", ".join(reasons) if reasons else "거래 적합"
 
+        log_extra = ""
+        if bid_ask_spread_pct is not None:
+            sp = components['spread_score']
+            ev = components['event_score']
+            log_extra = f", spread={sp:.0f}, event={ev:.0f}"
         logger.info(
             f"MTI 평가: {total:.1f} ({grade}) — "
             f"vol={vol_score:.0f}, sess={sess_score:.0f}, "
-            f"vol_ratio={vol_ratio_score:.0f}"
+            f"vol_ratio={vol_ratio_score:.0f}{log_extra}"
         )
 
         return TradabilityScore(
@@ -157,6 +190,26 @@ class MarketTradabilityIndex:
             components=components,
             reason=reason,
         )
+
+    @staticmethod
+    def _spread_score(bid_ask_spread_pct: float) -> float:
+        """호가 스프레드 기반 점수.
+
+        Args:
+            bid_ask_spread_pct: 스프레드 퍼센트
+
+        Returns:
+            점수 (0-100). 낮은 스프레드 = 높은 점수.
+        """
+        if bid_ask_spread_pct <= 0:
+            return 100.0
+        if bid_ask_spread_pct < _SPREAD_LOW:
+            return 100.0
+        if bid_ask_spread_pct <= _SPREAD_HIGH:
+            # 0.5~2.0% 구간 선형 보간: 100 → 20
+            span = _SPREAD_HIGH - _SPREAD_LOW
+            return 100.0 - (bid_ask_spread_pct - _SPREAD_LOW) / span * 80.0
+        return 20.0
 
     def _volatility_score(self, atr_pct: float) -> float:
         """ATR% 기반 변동성 점수.

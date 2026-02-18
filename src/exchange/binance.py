@@ -639,6 +639,106 @@ class BinanceTestnetClient:
             logger.warning(f"미결제약정 조회 실패 {symbol}: {e} - 기본값 사용")
             return {"open_interest": 0.0, "symbol": symbol, "is_error": True}
 
+    async def get_premium_index(self, symbol: str) -> dict:
+        """프리미엄 인덱스 조회 (Mark Price, Index Price, Basis).
+
+        Args:
+            symbol: 거래쌍 (예: "BTCUSDT")
+
+        Returns:
+            프리미엄 인덱스 정보. is_error=True이면 API 오류로 기본값 사용 중.
+        """
+        try:
+            data = await self.client.futures_mark_price(symbol=symbol)
+            mark_price = float(data["markPrice"])
+            index_price = float(data["indexPrice"])
+            basis = (mark_price - index_price) / index_price if index_price > 0 else 0.0
+            logger.debug(f"{symbol} 프리미엄: mark={mark_price:.2f}, basis={basis:.6f}")
+            return {
+                "mark_price": mark_price,
+                "index_price": index_price,
+                "basis": basis,
+                "is_error": False,
+            }
+        except Exception as e:
+            logger.warning(f"프리미엄 인덱스 조회 실패 {symbol}: {e} - 기본값 사용")
+            return {
+                "mark_price": 0.0, "index_price": 0.0,
+                "basis": 0.0, "is_error": True,
+            }
+
+    async def get_global_long_short_ratio(self, symbol: str) -> dict:
+        """글로벌 롱숏 비율 조회 (전체 계정 기준).
+
+        Args:
+            symbol: 거래쌍 (예: "BTCUSDT")
+
+        Returns:
+            글로벌 롱숏 비율. is_error=True이면 API 오류로 기본값 사용 중.
+        """
+        try:
+            data = await self.client.futures_global_longshort_ratio(
+                symbol=symbol, period="5m", limit=1
+            )
+            if data:
+                long_ratio = float(data[0]["longAccount"])
+                short_ratio = float(data[0]["shortAccount"])
+                ls_ratio = float(data[0]["longShortRatio"])
+                logger.debug(
+                    f"{symbol} 글로벌 롱숏: 롱 {long_ratio:.1%} / 숏 {short_ratio:.1%}"
+                )
+                return {
+                    "long_ratio": long_ratio,
+                    "short_ratio": short_ratio,
+                    "long_short_ratio": ls_ratio,
+                    "is_error": False,
+                }
+            return {
+                "long_ratio": 0.5, "short_ratio": 0.5,
+                "long_short_ratio": 1.0, "is_error": False,
+            }
+        except Exception as e:
+            logger.warning(f"글로벌 롱숏 비율 조회 실패 {symbol}: {e} - 기본값 사용")
+            return {
+                "long_ratio": 0.5, "short_ratio": 0.5,
+                "long_short_ratio": 1.0, "is_error": True,
+            }
+
+    async def get_taker_long_short_ratio(self, symbol: str) -> dict:
+        """테이커 매수/매도 비율 조회.
+
+        Args:
+            symbol: 거래쌍 (예: "BTCUSDT")
+
+        Returns:
+            테이커 매수/매도 비율. is_error=True이면 API 오류로 기본값 사용 중.
+        """
+        try:
+            data = await self.client.futures_taker_longshort_ratio(
+                symbol=symbol, period="5m", limit=1
+            )
+            if data:
+                buy_sell_ratio = float(data[0]["buySellRatio"])
+                buy_vol = float(data[0]["buyVol"])
+                sell_vol = float(data[0]["sellVol"])
+                logger.debug(f"{symbol} 테이커 B/S 비율: {buy_sell_ratio:.3f}")
+                return {
+                    "buy_sell_ratio": buy_sell_ratio,
+                    "buy_vol": buy_vol,
+                    "sell_vol": sell_vol,
+                    "is_error": False,
+                }
+            return {
+                "buy_sell_ratio": 1.0, "buy_vol": 0.0,
+                "sell_vol": 0.0, "is_error": False,
+            }
+        except Exception as e:
+            logger.warning(f"테이커 롱숏 비율 조회 실패 {symbol}: {e} - 기본값 사용")
+            return {
+                "buy_sell_ratio": 1.0, "buy_vol": 0.0,
+                "sell_vol": 0.0, "is_error": True,
+            }
+
     async def get_market_sentiment(self, symbol: str) -> dict:
         """시장 심리 데이터 통합 조회 (펀딩비 + 롱숏비율 + 미결제약정).
 
@@ -648,11 +748,14 @@ class BinanceTestnetClient:
         Returns:
             통합 시장 심리 데이터
         """
-        # 세 API를 병렬로 호출하여 응답 시간 단축
-        funding, ls_ratio, oi = await asyncio.gather(
+        # 6개 API를 병렬로 호출하여 응답 시간 단축
+        funding, ls_ratio, oi, premium, global_ls, taker_ls = await asyncio.gather(
             self.get_funding_rate(symbol),
             self.get_long_short_ratio(symbol),
             self.get_open_interest(symbol),
+            self.get_premium_index(symbol),
+            self.get_global_long_short_ratio(symbol),
+            self.get_taker_long_short_ratio(symbol),
         )
 
         sentiment = {
@@ -661,6 +764,10 @@ class BinanceTestnetClient:
             "short_ratio": ls_ratio["short_ratio"],
             "long_short_ratio": ls_ratio["long_short_ratio"],
             "open_interest": oi["open_interest"],
+            "basis": premium["basis"],
+            "global_long_ratio": global_ls["long_ratio"],
+            "global_short_ratio": global_ls["short_ratio"],
+            "taker_buy_sell_ratio": taker_ls["buy_sell_ratio"],
         }
 
         logger.debug(

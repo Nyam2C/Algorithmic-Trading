@@ -391,3 +391,60 @@ async def test_long_confidence_calculation(channel: FundingBasisChannel) -> None
     sig = await channel.generate_signal(-0.0003, ratio)
     assert sig.signal == "LONG"
     assert sig.confidence == pytest.approx(0.60, abs=0.01)
+
+
+
+# ── Basis cross-validation tests ──
+
+
+@pytest.mark.asyncio
+async def test_basis_same_direction_as_fr_boosts_confidence(channel: FundingBasisChannel) -> None:
+    """FR 양수 + basis 양수 → confidence x 1.3."""
+    ratio = 0.65 / 0.35  # long_pct = 65%, base conf ~0.65
+    sig_no_basis = await channel.generate_signal(0.0005, ratio)
+    sig_with_basis = await channel.generate_signal(0.0005, ratio, basis=0.001)
+    assert sig_with_basis.signal == "SHORT"
+    assert sig_with_basis.confidence > sig_no_basis.confidence
+
+
+@pytest.mark.asyncio
+async def test_basis_opposite_direction_reduces_confidence(channel: FundingBasisChannel) -> None:
+    """FR 양수 + basis 음수 → confidence x 0.7."""
+    ratio = 0.65 / 0.35  # long_pct = 65%, base conf ~0.65
+    sig_no_basis = await channel.generate_signal(0.0005, ratio)
+    sig_with_basis = await channel.generate_signal(0.0005, ratio, basis=-0.001)
+    assert sig_with_basis.signal == "SHORT"
+    assert sig_with_basis.confidence < sig_no_basis.confidence
+
+
+@pytest.mark.asyncio
+async def test_basis_none_no_change(channel: FundingBasisChannel) -> None:
+    """basis=None → confidence 불변."""
+    ratio = 0.65 / 0.35
+    sig1 = await channel.generate_signal(0.0005, ratio, basis=None)
+    sig2 = await channel.generate_signal(0.0005, ratio)
+    assert sig1.confidence == sig2.confidence
+
+
+@pytest.mark.asyncio
+async def test_basis_zero_no_change(channel: FundingBasisChannel) -> None:
+    """basis=0 → confidence 불변."""
+    ratio = 0.65 / 0.35
+    sig1 = await channel.generate_signal(0.0005, ratio, basis=0.0)
+    sig2 = await channel.generate_signal(0.0005, ratio)
+    assert sig1.confidence == sig2.confidence
+
+
+@pytest.mark.asyncio
+async def test_basis_boost_capped_at_one(channel: FundingBasisChannel) -> None:
+    """Basis boost로 confidence가 1.0 초과하지 않음."""
+    sig = await channel.generate_signal(0.01, 10.0, basis=0.01)
+    assert sig.confidence <= 1.0
+
+
+@pytest.mark.asyncio
+async def test_basis_info_in_reason_for_short(channel: FundingBasisChannel) -> None:
+    """basis 제공 시 reason에 basis 정보 포함."""
+    ratio = 0.65 / 0.35
+    sig = await channel.generate_signal(0.0005, ratio, basis=0.001)
+    assert "basis=" in sig.reason

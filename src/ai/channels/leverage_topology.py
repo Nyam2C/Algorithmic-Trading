@@ -30,6 +30,11 @@ class LeverageTopologyChannel:
     # Threshold for signal generation
     SIGNAL_THRESHOLD = 15
 
+    # Hidden Accumulation 상수
+    HIDDEN_ACCUM_PRICE_THR = 0.01  # |Δprice/price| < 1%
+    HIDDEN_ACCUM_OI_THR = 0.10    # |ΔOI/OI| > 10%
+    HIDDEN_ACCUM_BONUS = 10       # 보너스 스코어
+
     async def generate_signal(
         self,
         current_oi: float | None,
@@ -124,13 +129,24 @@ class LeverageTopologyChannel:
         patterns: list[str],
     ) -> tuple[float, int]:
         """현재 데이터 vs 마지막 히스토리 비교."""
-        oi_change = current_oi - last.get("oi", 0)
-        price_change = current_price - last.get("price", 0)
+        last_oi = last.get("oi", 0)
+        last_price = last.get("price", 0)
+        oi_change = current_oi - last_oi
+        price_change = current_price - last_price
 
         score, label = self._classify_change(oi_change, price_change)
         total_score += score
         if label:
             patterns.append(label)
+
+        # Hidden Accumulation: 가격 변동 적고 OI 변동 큼
+        if last_price > 0 and last_oi > 0:
+            price_pct = abs(price_change) / last_price
+            oi_pct = abs(oi_change) / last_oi
+            if (price_pct < self.HIDDEN_ACCUM_PRICE_THR
+                    and oi_pct > self.HIDDEN_ACCUM_OI_THR):
+                total_score += self.HIDDEN_ACCUM_BONUS
+                patterns.append("HIDDEN_ACCUM")
 
         return oi_change, total_score
 

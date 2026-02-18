@@ -343,6 +343,7 @@ class EnsembleSignalGenerator:
                 sig = await self._funding_channel.generate_signal(
                     sentiment_data.get("funding_rate"),
                     sentiment_data.get("long_short_ratio"),
+                    basis=sentiment_data.get("basis"),
                 )
                 signals.append(sig)
             except Exception as e:
@@ -370,7 +371,10 @@ class EnsembleSignalGenerator:
                     if prev_price > 0:
                         price_change_pct = (price - prev_price) / prev_price
                 sig = await self._smart_money_channel.generate_signal(
-                    ls_ratio, price_change_pct, ls_hist
+                    ls_ratio, price_change_pct, ls_hist,
+                    global_long_ratio=sentiment_data.get("global_long_ratio"),
+                    global_short_ratio=sentiment_data.get("global_short_ratio"),
+                    taker_buy_sell_ratio=sentiment_data.get("taker_buy_sell_ratio"),
                 )
                 signals.append(sig)
             except Exception as e:

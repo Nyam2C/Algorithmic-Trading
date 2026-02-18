@@ -1222,6 +1222,15 @@ class TestGetMarketSentiment:
         mock_internal.futures_open_interest = AsyncMock(return_value={
             "openInterest": "25000.0"
         })
+        mock_internal.futures_mark_price = AsyncMock(return_value={
+            "markPrice": "50100.0", "indexPrice": "50000.0"
+        })
+        mock_internal.futures_global_longshort_ratio = AsyncMock(return_value=[
+            {"longAccount": "0.55", "shortAccount": "0.45", "longShortRatio": "1.22"}
+        ])
+        mock_internal.futures_taker_longshort_ratio = AsyncMock(return_value=[
+            {"buySellRatio": "1.25", "buyVol": "1000.0", "sellVol": "800.0"}
+        ])
 
         result = await client_instance.get_market_sentiment("BTCUSDT")
 
@@ -1230,6 +1239,10 @@ class TestGetMarketSentiment:
         assert result["short_ratio"] == 0.40
         assert result["long_short_ratio"] == 1.50
         assert result["open_interest"] == 25000.0
+        assert result["basis"] == pytest.approx(0.002, rel=0.01)
+        assert result["global_long_ratio"] == 0.55
+        assert result["global_short_ratio"] == 0.45
+        assert result["taker_buy_sell_ratio"] == 1.25
 
     @pytest.mark.asyncio
     async def test_get_market_sentiment_partial_failure(self, client_fixture):
@@ -1248,6 +1261,15 @@ class TestGetMarketSentiment:
         mock_internal.futures_open_interest = AsyncMock(return_value={
             "openInterest": "20000.0"
         })
+        mock_internal.futures_mark_price = AsyncMock(return_value={
+            "markPrice": "50000.0", "indexPrice": "50000.0"
+        })
+        mock_internal.futures_global_longshort_ratio = AsyncMock(return_value=[
+            {"longAccount": "0.50", "shortAccount": "0.50", "longShortRatio": "1.0"}
+        ])
+        mock_internal.futures_taker_longshort_ratio = AsyncMock(return_value=[
+            {"buySellRatio": "1.0", "buyVol": "0.0", "sellVol": "0.0"}
+        ])
 
         result = await client_instance.get_market_sentiment("BTCUSDT")
 
@@ -1255,6 +1277,178 @@ class TestGetMarketSentiment:
         assert result["funding_rate"] == 0.0
         assert result["long_ratio"] == 0.55
         assert result["open_interest"] == 20000.0
+
+
+class TestGetPremiumIndex:
+    """프리미엄 인덱스 조회 테스트"""
+
+    @pytest.fixture
+    def client_fixture(self):
+        client = BinanceTestnetClient("key", "secret", testnet=True)
+        mock_internal = AsyncMock()
+        client._client = mock_internal
+        return client, mock_internal
+
+    @pytest.mark.asyncio
+    async def test_get_premium_index_success(self, client_fixture):
+        """프리미엄 인덱스 정상 조회"""
+        client_instance, mock_internal = client_fixture
+        mock_internal.futures_mark_price = AsyncMock(return_value={
+            "markPrice": "50100.0",
+            "indexPrice": "50000.0",
+        })
+        result = await client_instance.get_premium_index("BTCUSDT")
+        assert result["mark_price"] == 50100.0
+        assert result["index_price"] == 50000.0
+        assert result["basis"] == pytest.approx(0.002, rel=0.01)
+        assert result["is_error"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_premium_index_zero_index(self, client_fixture):
+        """index_price=0 → basis=0"""
+        client_instance, mock_internal = client_fixture
+        mock_internal.futures_mark_price = AsyncMock(return_value={
+            "markPrice": "50000.0",
+            "indexPrice": "0",
+        })
+        result = await client_instance.get_premium_index("BTCUSDT")
+        assert result["basis"] == 0.0
+        assert result["is_error"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_premium_index_exception(self, client_fixture):
+        """API 예외 → 기본값"""
+        client_instance, mock_internal = client_fixture
+        mock_internal.futures_mark_price = AsyncMock(
+            side_effect=Exception("API error")
+        )
+        result = await client_instance.get_premium_index("BTCUSDT")
+        assert result["basis"] == 0.0
+        assert result["is_error"] is True
+
+    @pytest.mark.asyncio
+    async def test_get_premium_index_negative_basis(self, client_fixture):
+        """마크 가격 < 인덱스 가격 → 음수 basis"""
+        client_instance, mock_internal = client_fixture
+        mock_internal.futures_mark_price = AsyncMock(return_value={
+            "markPrice": "49900.0",
+            "indexPrice": "50000.0",
+        })
+        result = await client_instance.get_premium_index("BTCUSDT")
+        assert result["basis"] < 0
+        assert result["is_error"] is False
+
+
+class TestGetGlobalLongShortRatio:
+    """글로벌 롱숏 비율 조회 테스트"""
+
+    @pytest.fixture
+    def client_fixture(self):
+        client = BinanceTestnetClient("key", "secret", testnet=True)
+        mock_internal = AsyncMock()
+        client._client = mock_internal
+        return client, mock_internal
+
+    @pytest.mark.asyncio
+    async def test_get_global_ls_ratio_success(self, client_fixture):
+        """글로벌 롱숏 비율 정상 조회"""
+        client_instance, mock_internal = client_fixture
+        mock_internal.futures_global_longshort_ratio = AsyncMock(return_value=[
+            {"longAccount": "0.55", "shortAccount": "0.45", "longShortRatio": "1.22"}
+        ])
+        result = await client_instance.get_global_long_short_ratio("BTCUSDT")
+        assert result["long_ratio"] == 0.55
+        assert result["short_ratio"] == 0.45
+        assert result["long_short_ratio"] == 1.22
+        assert result["is_error"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_global_ls_ratio_empty(self, client_fixture):
+        """빈 응답 → 기본값"""
+        client_instance, mock_internal = client_fixture
+        mock_internal.futures_global_longshort_ratio = AsyncMock(return_value=[])
+        result = await client_instance.get_global_long_short_ratio("BTCUSDT")
+        assert result["long_ratio"] == 0.5
+        assert result["short_ratio"] == 0.5
+        assert result["is_error"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_global_ls_ratio_exception(self, client_fixture):
+        """API 예외 → 기본값"""
+        client_instance, mock_internal = client_fixture
+        mock_internal.futures_global_longshort_ratio = AsyncMock(
+            side_effect=Exception("API error")
+        )
+        result = await client_instance.get_global_long_short_ratio("BTCUSDT")
+        assert result["long_ratio"] == 0.5
+        assert result["is_error"] is True
+
+    @pytest.mark.asyncio
+    async def test_get_global_ls_ratio_extreme_values(self, client_fixture):
+        """극단적 롱숏 비율"""
+        client_instance, mock_internal = client_fixture
+        mock_internal.futures_global_longshort_ratio = AsyncMock(return_value=[
+            {"longAccount": "0.90", "shortAccount": "0.10", "longShortRatio": "9.0"}
+        ])
+        result = await client_instance.get_global_long_short_ratio("BTCUSDT")
+        assert result["long_ratio"] == 0.9
+        assert result["short_ratio"] == 0.1
+
+
+class TestGetTakerLongShortRatio:
+    """테이커 매수/매도 비율 조회 테스트"""
+
+    @pytest.fixture
+    def client_fixture(self):
+        client = BinanceTestnetClient("key", "secret", testnet=True)
+        mock_internal = AsyncMock()
+        client._client = mock_internal
+        return client, mock_internal
+
+    @pytest.mark.asyncio
+    async def test_get_taker_ratio_success(self, client_fixture):
+        """테이커 비율 정상 조회"""
+        client_instance, mock_internal = client_fixture
+        mock_internal.futures_taker_longshort_ratio = AsyncMock(return_value=[
+            {"buySellRatio": "1.25", "buyVol": "1000.0", "sellVol": "800.0"}
+        ])
+        result = await client_instance.get_taker_long_short_ratio("BTCUSDT")
+        assert result["buy_sell_ratio"] == 1.25
+        assert result["buy_vol"] == 1000.0
+        assert result["sell_vol"] == 800.0
+        assert result["is_error"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_taker_ratio_empty(self, client_fixture):
+        """빈 응답 → 기본값"""
+        client_instance, mock_internal = client_fixture
+        mock_internal.futures_taker_longshort_ratio = AsyncMock(return_value=[])
+        result = await client_instance.get_taker_long_short_ratio("BTCUSDT")
+        assert result["buy_sell_ratio"] == 1.0
+        assert result["buy_vol"] == 0.0
+        assert result["is_error"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_taker_ratio_exception(self, client_fixture):
+        """API 예외 → 기본값"""
+        client_instance, mock_internal = client_fixture
+        mock_internal.futures_taker_longshort_ratio = AsyncMock(
+            side_effect=Exception("API error")
+        )
+        result = await client_instance.get_taker_long_short_ratio("BTCUSDT")
+        assert result["buy_sell_ratio"] == 1.0
+        assert result["is_error"] is True
+
+    @pytest.mark.asyncio
+    async def test_get_taker_ratio_strong_buy(self, client_fixture):
+        """강한 매수 우위"""
+        client_instance, mock_internal = client_fixture
+        mock_internal.futures_taker_longshort_ratio = AsyncMock(return_value=[
+            {"buySellRatio": "2.50", "buyVol": "5000.0", "sellVol": "2000.0"}
+        ])
+        result = await client_instance.get_taker_long_short_ratio("BTCUSDT")
+        assert result["buy_sell_ratio"] == 2.5
+        assert result["is_error"] is False
 
 
 class TestGetAccountBalanceError:

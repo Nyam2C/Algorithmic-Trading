@@ -417,3 +417,61 @@ async def test_price_no_change_no_pattern(channel: LeverageTopologyChannel) -> N
     ])
     sig = await channel.generate_signal(130, 50000, history)
     assert sig.signal == "WAIT"
+
+
+
+# ── Hidden Accumulation tests ──
+
+
+@pytest.mark.asyncio
+async def test_hidden_accumulation_detected(channel: LeverageTopologyChannel) -> None:
+    """가격 변동 < 1% + OI 변동 > 10% → HIDDEN_ACCUM 보너스."""
+    # Last history: oi=100, price=50000
+    # Current: oi=115 (15% change), price=50200 (0.4% change)
+    history = _make_history([
+        (80, 49000),
+        (90, 49500),
+        (100, 50000),
+    ])
+    sig = await channel.generate_signal(115, 50200, history)
+    assert "HIDDEN_ACCUM" in sig.reason
+
+
+@pytest.mark.asyncio
+async def test_hidden_accumulation_not_triggered_price_too_high(channel: LeverageTopologyChannel) -> None:
+    """가격 변동 > 1% → HIDDEN_ACCUM 미발생."""
+    history = _make_history([
+        (80, 49000),
+        (90, 49500),
+        (100, 50000),
+    ])
+    # Price change: 51000-50000 = 1000/50000 = 2% > 1%
+    sig = await channel.generate_signal(115, 51000, history)
+    assert "HIDDEN_ACCUM" not in sig.reason
+
+
+@pytest.mark.asyncio
+async def test_hidden_accumulation_not_triggered_oi_too_low(channel: LeverageTopologyChannel) -> None:
+    """OI 변동 < 10% → HIDDEN_ACCUM 미발생."""
+    history = _make_history([
+        (80, 49000),
+        (90, 49500),
+        (100, 50000),
+    ])
+    # OI change: 105-100 = 5% < 10%
+    sig = await channel.generate_signal(105, 50200, history)
+    assert "HIDDEN_ACCUM" not in sig.reason
+
+
+@pytest.mark.asyncio
+async def test_hidden_accumulation_boundary(channel: LeverageTopologyChannel) -> None:
+    """경계값: 정확히 1% 가격 변동, 정확히 10% OI 변동."""
+    history = _make_history([
+        (80, 49000),
+        (90, 49500),
+        (100, 50000),
+    ])
+    # Price: 50500/50000 = 1% (not < 1%, so no HIDDEN_ACCUM)
+    # OI: 110/100 = 10% (not > 10%, so no HIDDEN_ACCUM)
+    sig = await channel.generate_signal(110, 50500, history)
+    assert "HIDDEN_ACCUM" not in sig.reason

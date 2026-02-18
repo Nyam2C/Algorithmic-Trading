@@ -236,3 +236,120 @@ class TestEvaluate:
         assert mti._determine_grade(40.0) == "REDUCED"
         assert mti._determine_grade(39.9) == "STANDBY"
         assert mti._determine_grade(0.0) == "STANDBY"
+
+
+
+class TestSpreadScore:
+    """스프레드 점수 테스트"""
+
+    def test_zero_spread(self, mti):
+        """스프레드 0% → 100점"""
+        assert mti._spread_score(0.0) == 100.0
+
+    def test_negative_spread(self, mti):
+        """음수 스프레드 → 100점"""
+        assert mti._spread_score(-0.1) == 100.0
+
+    def test_low_spread(self, mti):
+        """낮은 스프레드 (< 0.5%) → 100점"""
+        assert mti._spread_score(0.3) == 100.0
+
+    def test_mid_spread(self, mti):
+        """중간 스프레드 (1.25%) → 선형 보간"""
+        score = mti._spread_score(1.25)
+        assert 20 < score < 100
+
+    def test_high_spread(self, mti):
+        """높은 스프레드 (> 2%) → 20점"""
+        assert mti._spread_score(3.0) == 20.0
+
+    def test_boundary_05_spread(self, mti):
+        """경계값 0.5% → 100점"""
+        assert mti._spread_score(0.5) == pytest.approx(100.0, abs=0.1)
+
+    def test_boundary_20_spread(self, mti):
+        """경계값 2.0% → 20점"""
+        assert mti._spread_score(2.0) == pytest.approx(20.0, abs=0.1)
+
+
+class TestFiveFactorMode:
+    """5요소 모드 테스트"""
+
+    def test_five_factor_optimal(self, mti):
+        """5요소 모드 최적 조건"""
+        t = datetime(2024, 1, 15, 15, 0, tzinfo=timezone.utc)
+        score = mti.evaluate(
+            atr_pct=1.0, volume_ratio=1.5,
+            current_time=t, bid_ask_spread_pct=0.1,
+        )
+        assert score.is_tradable is True
+        assert "spread_score" in score.components
+        assert "event_score" in score.components
+
+    def test_five_factor_standby(self, mti):
+        """5요소 모드 대기 조건"""
+        t = datetime(2024, 1, 15, 22, 0, tzinfo=timezone.utc)
+        score = mti.evaluate(
+            atr_pct=0.1, volume_ratio=0,
+            current_time=t, bid_ask_spread_pct=3.0,
+        )
+        assert score.grade == "STANDBY"
+        assert score.is_tradable is False
+
+    def test_three_factor_compat_none_spread(self, mti):
+        """bid_ask_spread_pct=None → 기존 3요소 모드"""
+        t = datetime(2024, 1, 15, 15, 0, tzinfo=timezone.utc)
+        score = mti.evaluate(atr_pct=1.0, volume_ratio=1.5, current_time=t)
+        assert "spread_score" not in score.components
+        assert "event_score" not in score.components
+
+    def test_five_factor_components_count(self, mti):
+        """5요소 모드는 5개 컴포넌트"""
+        t = datetime(2024, 1, 15, 15, 0, tzinfo=timezone.utc)
+        score = mti.evaluate(
+            atr_pct=1.0, volume_ratio=1.0,
+            current_time=t, bid_ask_spread_pct=0.5,
+        )
+        assert len(score.components) == 5
+
+    def test_three_factor_components_count(self, mti):
+        """3요소 모드는 3개 컴포넌트"""
+        t = datetime(2024, 1, 15, 15, 0, tzinfo=timezone.utc)
+        score = mti.evaluate(atr_pct=1.0, volume_ratio=1.0, current_time=t)
+        assert len(score.components) == 3
+
+    def test_five_factor_score_range(self, mti):
+        """5요소 점수는 0~100 범위"""
+        t = datetime(2024, 1, 15, 15, 0, tzinfo=timezone.utc)
+        score = mti.evaluate(
+            atr_pct=1.0, volume_ratio=1.0,
+            current_time=t, bid_ask_spread_pct=1.0,
+        )
+        assert 0 <= score.total_score <= 100
+
+    def test_high_spread_adds_reason(self, mti):
+        """높은 스프레드 → reason에 스프레드 과대 포함"""
+        t = datetime(2024, 1, 15, 22, 0, tzinfo=timezone.utc)
+        score = mti.evaluate(
+            atr_pct=0.1, volume_ratio=0.1,
+            current_time=t, bid_ask_spread_pct=3.0,
+        )
+        assert "스프레드 과대" in score.reason
+
+    def test_five_factor_grade_transition(self, mti):
+        """5요소 모드에서 등급 전환 확인"""
+        t = datetime(2024, 1, 15, 15, 0, tzinfo=timezone.utc)
+        # (100 + 100 + 100 + 80 + 100) / 5 = 96 → OPTIMAL
+        score_opt = mti.evaluate(
+            atr_pct=1.0, volume_ratio=2.0,
+            current_time=t, bid_ask_spread_pct=0.1,
+        )
+        assert score_opt.grade == "OPTIMAL"
+
+        # (30 + 55 + 20 + 80 + 20) / 5 = 41 → REDUCED
+        t2 = datetime(2024, 1, 15, 22, 0, tzinfo=timezone.utc)
+        score_red = mti.evaluate(
+            atr_pct=0.1, volume_ratio=0.1,
+            current_time=t2, bid_ask_spread_pct=2.0,
+        )
+        assert score_red.grade in ("REDUCED", "STANDBY")

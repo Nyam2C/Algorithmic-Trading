@@ -21,7 +21,10 @@ class FundingBasisChannel:
     LS_SHORT_CROWDED = 0.60     # 60%
 
     async def generate_signal(
-        self, funding_rate: float | None, long_short_ratio: float | None
+        self,
+        funding_rate: float | None,
+        long_short_ratio: float | None,
+        basis: float | None = None,
     ) -> IndividualSignal:
         """Funding-Basis 시그널 생성.
 
@@ -29,6 +32,7 @@ class FundingBasisChannel:
             funding_rate: 현재 펀딩레이트 (예: 0.0005 = 0.05%)
             long_short_ratio: Long/Short 비율 (예: 1.5 = long 60%, short 40%)
                 Long% = ratio / (1 + ratio)
+            basis: Mark-Index 스프레드 비율 (예: 0.001 = 0.1%)
 
         Returns:
             IndividualSignal
@@ -55,11 +59,19 @@ class FundingBasisChannel:
                     (funding_rate / self.FR_EXTREME_LONG) * 0.5
                     + (long_pct - 0.5) * 2 * 0.5,
                 )
+                confidence = self._apply_basis_cross_validation(
+                    confidence, funding_rate, basis
+                )
+                basis_info = f", basis={basis:.6f}" if basis else ""
+                reason = (
+                    f"역행: FR={funding_rate:.4%}"
+                    f" + Long={long_pct:.1%} 과밀{basis_info}"
+                )
                 return IndividualSignal(
                     source=SignalSource.FUNDING_BASIS,
                     signal="SHORT",
                     confidence=round(confidence, 3),
-                    reason=f"역행: FR={funding_rate:.4%} + Long={long_pct:.1%} 과밀",
+                    reason=reason,
                     weight=0.15,
                 )
 
@@ -71,11 +83,19 @@ class FundingBasisChannel:
                     (abs(funding_rate) / abs(self.FR_EXTREME_SHORT)) * 0.5
                     + (short_pct - 0.5) * 2 * 0.5,
                 )
+                confidence = self._apply_basis_cross_validation(
+                    confidence, funding_rate, basis
+                )
+                basis_info = f", basis={basis:.6f}" if basis else ""
+                reason = (
+                    f"역행: FR={funding_rate:.4%}"
+                    f" + Short={short_pct:.1%} 과밀{basis_info}"
+                )
                 return IndividualSignal(
                     source=SignalSource.FUNDING_BASIS,
                     signal="LONG",
                     confidence=round(confidence, 3),
-                    reason=f"역행: FR={funding_rate:.4%} + Short={short_pct:.1%} 과밀",
+                    reason=reason,
                     weight=0.15,
                 )
 
@@ -97,3 +117,21 @@ class FundingBasisChannel:
                 reason=f"에러: {e}",
                 weight=0.15,
             )
+
+    @staticmethod
+    def _apply_basis_cross_validation(
+        confidence: float, funding_rate: float, basis: float | None
+    ) -> float:
+        """Basis 교차검증으로 confidence 조정.
+
+        FR 방향 == basis 방향 → confidence x 1.3 (상한 1.0)
+        FR 방향 != basis 방향 → confidence x 0.7
+        basis가 None이거나 0이면 → 무변경
+        """
+        if basis is None or basis == 0.0:
+            return confidence
+        fr_positive = funding_rate > 0
+        basis_positive = basis > 0
+        if fr_positive == basis_positive:
+            return min(1.0, confidence * 1.3)
+        return confidence * 0.7

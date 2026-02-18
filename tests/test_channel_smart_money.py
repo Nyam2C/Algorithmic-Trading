@@ -381,3 +381,111 @@ async def test_analyze_history_empty(channel: SmartMoneyDivergenceChannel) -> No
 @pytest.mark.asyncio
 async def test_analyze_history_none(channel: SmartMoneyDivergenceChannel) -> None:
     assert channel._analyze_history(None) == 0.0
+
+
+
+# ── 3D Analysis tests ──
+
+
+@pytest.mark.asyncio
+async def test_3d_strong_long(channel: SmartMoneyDivergenceChannel) -> None:
+    """Top Long>60% + Global Short>60% + Taker>1.3 → STRONG LONG."""
+    # ratio=2.0 -> top_long_pct = 66.7%
+    sig = await channel.generate_signal(
+        2.0, -0.005,
+        global_long_ratio=0.35,
+        global_short_ratio=0.65,
+        taker_buy_sell_ratio=1.5,
+    )
+    assert sig.signal == "LONG"
+    assert "3D STRONG LONG" in sig.reason
+
+
+@pytest.mark.asyncio
+async def test_3d_strong_short(channel: SmartMoneyDivergenceChannel) -> None:
+    """Top Short>60% + Global Long>60% + Taker<0.77 → STRONG SHORT."""
+    # ratio=0.4 -> top_long_pct=28.6%, top_short_pct=71.4%
+    sig = await channel.generate_signal(
+        0.4, 0.005,
+        global_long_ratio=0.65,
+        global_short_ratio=0.35,
+        taker_buy_sell_ratio=0.5,
+    )
+    assert sig.signal == "SHORT"
+    assert "3D STRONG SHORT" in sig.reason
+
+
+@pytest.mark.asyncio
+async def test_3d_overheat_long_side(channel: SmartMoneyDivergenceChannel) -> None:
+    """Top Long>70% + Global Long>70% → 과열 SHORT."""
+    # ratio=3.0 -> top_long_pct=75%
+    sig = await channel.generate_signal(
+        3.0, 0.005,
+        global_long_ratio=0.75,
+        global_short_ratio=0.25,
+        taker_buy_sell_ratio=1.0,
+    )
+    assert sig.signal == "SHORT"
+    assert "과열" in sig.reason
+
+
+@pytest.mark.asyncio
+async def test_3d_overheat_short_side(channel: SmartMoneyDivergenceChannel) -> None:
+    """Top Short>70% + Global Short>70% → 과열 LONG."""
+    # ratio=0.2 -> top_long_pct=16.7%, top_short_pct=83.3%
+    sig = await channel.generate_signal(
+        0.2, -0.005,
+        global_long_ratio=0.25,
+        global_short_ratio=0.75,
+        taker_buy_sell_ratio=1.0,
+    )
+    assert sig.signal == "LONG"
+    assert "과열" in sig.reason
+
+
+@pytest.mark.asyncio
+async def test_3d_partial_none_fallback_to_2d(channel: SmartMoneyDivergenceChannel) -> None:
+    """3D 파라미터 일부 None → 2D 폴백."""
+    sig = await channel.generate_signal(
+        1.5, -0.005,
+        global_long_ratio=0.35,
+        global_short_ratio=None,
+        taker_buy_sell_ratio=1.5,
+    )
+    assert sig.signal == "LONG"  # 2D: smart LONG + price DOWN → divergence LONG
+    assert "SM 디버전스" in sig.reason
+
+
+@pytest.mark.asyncio
+async def test_3d_neutral_falls_through_to_2d(channel: SmartMoneyDivergenceChannel) -> None:
+    """3D 조건 미충족 → 2D 로직으로 폴백."""
+    # All 3D params present but not extreme enough
+    sig = await channel.generate_signal(
+        1.5, -0.005,
+        global_long_ratio=0.50,
+        global_short_ratio=0.50,
+        taker_buy_sell_ratio=1.0,
+    )
+    assert sig.signal == "LONG"  # 2D divergence: smart LONG + price DOWN
+    assert "SM 디버전스" in sig.reason
+
+
+@pytest.mark.asyncio
+async def test_3d_strong_long_confidence_range(channel: SmartMoneyDivergenceChannel) -> None:
+    """3D STRONG LONG confidence >= 0.5."""
+    sig = await channel.generate_signal(
+        2.0, -0.005,
+        global_long_ratio=0.35,
+        global_short_ratio=0.65,
+        taker_buy_sell_ratio=1.5,
+    )
+    assert sig.confidence >= 0.5
+    assert sig.confidence <= 1.0
+
+
+@pytest.mark.asyncio
+async def test_3d_all_none_uses_2d(channel: SmartMoneyDivergenceChannel) -> None:
+    """3D 파라미터 모두 None → 2D 로직."""
+    sig = await channel.generate_signal(1.5, -0.005)
+    assert sig.signal == "LONG"
+    assert "SM 디버전스" in sig.reason

@@ -1073,6 +1073,10 @@ class BotInstance:
                 "current_price": current_price,
                 "oi_history": oi_history,
                 "ls_history": ls_history,
+                "basis": sentiment.get("basis", 0.0),
+                "global_long_ratio": sentiment.get("global_long_ratio", 0.5),
+                "global_short_ratio": sentiment.get("global_short_ratio", 0.5),
+                "taker_buy_sell_ratio": sentiment.get("taker_buy_sell_ratio", 1.0),
             }
         except Exception as e:
             self._log.warning(f"심리 데이터 수집 실패: {e}")
@@ -1940,6 +1944,17 @@ class BotInstance:
                 except Exception as e:
                     self._log.debug(f"연속 WAIT 리셋 메트릭 기록 실패: {e}")
 
+    def _calc_spread_pct(self, market_data: dict[str, Any]) -> float | None:
+        """24h ticker에서 bid-ask 스프레드 % 추정."""
+        ticker_24h = market_data.get("ticker_24h", {})
+        if not ticker_24h:
+            return None
+        high = float(ticker_24h.get("high_24h", 0) or 0)
+        low = float(ticker_24h.get("low_24h", 0) or 0)
+        if high > 0 and low > 0 and self._current_price > 0:
+            return (high - low) / self._current_price * 100
+        return None
+
     async def _run_five_gate_pipeline(
         self,
         market_data: dict[str, Any],
@@ -1964,7 +1979,11 @@ class BotInstance:
         if atr_pct > 0 and volume_ratio > 0:
             from src.data.tradability import MarketTradabilityIndex
             mti = MarketTradabilityIndex()
-            mti_score = mti.evaluate(atr_pct, volume_ratio)
+
+            mti_score = mti.evaluate(
+                atr_pct, volume_ratio,
+                bid_ask_spread_pct=self._calc_spread_pct(market_data),
+            )
             self._last_mti_grade = mti_score.grade
             if self._metrics:
                 with contextlib.suppress(Exception):
