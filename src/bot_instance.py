@@ -185,6 +185,7 @@ class BotInstance:
         self._pipeline_size_pct: float | None = None
         self._last_ensemble_result: Any | None = None  # EnsembleResult 캐시
         self._last_mti_grade: str = "OPTIMAL"
+        self._last_mti_score: float = 70.0
 
         # Phase 5 통합: SignalTracker (인메모리)
         self._signal_tracker = SignalTracker(db_pool=None)
@@ -1292,8 +1293,12 @@ class BotInstance:
                 f"사이즈 x{self._current_deg_state.size_multiplier} 적용"
             )
 
+        microprice_data = self._build_microprice_data(entry_atr)
+
         order = await self._executor.open_position(
-            signal, current_price, entry_atr, dynamic_size_pct=dynamic_size_pct
+            signal, current_price, entry_atr,
+            dynamic_size_pct=dynamic_size_pct,
+            microprice_data=microprice_data,
         )
 
         if order:
@@ -1367,6 +1372,46 @@ class BotInstance:
             )
 
         return order
+
+    def _build_microprice_data(self, entry_atr: float | None) -> dict | None:
+        """Microprice Smart Limit용 오더북 데이터 조립.
+
+        Feature flag OFF, WS 미연결, 데이터 부재 시 None 반환 → Market 주문 경로.
+
+        Args:
+            entry_atr: 5분 ATR (None이면 불가)
+
+        Returns:
+            microprice_data dict 또는 None
+        """
+        if not getattr(self.config, "use_microprice_limit", False):
+            return None
+        if entry_atr is None or entry_atr <= 0:
+            return None
+        if not self._ws_manager or not self._ws_manager.is_connected:
+            return None
+
+        ds = self._ws_manager.orderbook_aggregator.depth_spread_snapshot()
+        if not ds or ds.get("best_bid", 0) <= 0 or ds.get("best_ask", 0) <= 0:
+            return None
+
+        import math
+
+        # 5분 ATR → 1분 근사: ATR_1m ≈ ATR_5m / sqrt(5)
+        atr_1m = entry_atr / math.sqrt(5)
+
+        from src.trading.microprice import get_liquidity_tier
+
+        return {
+            "best_bid": ds["best_bid"],
+            "best_ask": ds["best_ask"],
+            "bid_vol": ds.get("bid_depth_total", 0.0),
+            "ask_vol": ds.get("ask_depth_total", 0.0),
+            "atr_1m": atr_1m,
+            "liquidity_tier": get_liquidity_tier(self._last_mti_score),
+            "offset_factor": getattr(self.config, "microprice_atr_offset", 0.1),
+            "slide_factor": getattr(self.config, "microprice_slide_factor", 0.5),
+        }
 
     def _compute_dynamic_size(self) -> float | None:
         """APEX-V Phase D: 동적 포지션 사이징 계산.
@@ -2081,6 +2126,7 @@ class BotInstance:
                 ask_depth_total=depth_ask,
             )
             self._last_mti_grade = mti_score.grade
+            self._last_mti_score = mti_score.total_score
             if self._metrics:
                 with contextlib.suppress(Exception):
                     self._metrics.record_gate_outcome(

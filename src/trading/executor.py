@@ -296,7 +296,7 @@ class TradingExecutor:
 
         return False, avg_price
 
-    async def _prepare_and_open_position(
+    async def _prepare_and_open_position(  # noqa: PLR0912
         self,
         signal: str,
         current_price: float,
@@ -304,6 +304,7 @@ class TradingExecutor:
         order_type: str = "MARKET",  # noqa: ARG002
         use_maker: bool = False,
         dynamic_size_pct: float | None = None,
+        microprice_data: dict | None = None,
     ) -> dict | None:
         """포지션 오픈 공통 로직.
 
@@ -316,6 +317,7 @@ class TradingExecutor:
             order_type: "MARKET" or "MAKER"
             use_maker: Use Maker order (limit order) if True
             dynamic_size_pct: 동적 포지션 크기 비율 (None = config 기본값)
+            microprice_data: Microprice 지정가 데이터 (None = Market 주문)
 
         Returns:
             Order details or None if failed
@@ -347,6 +349,10 @@ class TradingExecutor:
             order = await self._create_maker_order(
                 signal, side, quantity, current_price
             )
+        elif microprice_data is not None:
+            order = await self._execute_microprice_limit(
+                signal, side, quantity, current_price, microprice_data
+            )
         else:
             logger.info(
                 f"Opening {signal} position: {side} {quantity} "
@@ -358,8 +364,8 @@ class TradingExecutor:
                 quantity=quantity,
             )
 
-        # Slippage detection for market orders
-        if not use_maker and order:
+        # Slippage detection for market orders (skip for maker/microprice limit)
+        if not use_maker and microprice_data is None and order:
             should_close, current_price = self._handle_slippage_detection(
                 order, current_price
             )
@@ -488,9 +494,107 @@ class TradingExecutor:
 
         return order
 
+    async def _execute_microprice_limit(
+        self,
+        signal: str,
+        side: str,
+        quantity: float,
+        current_price: float,  # noqa: ARG002
+        microprice_data: dict,
+    ) -> dict:
+        """Microprice 기반 지정가 주문 실행 (Wait -> Slide -> Fallback).
+
+        Args:
+            signal: "LONG" or "SHORT"
+            side: SIDE_BUY or SIDE_SELL
+            quantity: 주문 수량
+            current_price: 현재 시장가 (fallback용)
+            microprice_data: best_bid, best_ask, bid_vol, ask_vol,
+                             atr_1m, liquidity_tier, offset_factor, slide_factor
+
+        Returns:
+            체결된 주문 정보
+        """
+        from src.trading.microprice import (  # noqa: PLC0415
+            WAIT_CONFIG,
+            calculate_limit_price,
+            calculate_microprice,
+        )
+
+        best_bid = microprice_data["best_bid"]
+        best_ask = microprice_data["best_ask"]
+        bid_vol = microprice_data["bid_vol"]
+        ask_vol = microprice_data["ask_vol"]
+        atr_1m = microprice_data["atr_1m"]
+        tier = microprice_data.get("liquidity_tier", "medium")
+        offset_factor = microprice_data.get("offset_factor", 0.1)
+        slide_factor = microprice_data.get("slide_factor", 0.5)
+        tier_config = WAIT_CONFIG[tier]
+
+        # 1. Microprice 계산
+        mp = calculate_microprice(best_bid, best_ask, bid_vol, ask_vol)
+        if mp is None:
+            logger.warning("Microprice 계산 실패 — Market fallback")
+            return await self.client.create_market_order(
+                symbol=self.config.symbol, side=side, quantity=quantity,
+            )
+
+        # 2. 1차 지정가 주문
+        limit_price = calculate_limit_price(mp, signal, atr_1m, offset_factor)
+        logger.info(
+            f"Microprice limit ({tier}): {signal} {quantity} "
+            f"@ ${limit_price:,.2f} (mp=${mp:,.2f})"
+        )
+        order = await self.client.create_limit_order(
+            symbol=self.config.symbol, side=side,
+            quantity=quantity, price=limit_price,
+        )
+
+        # 3. 1차 대기
+        filled = await self._wait_for_fill(
+            order["orderId"], timeout=tier_config["wait_seconds"]
+        )
+        if filled:
+            return order
+
+        # 4. 미체결 → 취소 → Slide
+        await self.client.cancel_order(self.config.symbol, order["orderId"])
+
+        slid_price = calculate_limit_price(
+            mp, signal, atr_1m, offset_factor * slide_factor
+        )
+        logger.info(f"Microprice slide: ${limit_price:,.2f} → ${slid_price:,.2f}")
+        order = await self.client.create_limit_order(
+            symbol=self.config.symbol, side=side,
+            quantity=quantity, price=slid_price,
+        )
+
+        # 5. 2차 대기
+        filled = await self._wait_for_fill(
+            order["orderId"], timeout=tier_config["slide_wait_seconds"]
+        )
+        if filled:
+            return order
+
+        # 6. 최종 미체결 → 취소 → Market 또는 포기
+        await self.client.cancel_order(self.config.symbol, order["orderId"])
+
+        if tier_config["allow_market_fallback"]:
+            logger.warning("Microprice limit 미체결 — Market fallback")
+            return await self.client.create_market_order(
+                symbol=self.config.symbol, side=side, quantity=quantity,
+            )
+
+        # Low liquidity: Market 금지 → 진입 포기
+        raise RuntimeError(
+            f"Microprice limit 미체결 (low liquidity) — 진입 포기 "
+            f"(slid=${slid_price:,.2f})"
+        )
+
     async def open_position(
         self, signal: str, current_price: float, entry_atr: float | None = None,
         dynamic_size_pct: float | None = None,
+        microprice_data: dict | None = None,
     ) -> dict | None:
         """Open a new position based on signal.
 
@@ -499,6 +603,7 @@ class TradingExecutor:
             current_price: Current market price
             entry_atr: ATR value at entry (Phase 6.1: for dynamic TP/SL)
             dynamic_size_pct: 동적 포지션 크기 비율 (None = config 기본값)
+            microprice_data: Microprice 지정가 데이터 (None = Market 주문)
 
         Returns:
             Order details or None if failed
@@ -511,6 +616,7 @@ class TradingExecutor:
                 order_type="MARKET",
                 use_maker=False,
                 dynamic_size_pct=dynamic_size_pct,
+                microprice_data=microprice_data,
             )
         except Exception as e:
             logger.error(f"Failed to open position: {e}")

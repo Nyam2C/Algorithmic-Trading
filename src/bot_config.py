@@ -141,6 +141,11 @@ class BotConfig(BaseModel):
     # APEX-V: Graceful Degradation Controller
     use_graceful_degradation: bool = Field(default=False)
 
+    # APEX-V: Microprice Smart Limit
+    use_microprice_limit: bool = Field(default=False)
+    microprice_atr_offset: float = Field(default=0.1, gt=0, le=1.0)
+    microprice_slide_factor: float = Field(default=0.5, gt=0, le=1.0)
+
     # APEX-V Phase D: Kelly + Risk Enhancement
     use_kelly_sizing: bool = Field(default=False)
     kelly_fraction: float = Field(default=0.25, gt=0, le=1.0)
