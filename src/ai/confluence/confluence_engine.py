@@ -120,8 +120,14 @@ class ConfluenceEngine:
         },
     }
 
+    # Step 5.5: Net Edge 최저선 (비용 대비 기대 수익 최소 요건)
+    MIN_NET_EDGE = 0.05
+
     # Step 8: Dead Zone 범위
     DEAD_ZONE_MARGIN = 0.10
+
+    # Step 5.5: Net Edge 최저선 (수수료 대비 수익 부족 방지)
+    MIN_NET_EDGE = 0.05
 
     # 카테고리 보너스
     CATEGORY_BONUS = 0.05
@@ -269,6 +275,31 @@ class ConfluenceEngine:
         net_edge, cost_penalty = self._step5_net_edge(score, atr_pct, leverage)
         step_details["step5_net_edge"] = round(net_edge, 4)
         step_details["step5_cost"] = round(cost_penalty, 4)
+
+        # Step 5.5: Net Edge 최저선 (수수료 > 기대 수익 방지)
+        if net_edge < self.MIN_NET_EDGE:
+            step_details["step5_5_min_edge_block"] = True
+            self._log.info(
+                f"Net edge {net_edge:.3f} < MIN_NET_EDGE {self.MIN_NET_EDGE} — WAIT"
+            )
+            return ConfluenceResult(
+                final_signal="WAIT",
+                confluence_score=score,
+                net_edge=net_edge,
+                threshold_used=0.0,
+                step_details=step_details,
+            )
+
+        # Step 5.5: Net Edge 최저선 체크
+        if net_edge < self.MIN_NET_EDGE:
+            step_details["step5_5_min_edge_block"] = True
+            return ConfluenceResult(
+                final_signal="WAIT",
+                confluence_score=score,
+                net_edge=net_edge,
+                threshold_used=0.0,
+                step_details=step_details,
+            )
 
         # Step 6: 적응형 임계값
         threshold = self._step6_adaptive_threshold(regime, session)

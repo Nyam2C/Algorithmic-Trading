@@ -187,6 +187,12 @@ class BotInstance:
         self._last_mti_grade: str = "OPTIMAL"
         self._last_mti_score: float = 70.0
 
+        # APEX-V: Signal Invalidation Exit
+        self._entry_confluence_threshold: float | None = None
+
+        # APEX-V: ThresholdTuner 주간 자동 실행
+        self._last_threshold_tuning: datetime | None = None
+
         # Phase 5 통합: SignalTracker (인메모리)
         self._signal_tracker = SignalTracker(db_pool=None)
         self._last_signal_id: str | None = None
@@ -420,6 +426,13 @@ class BotInstance:
                 self.bot_name, self._risk_manager.to_dict()
             )
 
+            # APEX-V: Signal Invalidation threshold 영속화
+            if self._entry_confluence_threshold is not None:
+                await self._redis_state_manager.save_bot_state(
+                    f"{self.bot_name}:entry_confluence",
+                    {"threshold": self._entry_confluence_threshold},
+                )
+
             # Phase D: Kelly sizer + Execution tracker 영속화
             if self._kelly_sizer:
                 try:
@@ -507,6 +520,20 @@ class BotInstance:
                         self._log.info("ExecutionTracker 상태 복구 완료")
                 except Exception as e:
                     self._log.debug(f"ExecTracker 상태 복구 실패: {e}")
+
+            # APEX-V: Signal Invalidation threshold 복구
+            try:
+                conf_data = await self._redis_state_manager.load_bot_state(
+                    f"{self.bot_name}:entry_confluence"
+                )
+                if conf_data and "threshold" in conf_data:
+                    self._entry_confluence_threshold = conf_data["threshold"]
+                    self._log.info(
+                        f"Confluence threshold 복구: "
+                        f"{self._entry_confluence_threshold}"
+                    )
+            except Exception as e:
+                self._log.debug(f"Confluence threshold 복구 실패: {e}")
 
             # 포지션 복구
             saved_position = await self._redis_state_manager.load_position(
@@ -1347,6 +1374,10 @@ class BotInstance:
                 f"사이즈 x{self._current_deg_state.size_multiplier} 적용"
             )
 
+        # APEX-V: Regime TP 비율 전달
+        if self._executor and self._current_regime:
+            self._executor._current_regime_str = self._current_regime.value
+
         microprice_data = self._build_microprice_data(entry_atr)
 
         order = await self._executor.open_position(
@@ -1357,6 +1388,16 @@ class BotInstance:
 
         if order:
             self._current_position = self._executor.current_position
+
+            # Signal Invalidation: 진입 시 confluence threshold 저장
+            if (
+                self.config.use_signal_invalidation
+                and self._last_ensemble_result
+                and getattr(self._last_ensemble_result, "confluence_result", None)
+            ):
+                self._entry_confluence_threshold = (
+                    self._last_ensemble_result.confluence_result.threshold_used
+                )
 
             # DB에 기록 (실패 시 Redis에 복구 마커 저장)
             if self._trade_db and self._executor.current_position:
@@ -1691,6 +1732,7 @@ class BotInstance:
                 await self._trade_approval.record_trade_completed(self.bot_name)
 
             self._current_position = None
+            self._entry_confluence_threshold = None  # Signal Invalidation 리셋
 
             # Phase 9: Clear executor position state after all DB/PnL tracking
             self._executor.clear_position()
@@ -2302,8 +2344,24 @@ class BotInstance:
                 cost_ratio = cr.net_edge / cr.confluence_score
                 cost_adj = max(0.5, min(1.0, cost_ratio))
 
-            # vitality_mod
-            if cr.vitality:
+            # vitality_mod: Strategy Lifecycle 활성화 시 VitalityTracker 직접 사용
+            if (
+                getattr(self.config, "use_strategy_lifecycle", False)
+                and self._ensemble_generator
+                and hasattr(self._ensemble_generator, "_confluence_engine")
+                and self._ensemble_generator._confluence_engine
+                and hasattr(self._ensemble_generator._confluence_engine, "_vitality")
+                and self._ensemble_generator._confluence_engine._vitality
+            ):
+                vt = self._ensemble_generator._confluence_engine._vitality
+                vitality_mod = vt.get_size_multiplier()
+                if vt.should_retire():
+                    self._log.critical(
+                        "VitalityTracker 은퇴 판정 — 봇 일시정지"
+                    )
+                    self._is_paused = True
+                    return 0.0
+            elif cr.vitality:
                 vmap = {
                     "healthy": 1.0,
                     "caution": 0.85,
@@ -2610,6 +2668,24 @@ class BotInstance:
             except Exception as e:
                 self._log.debug(f"포지션 PnL 메트릭 기록 실패: {e}")
 
+        # Signal Invalidation Exit 체크
+        if (
+            getattr(self.config, "use_signal_invalidation", False)
+            and self._entry_confluence_threshold is not None
+            and self._last_ensemble_result
+            and getattr(self._last_ensemble_result, "confluence_result", None)
+        ):
+            cr = self._last_ensemble_result.confluence_result
+            inv_margin = getattr(self.config, "signal_invalidation_margin", 0.20)
+            if cr.confluence_score < (self._entry_confluence_threshold - inv_margin):
+                self._log.warning(
+                    f"Signal Invalidation: score={cr.confluence_score:.3f} < "
+                    f"threshold({self._entry_confluence_threshold:.3f}) - "
+                    f"margin({inv_margin:.3f}) — 포지션 청산"
+                )
+                await self._close_position(current_price, "SIGNAL_INVALIDATION")
+                return True
+
         # Timecut 체크
         if (
             self._executor.current_position
@@ -2821,6 +2897,75 @@ class BotInstance:
             ws_enabled=ws_enabled,
         )
 
+    async def _maybe_run_threshold_tuner(self) -> None:
+        """ThresholdTuner 주간 자동 실행 (일요일 1회)."""
+        if not getattr(self.config, "use_threshold_tuner", False):
+            return
+
+        now = datetime.utcnow()
+        _sunday = 6
+        if now.weekday() != _sunday:
+            return
+        # 24시간 이내 중복 방지
+        _one_day_seconds = 86400
+        if (
+            self._last_threshold_tuning
+            and (now - self._last_threshold_tuning).total_seconds() < _one_day_seconds
+        ):
+            return
+        # ConfluenceEngine 참조 확인
+        if (
+            not self._ensemble_generator
+            or not hasattr(self._ensemble_generator, "_confluence_engine")
+            or not self._ensemble_generator._confluence_engine
+        ):
+            return
+        try:
+            from src.ai.confluence.session_classifier import (
+                TradingSession,
+            )
+            from src.ai.confluence.threshold_tuner import (
+                ThresholdTuner,
+                TradeRecord,
+            )
+            tuner = ThresholdTuner()
+            engine = self._ensemble_generator._confluence_engine
+
+            # 최근 거래 이력에서 TradeRecord 수집
+            records: list[TradeRecord] = []
+            if self._trade_db:
+                recent = await self._trade_db.get_recent_trades(
+                    limit=200
+                )
+                session_map = {s.value: s for s in TradingSession}
+                for t in recent:
+                    session_str = t.get("session", "US")
+                    session = session_map.get(session_str, TradingSession.US)
+                    records.append(TradeRecord(
+                        confluence_score=t.get("confluence_score", 0.5),
+                        regime=t.get("regime", "weak_trend"),
+                        session=session,
+                        is_win=t.get("pnl_pct", 0.0) >= 0,
+                    ))
+            if not records:
+                self._log.debug("ThresholdTuner: 거래 이력 없음 — 스킵")
+                return
+
+            current_table = engine._threshold_table
+            results = tuner.tune(records, current_table)
+            if results:
+                new_table = ThresholdTuner.apply_to_engine(
+                    current_table, results
+                )
+                engine.update_thresholds(new_table)
+            self._last_threshold_tuning = now
+            self._log.info(
+                f"ThresholdTuner 주간 자동 튜닝 완료: "
+                f"{len(results)} 버킷 업데이트"
+            )
+        except Exception as e:
+            self._log.warning(f"ThresholdTuner 자동 실행 실패: {e}")
+
     async def _execute_single_loop(self) -> None:  # noqa: PLR0911, PLR0915
         """단일 트레이딩 루프 실행."""
         # Phase 1: Redis 명령 큐 확인
@@ -2831,6 +2976,9 @@ class BotInstance:
 
         # 0. 일일 리스크 리셋 체크
         await self._check_daily_risk_reset()
+
+        # 0.5. ThresholdTuner 주간 자동 실행
+        await self._maybe_run_threshold_tuner()
 
         # 1. 리스크 한도 체크 및 강제 청산
         if await self._handle_risk_halt():

@@ -161,6 +161,16 @@ class BotConfig(BaseModel):
     # APEX-V: Threshold Tuner
     use_threshold_tuner: bool = Field(default=False)
 
+    # APEX-V: Signal Invalidation Exit
+    use_signal_invalidation: bool = Field(default=False)
+    signal_invalidation_margin: float = Field(default=0.20, gt=0, le=1.0)
+
+    # APEX-V: Strategy Lifecycle (Vitality-based sizing + retirement)
+    use_strategy_lifecycle: bool = Field(default=False)
+
+    # APEX-V: Regime-based split TP ratios
+    use_regime_tp_ratios: bool = Field(default=False)
+
     # APEX-V Phase D: Kelly + Risk Enhancement
     use_kelly_sizing: bool = Field(default=False)
     kelly_fraction: float = Field(default=0.25, gt=0, le=1.0)

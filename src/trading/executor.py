@@ -29,6 +29,16 @@ class TradingExecutor:
     MIN_STOP_PRICE = 0.10  # Binance minimum stop price (safety margin)
     PARTIAL_FILL_THRESHOLD = 0.99  # 99% fill threshold
 
+    # APEX-V: Regime별 분할 TP 비율/멀티플라이어
+    REGIME_TP_CONFIG: dict[str, tuple[list[float], list[float]]] = {
+        "strong_uptrend":   ([0.30, 0.30, 0.40], [1.0, 2.0, 2.5]),
+        "strong_downtrend": ([0.30, 0.30, 0.40], [1.0, 2.0, 2.5]),
+        "weak_uptrend":     ([0.50, 0.30, 0.20], [1.0, 1.5, 2.5]),
+        "weak_downtrend":   ([0.50, 0.30, 0.20], [1.0, 1.5, 2.5]),
+        "ranging":          ([0.50, 0.30, 0.20], [0.8, 1.2, 1.8]),
+        "uncertainty":      ([0.40, 0.30, 0.30], [1.0, 1.5, 2.0]),
+    }
+
     def __init__(self, binance_client, config):
         """Initialize trading executor.
 
@@ -47,6 +57,9 @@ class TradingExecutor:
 
         # APEX-V Phase A-4: 분할 TP 소프트웨어 모니터링 상태
         self._pending_split_tp_state: dict | None = None
+
+        # APEX-V: Regime TP 비율 전달용 (bot_instance에서 설정)
+        self._current_regime_str: str | None = None
 
         logger.info("Trading executor initialized")
 
@@ -976,7 +989,8 @@ class TradingExecutor:
         use_split_tp = getattr(self.config, "use_split_tp", False)
         if use_split_tp and entry_atr:
             return await self._place_split_tp_sl(
-                symbol, side, quantity, entry_price, entry_atr
+                symbol, side, quantity, entry_price, entry_atr,
+                regime=getattr(self, "_current_regime_str", None),
             )
 
         tp_price, sl_price = self._calculate_tp_sl_prices(
@@ -1042,6 +1056,7 @@ class TradingExecutor:
         quantity: float,
         entry_price: float,
         entry_atr: float | None = None,
+        regime: str | None = None,
     ) -> bool:
         """분할 TP 소프트웨어 모니터링 + exchange-side SL 배치.
 
@@ -1054,6 +1069,7 @@ class TradingExecutor:
             quantity: 전체 포지션 수량
             entry_price: 진입 가격
             entry_atr: ATR 값
+            regime: 마켓 레짐 문자열 (Regime TP 비율 조회용)
 
         Returns:
             True if SL placed successfully
@@ -1081,8 +1097,12 @@ class TradingExecutor:
             return False
 
         # TP 레벨을 소프트웨어 상태로 저장 (exchange 주문 없음)
-        ratios = getattr(self.config, "split_tp_ratios", [0.5, 0.3, 0.2])
-        atr_muls = getattr(self.config, "split_tp_atr_multipliers", [1.0, 1.5, 2.5])
+        use_regime_tp = getattr(self.config, "use_regime_tp_ratios", False)
+        if use_regime_tp and regime and regime.lower() in self.REGIME_TP_CONFIG:
+            ratios, atr_muls = self.REGIME_TP_CONFIG[regime.lower()]
+        else:
+            ratios = getattr(self.config, "split_tp_ratios", [0.5, 0.3, 0.2])
+            atr_muls = getattr(self.config, "split_tp_atr_multipliers", [1.0, 1.5, 2.5])
 
         levels: list[dict] = []
         for ratio, atr_mul in zip(ratios, atr_muls, strict=False):

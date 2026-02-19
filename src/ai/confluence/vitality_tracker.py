@@ -49,6 +49,9 @@ class VitalityTracker:
     SHARPE_HEALTHY = 1.0
     SHARPE_CAUTION = 0.5
 
+    # Strategy Lifecycle: 레벨별 사이즈 멀티플라이어
+    LEVEL_SIZE_MAP: dict["VitalityLevel", float] = {}  # populated after class def
+    RETIREMENT_THRESHOLD = 5  # 연속 CRITICAL 횟수 → 은퇴
 
     def __init__(self, window_size: int = 60) -> None:
         """초기화.
@@ -58,6 +61,7 @@ class VitalityTracker:
         """
         self.window_size = window_size
         self._trades: deque[float] = deque(maxlen=window_size)
+        self._consecutive_critical: int = 0
         self._log = logger.bind(module="vitality")
 
     def record_trade(self, pnl_pct: float) -> None:
@@ -68,6 +72,11 @@ class VitalityTracker:
         """
         self._trades.append(pnl_pct)
         snapshot = self.get_vitality()
+        # 연속 CRITICAL 추적
+        if snapshot.level == VitalityLevel.CRITICAL:
+            self._consecutive_critical += 1
+        else:
+            self._consecutive_critical = 0
         self._log.info(
             f"Vitality 기록: pnl={pnl_pct:.4f}, "
             f"level={snapshot.level.value}, sharpe={snapshot.sharpe_ratio:.2f}, "
@@ -116,3 +125,21 @@ class VitalityTracker:
         if sharpe >= 0.0:
             return VitalityLevel.WARNING
         return VitalityLevel.CRITICAL
+
+    def get_size_multiplier(self) -> float:
+        """현재 Vitality 레벨에 따른 사이즈 멀티플라이어 반환."""
+        level = self.get_vitality().level
+        return self.LEVEL_SIZE_MAP.get(level, 1.0)
+
+    def should_retire(self) -> bool:
+        """연속 CRITICAL 횟수가 임계값 이상이면 은퇴 권고."""
+        return self._consecutive_critical >= self.RETIREMENT_THRESHOLD
+
+
+# 클래스 정의 후 LEVEL_SIZE_MAP 채우기 (forward reference 해결)
+VitalityTracker.LEVEL_SIZE_MAP = {
+    VitalityLevel.HEALTHY: 1.0,
+    VitalityLevel.CAUTION: 0.70,
+    VitalityLevel.WARNING: 0.40,
+    VitalityLevel.CRITICAL: 0.0,
+}
