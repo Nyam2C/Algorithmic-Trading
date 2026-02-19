@@ -375,3 +375,213 @@ class RegimeDetector:
         }
 
         return info.get(regime, info[MarketRegime.UNKNOWN])
+
+
+# =============================================================================
+# Regime Transition Protocol
+# =============================================================================
+
+
+class TransitionPhase(Enum):
+    """레짐 전환 단계."""
+    STABLE = "stable"                    # 안정 (확정 레짐)
+    CONFIRMING = "confirming"            # 전환 확인 중
+    HIGH_VOL_LOCKOUT = "high_vol_lockout"  # 급변 잠금 (UNCERTAINTY 강제)
+
+
+class RegimeTransitionResult:
+    """레짐 전환 평가 결과.
+
+    Attributes:
+        confirmed_regime: 확정된 레짐
+        phase: 현재 전환 단계
+        should_reduce_position: 포지션 50% 축소 권고
+        is_conservative: 보수적 모드 (신규 진입 제한)
+        raw_regime: 감지된 원시 레짐
+    """
+    __slots__ = (
+        "confirmed_regime",
+        "is_conservative",
+        "phase",
+        "raw_regime",
+        "should_reduce_position",
+    )
+
+    def __init__(
+        self,
+        confirmed_regime: MarketRegime,
+        phase: TransitionPhase,
+        *,
+        should_reduce_position: bool = False,
+        is_conservative: bool = False,
+        raw_regime: MarketRegime | None = None,
+    ) -> None:
+        self.confirmed_regime = confirmed_regime
+        self.phase = phase
+        self.should_reduce_position = should_reduce_position
+        self.is_conservative = is_conservative
+        self.raw_regime = raw_regime or confirmed_regime
+
+
+class RegimeTransitionManager:
+    """레짐 전환 프로토콜 관리자.
+
+    상태 머신:
+    - STABLE + (raw != confirmed) -> CONFIRMING, should_reduce=True (1회)
+    - CONFIRMING + (확인 시간 경과) -> STABLE (새 confirmed)
+    - CONFIRMING + (원복) -> STABLE (취소)
+    - 12h내 3+회 전환 -> HIGH_VOL_LOCKOUT (UNCERTAINTY, 24h)
+    - LOCKOUT + (24h 경과) -> STABLE
+    """
+
+    CONFIRMATION_HOURS: float = 12.0
+    RAPID_FLIP_THRESHOLD: int = 3
+    LOCKOUT_HOURS: float = 24.0
+    POSITION_REDUCE_PCT: float = 0.50
+
+    def __init__(self) -> None:
+        self._confirmed_regime: MarketRegime = MarketRegime.UNKNOWN
+        self._phase: TransitionPhase = TransitionPhase.STABLE
+        self._pending_regime: MarketRegime | None = None
+        self._confirming_since: float = 0.0  # timestamp
+        self._lockout_since: float = 0.0
+        self._recent_transitions: list[float] = []  # timestamps
+        self._reduce_emitted: bool = False
+
+    def update(  # noqa: PLR0912
+        self, raw_regime: MarketRegime, now: float,
+    ) -> RegimeTransitionResult:
+        """레짐 전환 상태 업데이트.
+
+        Args:
+            raw_regime: RegimeDetector가 감지한 현재 레짐
+            now: 현재 시각 (time.time() 등 epoch seconds)
+
+        Returns:
+            RegimeTransitionResult
+        """
+        # LOCKOUT 상태 처리
+        if self._phase == TransitionPhase.HIGH_VOL_LOCKOUT:
+            elapsed = (now - self._lockout_since) / 3600.0
+            if elapsed >= self.LOCKOUT_HOURS:
+                self._phase = TransitionPhase.STABLE
+                self._confirmed_regime = raw_regime
+                self._recent_transitions.clear()
+                logger.info(f"LOCKOUT 해제 -> STABLE ({raw_regime.value})")
+            else:
+                return RegimeTransitionResult(
+                    confirmed_regime=MarketRegime.UNCERTAINTY,
+                    phase=TransitionPhase.HIGH_VOL_LOCKOUT,
+                    is_conservative=True,
+                    raw_regime=raw_regime,
+                )
+
+        # CONFIRMING 상태 처리
+        if self._phase == TransitionPhase.CONFIRMING:
+            if raw_regime == self._confirmed_regime:
+                # 원래 레짐으로 복귀 - 전환 취소
+                self._phase = TransitionPhase.STABLE
+                self._pending_regime = None
+                self._reduce_emitted = False
+                logger.info(f"전환 취소 -> STABLE ({self._confirmed_regime.value})")
+            elif raw_regime == self._pending_regime:
+                # 확인 시간 경과 체크
+                elapsed = (now - self._confirming_since) / 3600.0
+                if elapsed >= self.CONFIRMATION_HOURS:
+                    self._record_transition(now)
+                    if self._check_rapid_flip(now):
+                        return self._enter_lockout(now, raw_regime)
+                    self._confirmed_regime = raw_regime
+                    self._phase = TransitionPhase.STABLE
+                    self._pending_regime = None
+                    self._reduce_emitted = False
+                    logger.info(f"전환 확정 -> STABLE ({raw_regime.value})")
+                else:
+                    return RegimeTransitionResult(
+                        confirmed_regime=self._confirmed_regime,
+                        phase=TransitionPhase.CONFIRMING,
+                        is_conservative=True,
+                        raw_regime=raw_regime,
+                    )
+            else:
+                # 다른 레짐으로 또 변경 -> 새 CONFIRMING 시작
+                self._pending_regime = raw_regime
+                self._confirming_since = now
+                self._record_transition(now)
+                if self._check_rapid_flip(now):
+                    return self._enter_lockout(now, raw_regime)
+                return RegimeTransitionResult(
+                    confirmed_regime=self._confirmed_regime,
+                    phase=TransitionPhase.CONFIRMING,
+                    should_reduce_position=not self._reduce_emitted,
+                    is_conservative=True,
+                    raw_regime=raw_regime,
+                )
+
+        # STABLE 상태
+        if (self._phase == TransitionPhase.STABLE
+                and raw_regime != self._confirmed_regime):
+            self._phase = TransitionPhase.CONFIRMING
+            self._pending_regime = raw_regime
+            self._confirming_since = now
+            self._reduce_emitted = False
+            self._record_transition(now)
+            if self._check_rapid_flip(now):
+                return self._enter_lockout(now, raw_regime)
+            logger.info(
+                f"레짐 변경 감지: {self._confirmed_regime.value} -> "
+                f"{raw_regime.value} (확인 대기)"
+            )
+            self._reduce_emitted = True
+            return RegimeTransitionResult(
+                confirmed_regime=self._confirmed_regime,
+                phase=TransitionPhase.CONFIRMING,
+                should_reduce_position=True,
+                is_conservative=True,
+                raw_regime=raw_regime,
+            )
+
+        return RegimeTransitionResult(
+            confirmed_regime=self._confirmed_regime,
+            phase=self._phase,
+            raw_regime=raw_regime,
+        )
+
+    def _record_transition(self, now: float) -> None:
+        self._recent_transitions.append(now)
+        # 12시간 이전 기록 제거
+        cutoff = now - self.CONFIRMATION_HOURS * 3600
+        self._recent_transitions = [
+            t for t in self._recent_transitions if t > cutoff
+        ]
+
+    def _check_rapid_flip(self, now: float) -> bool:
+        cutoff = now - self.CONFIRMATION_HOURS * 3600
+        recent = [t for t in self._recent_transitions if t > cutoff]
+        return len(recent) >= self.RAPID_FLIP_THRESHOLD
+
+    def _enter_lockout(
+        self, now: float, raw_regime: MarketRegime,
+    ) -> RegimeTransitionResult:
+        self._phase = TransitionPhase.HIGH_VOL_LOCKOUT
+        self._lockout_since = now
+        self._confirmed_regime = MarketRegime.UNCERTAINTY
+        self._pending_regime = None
+        logger.warning(
+            f"급변 감지 ({len(self._recent_transitions)}회) -> "
+            f"HIGH_VOL_LOCKOUT (24h)"
+        )
+        return RegimeTransitionResult(
+            confirmed_regime=MarketRegime.UNCERTAINTY,
+            phase=TransitionPhase.HIGH_VOL_LOCKOUT,
+            is_conservative=True,
+            raw_regime=raw_regime,
+        )
+
+    @property
+    def phase(self) -> TransitionPhase:
+        return self._phase
+
+    @property
+    def confirmed_regime(self) -> MarketRegime:
+        return self._confirmed_regime

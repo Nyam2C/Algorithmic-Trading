@@ -56,6 +56,10 @@ class TradingMetrics:
     _default_drawdown_pct: Gauge | None = None
     _default_win_rate: Gauge | None = None
     _default_gate_total: Counter | None = None
+    _default_shadow_agreement: Gauge | None = None
+    _default_bt_live_divergence: Gauge | None = None
+    _default_bt_live_alert_total: Counter | None = None
+    _default_shadow_comparison_total: Counter | None = None
 
     def __init__(self, registry: CollectorRegistry | None = None) -> None:
         """메트릭 초기화.
@@ -94,6 +98,12 @@ class TradingMetrics:
             self._drawdown_pct = TradingMetrics._default_drawdown_pct
             self._win_rate = TradingMetrics._default_win_rate
             self._gate_total = TradingMetrics._default_gate_total
+            self._shadow_agreement = TradingMetrics._default_shadow_agreement
+            self._shadow_comparison_total = (
+                TradingMetrics._default_shadow_comparison_total
+            )
+            self._bt_live_divergence = TradingMetrics._default_bt_live_divergence
+            self._bt_live_alert_total = TradingMetrics._default_bt_live_alert_total
             return
 
         # 새 레지스트리거나 처음 초기화
@@ -283,7 +293,39 @@ class TradingMetrics:
             registry=self._registry,
         )
 
+        # Shadow Mode 메트릭
+        shadow_agreement = Gauge(
+            "trading_shadow_agreement_pct",
+            "Shadow mode direction agreement percentage",
+            ["bot_name"],
+            registry=self._registry,
+        )
+        shadow_comparison_total = Counter(
+            "trading_shadow_comparison_total",
+            "Shadow mode comparison count",
+            ["bot_name", "match"],
+            registry=self._registry,
+        )
+
+        # BT↔Live Comparator 메트릭
+        bt_live_divergence = Gauge(
+            "trading_bt_live_divergence_pct",
+            "BT vs Live total divergence percentage",
+            ["bot_name"],
+            registry=self._registry,
+        )
+        bt_live_alert_total = Counter(
+            "trading_bt_live_alert_total",
+            "BT vs Live alert count",
+            ["bot_name", "level"],
+            registry=self._registry,
+        )
+
         # 인스턴스 변수에 저장
+        self._bt_live_divergence = bt_live_divergence
+        self._bt_live_alert_total = bt_live_alert_total
+        self._shadow_agreement = shadow_agreement
+        self._shadow_comparison_total = shadow_comparison_total
         self._gate_total = gate_total
         self._trades_total = trades_total
         self._trade_duration = trade_duration
@@ -333,6 +375,10 @@ class TradingMetrics:
             TradingMetrics._default_drawdown_pct = drawdown_pct
             TradingMetrics._default_win_rate = win_rate
             TradingMetrics._default_gate_total = gate_total
+            TradingMetrics._default_shadow_agreement = shadow_agreement
+            TradingMetrics._default_shadow_comparison_total = shadow_comparison_total
+            TradingMetrics._default_bt_live_divergence = bt_live_divergence
+            TradingMetrics._default_bt_live_alert_total = bt_live_alert_total
 
     @property
     def trades_total(self) -> Counter:
@@ -686,12 +732,37 @@ class TradingMetrics:
                 bot_name=bot_name, gate=gate, outcome=outcome
             ).inc()
 
-    def clear_position_metrics(self, bot_name: str) -> None:
-        """포지션 청산 시 메트릭 클리어.
 
-        Args:
-            bot_name: 봇 이름
-        """
+    def record_shadow_comparison(
+        self,
+        bot_name: str,
+        match: bool,
+        agreement_pct: float,
+    ) -> None:
+        """Shadow Mode 비교 결과 기록."""
+        if self._shadow_comparison_total is not None:
+            self._shadow_comparison_total.labels(
+                bot_name=bot_name, match=str(match).lower(),
+            ).inc()
+        if self._shadow_agreement is not None:
+            self._shadow_agreement.labels(bot_name=bot_name).set(agreement_pct)
+
+    def record_bt_live_divergence(
+        self,
+        bot_name: str,
+        divergence_pct: float,
+        level: str = "normal",
+    ) -> None:
+        """BT↔Live 괴리율 기록."""
+        if self._bt_live_divergence is not None:
+            self._bt_live_divergence.labels(bot_name=bot_name).set(divergence_pct)
+        if level != "normal" and self._bt_live_alert_total is not None:
+            self._bt_live_alert_total.labels(
+                bot_name=bot_name, level=level,
+            ).inc()
+
+    def clear_position_metrics(self, bot_name: str) -> None:
+        """포지션 청산 시 메트릭 클리어."""
         self.position_pnl.labels(bot_name=bot_name).set(0.0)
         logger.debug(f"포지션 메트릭 클리어: bot={bot_name}")
 
@@ -710,101 +781,51 @@ def _get_metrics() -> TradingMetrics:
 
 
 def get_metrics_registry() -> CollectorRegistry:
-    """메트릭 레지스트리 반환.
-
-    Returns:
-        Prometheus CollectorRegistry
-    """
+    """메트릭 레지스트리 반환."""
     return REGISTRY
 
 
 def record_trade(
-    bot_name: str,
-    side: str,
-    result: str,
-    duration_seconds: float,
+    bot_name: str, side: str, result: str, duration_seconds: float,
 ) -> None:
-    """거래 기록 (편의 함수).
-
-    Args:
-        bot_name: 봇 이름
-        side: 거래 방향 ("LONG" or "SHORT")
-        result: 거래 결과 ("win", "loss", "timeout", "manual")
-        duration_seconds: 거래 지속시간 (초)
-    """
+    """거래 기록 (편의 함수)."""
     _get_metrics().record_trade(bot_name, side, result, duration_seconds)
 
 
-def record_api_latency(
-    endpoint: str,
-    latency_seconds: float,
-) -> None:
-    """API 지연시간 기록 (편의 함수).
-
-    Args:
-        endpoint: API 엔드포인트 이름
-        latency_seconds: 지연시간 (초)
-    """
+def record_api_latency(endpoint: str, latency_seconds: float) -> None:
+    """API 지연시간 기록 (편의 함수)."""
     _get_metrics().record_api_latency(endpoint, latency_seconds)
 
 
-def record_position_pnl(
-    bot_name: str,
-    pnl_percent: float,
-) -> None:
-    """포지션 PnL 기록 (편의 함수).
-
-    Args:
-        bot_name: 봇 이름
-        pnl_percent: PnL 비율 (%)
-    """
+def record_position_pnl(bot_name: str, pnl_percent: float) -> None:
+    """포지션 PnL 기록 (편의 함수)."""
     _get_metrics().record_position_pnl(bot_name, pnl_percent)
 
 
-def record_signal_confidence(
-    bot_name: str,
-    confidence: float,
-) -> None:
-    """시그널 신뢰도 기록 (편의 함수).
-
-    Args:
-        bot_name: 봇 이름
-        confidence: 신뢰도 (0-1)
-    """
+def record_signal_confidence(bot_name: str, confidence: float) -> None:
+    """시그널 신뢰도 기록 (편의 함수)."""
     _get_metrics().record_signal_confidence(bot_name, confidence)
 
 
-def record_loop_duration(
-    bot_name: str,
-    duration_seconds: float,
-) -> None:
+def record_loop_duration(bot_name: str, duration_seconds: float) -> None:
     """루프 소요시간 기록 (편의 함수)."""
     _get_metrics().record_loop_duration(bot_name, duration_seconds)
 
 
-def record_signal(
-    bot_name: str,
-    signal: str,
-    source: str,
-) -> None:
+def record_signal(bot_name: str, signal: str, source: str) -> None:
     """시그널 발생 기록 (편의 함수)."""
     _get_metrics().record_signal(bot_name, signal, source)
 
 
-def record_consecutive_wait(
-    bot_name: str,
-    count: int,
-) -> None:
+def record_consecutive_wait(bot_name: str, count: int) -> None:
     """연속 WAIT 카운트 기록 (편의 함수)."""
     _get_metrics().record_consecutive_wait(bot_name, count)
 
 
-def record_rsi(
-    bot_name: str,
-    rsi_value: float,
-) -> None:
+def record_rsi(bot_name: str, rsi_value: float) -> None:
     """RSI 값 기록 (편의 함수)."""
     _get_metrics().record_rsi(bot_name, rsi_value)
+
 
 def record_account_balance(bot_name: str, balance: float) -> None:
     """총 계좌 잔고 기록 (편의 함수)."""
@@ -844,3 +865,17 @@ def record_win_rate(bot_name: str, win_rate: float) -> None:
 def record_gate_outcome(bot_name: str, gate: str, outcome: str) -> None:
     """5-Gate Pipeline gate 결과 기록 (편의 함수)."""
     _get_metrics().record_gate_outcome(bot_name, gate, outcome)
+
+
+def record_shadow_comparison(
+    bot_name: str, match: bool, agreement_pct: float,
+) -> None:
+    """Shadow Mode 비교 결과 기록 (편의 함수)."""
+    _get_metrics().record_shadow_comparison(bot_name, match, agreement_pct)
+
+
+def record_bt_live_divergence(
+    bot_name: str, divergence_pct: float, level: str = "normal",
+) -> None:
+    """BT↔Live 괴리율 기록 (편의 함수)."""
+    _get_metrics().record_bt_live_divergence(bot_name, divergence_pct, level)

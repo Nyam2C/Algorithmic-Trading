@@ -12,6 +12,7 @@ import contextlib
 import math
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -28,7 +29,11 @@ from src.analytics.trade_analyzer import TradeHistoryAnalyzer
 from src.bot_config import BotConfig
 from src.data.indicators import analyze_market
 from src.data.multi_timeframe import MultiTimeframeAnalyzer
-from src.data.regime_detector import MarketRegime, RegimeDetector  # Phase 6.2
+from src.data.regime_detector import (  # Phase 6.2
+    MarketRegime,
+    RegimeDetector,
+    RegimeTransitionManager,
+)
 from src.exchange.binance import BinanceTestnetClient
 from src.storage.audit_log import AuditLogManager
 from src.storage.redis_state import DummyRedisStateManager, RedisStateManager
@@ -42,6 +47,21 @@ OnSignalCallback = Callable[[str, str, float], Awaitable[None]]
 OnTradeCallback = Callable[[str, str, str, float, float | None], Awaitable[None]]
 OnErrorCallback = Callable[[str, Exception], Awaitable[None]]
 OnExposureCheckCallback = Callable[[str, float], Awaitable[tuple[bool, str]]]
+
+
+@dataclass
+class ShadowComparison:
+    """Shadow Mode 비교 결과."""
+    primary_signal: str
+    shadow_signal: str
+    direction_match: bool
+    primary_source: str
+    shadow_source: str
+
+    @property
+    def agreement_pct(self) -> float:
+        """방향 일치율 (0 or 100%)."""
+        return 100.0 if self.direction_match else 0.0
 
 
 class BotInstance:
@@ -168,6 +188,20 @@ class BotInstance:
         # Phase 6.2: 마켓 레짐 감지기
         self._regime_detector = RegimeDetector()
         self._current_regime: MarketRegime = MarketRegime.UNKNOWN
+
+        # APEX-V: Regime Transition Manager
+        self._regime_transition_mgr: RegimeTransitionManager | None = None
+        if getattr(config, 'use_regime_transition_protocol', False):
+            self._regime_transition_mgr = RegimeTransitionManager()
+
+        # APEX-V: BT↔Live Comparator
+        self._bt_live_comparator: Any | None = None
+        if getattr(config, 'use_bt_live_comparator', False):
+            from src.analytics.bt_live_comparator import BTLiveComparator
+            self._bt_live_comparator = BTLiveComparator(
+                warning_threshold=getattr(config, 'bt_live_warning_threshold', 0.20),
+                critical_threshold=getattr(config, 'bt_live_critical_threshold', 0.30),
+            )
 
         # APEX-V Fast Layer: WebSocket Manager
         self._ws_manager: Any | None = None
@@ -842,7 +876,12 @@ class BotInstance:
                         _oi_orth = OIOrthogonalizer()
                         self._log.info("OI Orthogonalizer 초기화")
                     self._ensemble_generator.set_funding_channel(
-                        FundingBasisChannel(orthogonalizer=_oi_orth)
+                        FundingBasisChannel(
+                            orthogonalizer=_oi_orth,
+                            use_5state=getattr(
+                                self.config, 'use_funding_5state', False,
+                            ),
+                        )
                     )
                     self._log.info("FundingBasis 채널 연결")
 
@@ -1727,6 +1766,39 @@ class BotInstance:
                 except Exception as e:
                     self._log.debug(f"메트릭 기록 실패: {e}")
 
+            # APEX-V: BT↔Live 비교 기록
+            if self._bt_live_comparator:
+                try:
+                    from src.analytics.bt_live_comparator import TradeComparison
+                    comp = TradeComparison(
+                        trade_id=str(
+                            self._executor.current_position.get("trade_id", "")
+                            if self._executor.current_position else ""
+                        ),
+                        timestamp=datetime.now(),
+                        side=side,
+                        bt_entry=entry_price,  # BT 가정 = 시그널 생성 시점 가격
+                        live_entry=exit_price,  # 실제 체결가
+                        live_fill_rate=1.0,
+                    )
+                    report = self._bt_live_comparator.record_comparison(comp)
+                    if self._metrics:
+                        _level = "normal"
+                        if report.is_critical:
+                            _level = "critical"
+                        elif report.is_warning:
+                            _level = "warning"
+                        self._metrics.record_bt_live_divergence(
+                            self.bot_name, report.avg_total_divergence_pct, _level,
+                        )
+                    if report.is_critical:
+                        self._log.critical(
+                            f"BT↔Live CRITICAL: {report.avg_total_divergence_pct:.1%}"
+                        )
+                        self._is_paused = True
+                except Exception as _bt_err:
+                    self._log.debug(f"BT↔Live 비교 실패: {_bt_err}")
+
             # Phase 5 통합: TradeApprovalManager 거래 완료 기록
             if self._trade_approval:
                 await self._trade_approval.record_trade_completed(self.bot_name)
@@ -2242,6 +2314,23 @@ class BotInstance:
         indicators["regime"] = self._current_regime
         indicators["leverage"] = self.config.get_effective_leverage()
         self._log.info(f"[5G] Gate 1 레짐: {self._current_regime.value}")
+
+        # Regime Transition Protocol 적용 (pipeline)
+        if self._regime_transition_mgr is not None:
+            import time as _time
+            _tr = self._regime_transition_mgr.update(
+                self._current_regime, _time.time(),
+            )
+            self._current_regime = _tr.confirmed_regime
+            indicators["regime"] = self._current_regime
+            if _tr.should_reduce_position and self._executor:
+                self._log.warning(
+                    "[5G] 레짐 전환 → 포지션 50% 축소"
+                )
+                try:
+                    await self._executor.reduce_position_pct(0.50)
+                except Exception as _e:
+                    self._log.error(f"포지션 축소 실패: {_e}")
 
         # Prometheus: RSI 기록
         _rsi = indicators.get("rsi")
@@ -3102,8 +3191,16 @@ class BotInstance:
             # 필터 적용 (레짐/MTF/WAIT)
             signal = self._apply_signal_filters(signal, indicators)
 
+
         # 시그널 기록
         await self._record_signal(signal, signal_source, current_price, indicators)
+
+        # 5.5 Shadow Mode: 대체 경로 비교 실행 (상태 비오염)
+        if getattr(self.config, "use_shadow_mode", False):
+            await self._run_shadow_path(
+                market_data, indicators, sentiment_data,
+                signal, signal_source,
+            )
 
         # 6. 긴급 청산 확인
         if await self._handle_emergency_close(current_price):
@@ -3131,6 +3228,81 @@ class BotInstance:
         # 9. 신규 포지션 진입
         await self._attempt_new_entry(signal, current_price, has_position)
 
+
+    async def _run_shadow_path(
+        self,
+        market_data: dict[str, Any],
+        indicators: dict[str, Any],
+        sentiment_data: dict[str, Any] | None,
+        primary_signal: str,
+        primary_source: str,
+    ) -> None:
+        """Shadow 경로 실행: primary와 반대 경로를 비교만 기록.
+
+        use_confluence_engine=True → shadow = Legacy
+        use_confluence_engine=False → shadow = Pipeline
+        """
+        # Save state
+        saved_regime = self._current_regime
+        saved_wait = self._consecutive_wait_count
+        saved_mti_grade = self._last_mti_grade
+        saved_mti_score = self._last_mti_score
+        saved_ensemble = self._last_ensemble_result
+
+        try:
+            if getattr(self.config, "use_confluence_engine", False):
+                # primary is pipeline, shadow is legacy
+                shadow_signal, shadow_source = await self._generate_combined_signal(
+                    market_data, sentiment_data=sentiment_data
+                )
+                if not validate_signal(shadow_signal):
+                    shadow_signal = "WAIT"
+                shadow_source = f"shadow:legacy:{shadow_source}"
+            else:
+                # primary is legacy, shadow is pipeline
+                shadow_signal, shadow_source = await self._run_five_gate_pipeline(
+                    market_data, indicators, sentiment_data
+                )
+                shadow_source = f"shadow:pipeline:{shadow_source}"
+
+            comparison = ShadowComparison(
+                primary_signal=primary_signal,
+                shadow_signal=shadow_signal,
+                direction_match=primary_signal == shadow_signal,
+                primary_source=primary_source,
+                shadow_source=shadow_source,
+            )
+            self._record_shadow_comparison(comparison)
+
+        except Exception as e:
+            self._log.debug(f"Shadow 경로 실행 실패 (무시): {e}")
+        finally:
+            # Restore state
+            self._current_regime = saved_regime
+            self._consecutive_wait_count = saved_wait
+            self._last_mti_grade = saved_mti_grade
+            self._last_mti_score = saved_mti_score
+            self._last_ensemble_result = saved_ensemble
+
+    def _record_shadow_comparison(self, comparison: ShadowComparison) -> None:
+        """Shadow 비교 결과 기록 (Prometheus + 로그)."""
+        if comparison.direction_match:
+            self._log.info(
+                f"[Shadow] 일치: {comparison.primary_signal} "
+                f"({comparison.primary_source} == {comparison.shadow_source})"
+            )
+        else:
+            self._log.warning(
+                f"[Shadow] 불일치: primary={comparison.primary_signal} "
+                f"vs shadow={comparison.shadow_signal}"
+            )
+        if self._metrics:
+            with contextlib.suppress(Exception):
+                self._metrics.record_shadow_comparison(
+                    self.bot_name,
+                    comparison.direction_match,
+                    comparison.agreement_pct,
+                )
 
     async def _run_loop(self) -> None:
         """메인 트레이딩 루프."""

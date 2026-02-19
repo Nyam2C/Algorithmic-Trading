@@ -168,6 +168,20 @@ class BotConfig(BaseModel):
     # APEX-V: Strategy Lifecycle (Vitality-based sizing + retirement)
     use_strategy_lifecycle: bool = Field(default=False)
 
+    # APEX-V: BT↔Live Comparator
+    use_bt_live_comparator: bool = Field(default=False)
+    bt_live_warning_threshold: float = Field(default=0.20, gt=0, le=1.0)
+    bt_live_critical_threshold: float = Field(default=0.30, gt=0, le=1.0)
+
+    # APEX-V: Shadow Mode (시그널 경로 병렬 비교)
+    use_shadow_mode: bool = Field(default=False)
+
+    # APEX-V: Regime Transition Protocol
+    use_regime_transition_protocol: bool = Field(default=False)
+
+    # APEX-V: Funding 5-State 상태 머신
+    use_funding_5state: bool = Field(default=False)
+
     # APEX-V: Regime-based split TP ratios
     use_regime_tp_ratios: bool = Field(default=False)
 

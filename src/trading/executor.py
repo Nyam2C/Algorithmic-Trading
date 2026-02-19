@@ -783,6 +783,35 @@ class TradingExecutor:
             logger.error(f"Failed to close position: {e}")
             return None
 
+    async def reduce_position_pct(self, pct: float = 0.50) -> dict | None:
+        """포지션 일부 축소 (Regime Transition Protocol).
+
+        Args:
+            pct: 축소 비율 (0~1, 기본 50%)
+
+        Returns:
+            주문 결과 또는 None
+        """
+        try:
+            position = await self.client.get_position(self.config.symbol)
+            if not position:
+                logger.info("축소할 포지션 없음")
+                return None
+            total_qty = abs(position["position_amt"])
+            reduce_qty = round(total_qty * pct, 3)
+            if reduce_qty < self.MIN_ORDER_QTY:
+                logger.info(f"축소 수량 {reduce_qty} < 최소 {self.MIN_ORDER_QTY}, 스킵")
+                return None
+            side = "SELL" if position["side"] == "LONG" else "BUY"
+            order = await self.client.create_market_order(
+                symbol=self.config.symbol, side=side, quantity=reduce_qty,
+            )
+            logger.info(f"포지션 {pct:.0%} 축소 완료: {reduce_qty}")
+            return order
+        except Exception as e:
+            logger.error(f"포지션 축소 실패: {e}")
+            return None
+
     def clear_position(self) -> None:
         """Clear current position state.
 
