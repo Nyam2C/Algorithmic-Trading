@@ -130,6 +130,11 @@ class BotConfig(BaseModel):
     use_leverage_topology_channel: bool = Field(default=False)
     use_smart_money_channel: bool = Field(default=False)
 
+    # APEX-V Fast Layer: WebSocket 채널
+    use_ofi_channel: bool = Field(default=False)
+    use_whale_flow_channel: bool = Field(default=False)
+    use_websocket: bool = Field(default=False)
+
     # APEX-V Phase C: Confluence Engine
     use_confluence_engine: bool = Field(default=False)
 

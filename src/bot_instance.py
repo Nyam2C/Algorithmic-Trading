@@ -169,6 +169,9 @@ class BotInstance:
         self._regime_detector = RegimeDetector()
         self._current_regime: MarketRegime = MarketRegime.UNKNOWN
 
+        # APEX-V Fast Layer: WebSocket Manager
+        self._ws_manager: Any | None = None
+
         # APEX-V Phase D: Kelly sizer + Execution tracker
         self._kelly_sizer: Any | None = None
         self._execution_tracker: Any | None = None
@@ -815,6 +818,17 @@ class BotInstance:
                     self._ensemble_generator.set_smart_money_channel(SmartMoneyDivergenceChannel())
                     self._log.info("SmartMoney 채널 연결")
 
+                # APEX-V Fast Layer: OFI/WhaleFlow 채널 연결
+                if getattr(self.config, "use_ofi_channel", False):
+                    from src.ai.channels.ofi_channel import OFIChannel
+                    self._ensemble_generator.set_ofi_channel(OFIChannel())
+                    self._log.info("OFI 채널 연결")
+
+                if getattr(self.config, "use_whale_flow_channel", False):
+                    from src.ai.channels.whale_flow_channel import WhaleFlowChannel
+                    self._ensemble_generator.set_whale_flow_channel(WhaleFlowChannel())
+                    self._log.info("WhaleFlow 채널 연결")
+
                 # APEX-V Phase C: Confluence Engine 초기화
                 if getattr(self.config, "use_confluence_engine", False):
                     from src.ai.confluence.confluence_engine import (
@@ -844,6 +858,22 @@ class BotInstance:
 
             except Exception as e:
                 self._log.warning(f"앙상블 생성기 초기화 실패: {e}")
+
+        # APEX-V Fast Layer: WebSocket Manager 시작
+        if getattr(self.config, "use_websocket", False):
+            try:
+                from src.exchange.ws_manager import BinanceWSManager
+                self._ws_manager = BinanceWSManager(
+                    symbol=self.symbol,
+                    testnet=getattr(self._binance_client, "_testnet", True),
+                    api_key=self._binance_api_key,
+                    secret_key=self._binance_secret_key,
+                )
+                await self._ws_manager.start()
+                self._log.info("WebSocket Manager 시작 완료")
+            except Exception as e:
+                self._log.warning(f"WebSocket Manager 시작 실패: {e}")
+                self._ws_manager = None
 
         # APEX-V Phase D: Kelly Sizer 초기화
         if getattr(self.config, "use_kelly_sizing", False):
@@ -1022,65 +1052,81 @@ class BotInstance:
         }
 
     async def _fetch_sentiment_data(self) -> dict[str, Any] | None:
-        """시장 심리 데이터 수집 (Phase B 채널용)."""
+        """시장 심리 데이터 수집 (Phase B 채널 + Fast Layer용)."""
         cfg = self.config
-        if not any([
+        has_rest_channels = any([
             cfg.use_funding_basis_channel,
             cfg.use_leverage_topology_channel,
             cfg.use_smart_money_channel,
-        ]):
+        ])
+        has_ws_channels = any([
+            getattr(cfg, "use_ofi_channel", False),
+            getattr(cfg, "use_whale_flow_channel", False),
+        ])
+        if not has_rest_channels and not has_ws_channels:
             return None
 
-        if self._binance_client is None:
-            return None
+        sentiment_data: dict[str, Any] = {}
 
-        try:
-            sentiment = await self._binance_client.get_market_sentiment(self.symbol)
+        # REST 채널용 데이터 수집
+        if has_rest_channels and self._binance_client is not None:
+            try:
+                sentiment = await self._binance_client.get_market_sentiment(self.symbol)
 
-            # 단위 변환: Binance는 percentage(0.05=0.05%), 채널은 raw(0.0005=0.05%)
-            raw_fr = sentiment["funding_rate"] / 100.0
+                # 단위 변환: Binance는 percentage(0.05=0.05%), 채널은 raw(0.0005=0.05%)
+                raw_fr = sentiment["funding_rate"] / 100.0
 
-            current_price = self._current_price
+                current_price = self._current_price
 
-            # Redis에 OI/LS 스냅샷 저장
-            if self._redis_state_manager:
-                oi = sentiment.get("open_interest", 0.0)
-                ls = sentiment.get("long_short_ratio", 1.0)
-                if oi > 0:
-                    await self._redis_state_manager.save_oi_snapshot(
-                        self.symbol, oi, current_price
+                # Redis에 OI/LS 스냅샷 저장
+                if self._redis_state_manager:
+                    oi = sentiment.get("open_interest", 0.0)
+                    ls = sentiment.get("long_short_ratio", 1.0)
+                    if oi > 0:
+                        await self._redis_state_manager.save_oi_snapshot(
+                            self.symbol, oi, current_price
+                        )
+                    if ls > 0:
+                        await self._redis_state_manager.save_ls_snapshot(
+                            self.symbol, ls, current_price
+                        )
+
+                # Redis에서 히스토리 로드
+                oi_history: list[dict] = []
+                ls_history: list[dict] = []
+                if self._redis_state_manager:
+                    oi_history = await self._redis_state_manager.load_oi_history(
+                        self.symbol
                     )
-                if ls > 0:
-                    await self._redis_state_manager.save_ls_snapshot(
-                        self.symbol, ls, current_price
+                    ls_history = await self._redis_state_manager.load_ls_history(
+                        self.symbol
                     )
 
-            # Redis에서 히스토리 로드
-            oi_history: list[dict] = []
-            ls_history: list[dict] = []
-            if self._redis_state_manager:
-                oi_history = await self._redis_state_manager.load_oi_history(
-                    self.symbol
-                )
-                ls_history = await self._redis_state_manager.load_ls_history(
-                    self.symbol
-                )
+                sentiment_data = {
+                    "funding_rate": raw_fr,
+                    "long_short_ratio": sentiment["long_short_ratio"],
+                    "open_interest": sentiment["open_interest"],
+                    "current_price": current_price,
+                    "oi_history": oi_history,
+                    "ls_history": ls_history,
+                    "basis": sentiment.get("basis", 0.0),
+                    "global_long_ratio": sentiment.get("global_long_ratio", 0.5),
+                    "global_short_ratio": sentiment.get("global_short_ratio", 0.5),
+                    "taker_buy_sell_ratio": sentiment.get("taker_buy_sell_ratio", 1.0),
+                }
+            except Exception as e:
+                self._log.warning(f"심리 데이터 수집 실패: {e}")
 
-            return {
-                "funding_rate": raw_fr,
-                "long_short_ratio": sentiment["long_short_ratio"],
-                "open_interest": sentiment["open_interest"],
-                "current_price": current_price,
-                "oi_history": oi_history,
-                "ls_history": ls_history,
-                "basis": sentiment.get("basis", 0.0),
-                "global_long_ratio": sentiment.get("global_long_ratio", 0.5),
-                "global_short_ratio": sentiment.get("global_short_ratio", 0.5),
-                "taker_buy_sell_ratio": sentiment.get("taker_buy_sell_ratio", 1.0),
-            }
-        except Exception as e:
-            self._log.warning(f"심리 데이터 수집 실패: {e}")
-            return None
+        # APEX-V Fast Layer: WS 스냅샷 주입
+        if self._ws_manager and self._ws_manager.is_connected:
+            ob_snap = self._ws_manager.orderbook_aggregator.snapshot()
+            trade_snap = self._ws_manager.trade_aggregator.snapshot()
+            if ob_snap:
+                sentiment_data["ofi_snapshot"] = ob_snap
+            if trade_snap:
+                sentiment_data["whale_snapshot"] = trade_snap
+
+        return sentiment_data if sentiment_data else None
 
     def _get_klines_df(self, market_data: dict[str, Any]) -> Any:
         """klines를 TSMOM용 DataFrame으로 변환."""
@@ -2800,3 +2846,11 @@ class BotInstance:
         """봇 정지."""
         self._log.info("봇 정지 요청")
         self._is_running = False
+
+        # APEX-V Fast Layer: WebSocket Manager 정지
+        if self._ws_manager:
+            try:
+                await self._ws_manager.stop()
+                self._log.info("WebSocket Manager 정지 완료")
+            except Exception as e:
+                self._log.warning(f"WebSocket Manager 정지 실패: {e}")

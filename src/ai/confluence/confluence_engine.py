@@ -56,24 +56,24 @@ class ConfluenceEngine:
     # Step 3: Regime별 소스 가중치
     REGIME_WEIGHTS: dict[str, dict[str, float]] = {
         "strong_trend": {
-            "tsmom": 0.25, "smart_money": 0.15, "leverage_topology": 0.15,
+            "tsmom": 0.20, "smart_money": 0.10, "leverage_topology": 0.15,
             "funding_basis": 0.15, "gemini": 0.15, "rule_based": 0.10,
-            "scoring": 0.05,
+            "scoring": 0.05, "ofi": 0.05, "whale_flow": 0.05,
         },
         "weak_trend": {
-            "tsmom": 0.20, "smart_money": 0.15, "leverage_topology": 0.15,
-            "funding_basis": 0.15, "gemini": 0.15, "rule_based": 0.15,
-            "scoring": 0.05,
+            "tsmom": 0.15, "smart_money": 0.15, "leverage_topology": 0.15,
+            "funding_basis": 0.15, "gemini": 0.15, "rule_based": 0.10,
+            "scoring": 0.05, "ofi": 0.05, "whale_flow": 0.05,
         },
         "ranging": {
-            "tsmom": 0.10, "smart_money": 0.20, "leverage_topology": 0.20,
-            "funding_basis": 0.20, "gemini": 0.15, "rule_based": 0.10,
-            "scoring": 0.05,
+            "tsmom": 0.10, "smart_money": 0.20, "leverage_topology": 0.15,
+            "funding_basis": 0.15, "gemini": 0.15, "rule_based": 0.10,
+            "scoring": 0.05, "ofi": 0.05, "whale_flow": 0.05,
         },
         "uncertainty": {
             "tsmom": 0.15, "smart_money": 0.15, "leverage_topology": 0.15,
-            "funding_basis": 0.15, "gemini": 0.20, "rule_based": 0.15,
-            "scoring": 0.05,
+            "funding_basis": 0.15, "gemini": 0.15, "rule_based": 0.10,
+            "scoring": 0.05, "ofi": 0.05, "whale_flow": 0.05,
         },
     }
 
@@ -88,8 +88,8 @@ class ConfluenceEngine:
     # Step 4: 카테고리 분류
     CATEGORIES: dict[str, set[str]] = {
         "trend": {"tsmom", "rule_based"},
-        "structure": {"leverage_topology", "funding_basis"},
-        "sentiment": {"smart_money", "gemini"},
+        "structure": {"leverage_topology", "funding_basis", "ofi"},
+        "sentiment": {"smart_money", "gemini", "whale_flow"},
     }
 
     # Step 6: Regime x Session 임계값 테이블
@@ -141,6 +141,8 @@ class ConfluenceEngine:
         SignalSource.RULE_BASED.value: "rule_based",
         SignalSource.SCORING.value: "scoring",
         SignalSource.MEMORY_GEMINI.value: "gemini",  # memory_gemini -> gemini
+        SignalSource.OFI.value: "ofi",
+        SignalSource.WHALE_FLOW.value: "whale_flow",
     }
 
     def __init__(
@@ -320,13 +322,19 @@ class ConfluenceEngine:
             (direction, gate_details)
             direction: "LONG", "SHORT", or "UNDECIDED"
         """
+        _slow_sources = (
+            SignalSource.TSMOM, SignalSource.SMART_MONEY,
+            SignalSource.WHALE_FLOW,
+        )
+        _medium_sources = (
+            SignalSource.LEVERAGE_TOPOLOGY,
+            SignalSource.FUNDING_BASIS, SignalSource.OFI,
+        )
         slow_signals = [
-            s for s in signals
-            if s.source in (SignalSource.TSMOM, SignalSource.SMART_MONEY)
+            s for s in signals if s.source in _slow_sources
         ]
         medium_signals = [
-            s for s in signals
-            if s.source in (SignalSource.LEVERAGE_TOPOLOGY, SignalSource.FUNDING_BASIS)
+            s for s in signals if s.source in _medium_sources
         ]
         base_signals = [
             s for s in signals

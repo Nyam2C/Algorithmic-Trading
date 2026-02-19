@@ -25,6 +25,8 @@ class SignalSource(Enum):
     LEVERAGE_TOPOLOGY = "leverage_topology"
     SMART_MONEY = "smart_money"
     TSMOM = "tsmom"
+    OFI = "ofi"
+    WHALE_FLOW = "whale_flow"
 
 
 @dataclass
@@ -154,6 +156,10 @@ class EnsembleSignalGenerator:
         self._smart_money_channel: Any | None = None
         self._tsmom_channel: Any | None = None
 
+        # APEX-V Fast Layer 채널
+        self._ofi_channel: Any | None = None
+        self._whale_flow_channel: Any | None = None
+
         # APEX-V Phase C: Confluence Engine
         self._confluence_engine: Any | None = None
 
@@ -191,6 +197,14 @@ class EnsembleSignalGenerator:
     def set_tsmom_channel(self, channel: Any) -> None:
         """TSMOM 채널 설정."""
         self._tsmom_channel = channel
+
+    def set_ofi_channel(self, channel: Any) -> None:
+        """OFI 채널 설정."""
+        self._ofi_channel = channel
+
+    def set_whale_flow_channel(self, channel: Any) -> None:
+        """WhaleFlow 채널 설정."""
+        self._whale_flow_channel = channel
 
     def set_confluence_engine(self, engine: Any) -> None:
         """Confluence Engine 설정 (Phase C)."""
@@ -320,7 +334,7 @@ class EnsembleSignalGenerator:
 
         return result
 
-    async def _collect_channel_signals(
+    async def _collect_channel_signals(  # noqa: PLR0912, PLR0915
         self,
         sentiment_data: dict[str, Any] | None,
         klines_df: Any | None,
@@ -379,6 +393,26 @@ class EnsembleSignalGenerator:
                 signals.append(sig)
             except Exception as e:
                 self._log.warning(f"SmartMoney 채널 실패: {e}")
+
+        # APEX-V Fast Layer: OFI 채널
+        if self._ofi_channel and sentiment_data:
+            try:
+                ofi_snapshot = sentiment_data.get("ofi_snapshot")
+                if ofi_snapshot:
+                    sig = await self._ofi_channel.generate_signal(ofi_snapshot)
+                    signals.append(sig)
+            except Exception as e:
+                self._log.warning(f"OFI 채널 실패: {e}")
+
+        # APEX-V Fast Layer: WhaleFlow 채널
+        if self._whale_flow_channel and sentiment_data:
+            try:
+                whale_snapshot = sentiment_data.get("whale_snapshot")
+                if whale_snapshot:
+                    sig = await self._whale_flow_channel.generate_signal(whale_snapshot)
+                    signals.append(sig)
+            except Exception as e:
+                self._log.warning(f"WhaleFlow 채널 실패: {e}")
 
         return signals
 

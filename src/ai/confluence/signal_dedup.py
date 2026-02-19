@@ -23,8 +23,14 @@ class SignalDeduplicator:
     """
 
     # 계층 분류
-    SLOW_LAYER = {SignalSource.TSMOM, SignalSource.SMART_MONEY}
-    MEDIUM_LAYER = {SignalSource.LEVERAGE_TOPOLOGY, SignalSource.FUNDING_BASIS}
+    SLOW_LAYER = {
+        SignalSource.TSMOM, SignalSource.SMART_MONEY,
+        SignalSource.WHALE_FLOW,
+    }
+    MEDIUM_LAYER = {
+        SignalSource.LEVERAGE_TOPOLOGY,
+        SignalSource.FUNDING_BASIS, SignalSource.OFI,
+    }
     BASE_LAYER = {SignalSource.GEMINI_AI, SignalSource.RULE_BASED, SignalSource.SCORING}
 
     # 정적 MI 계수 (높을수록 중복 → 가중치 더 깎음)
