@@ -380,6 +380,19 @@ def reset_all_circuit_breakers() -> None:
         breaker.reset()
 
 
+def get_circuit_state(name: str) -> CircuitState | None:
+    """이름으로 Circuit Breaker 상태 조회.
+
+    Args:
+        name: Circuit Breaker 이름
+
+    Returns:
+        현재 CircuitState 또는 등록되지 않은 경우 None
+    """
+    breaker = _circuit_breakers.get(name)
+    return breaker.state if breaker else None
+
+
 def clear_registry() -> None:
     """전역 레지스트리 초기화 (테스트 격리용).
 

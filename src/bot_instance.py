@@ -176,6 +176,11 @@ class BotInstance:
         self._kelly_sizer: Any | None = None
         self._execution_tracker: Any | None = None
 
+        # APEX-V: Graceful Degradation Controller
+        self._degradation_controller: Any | None = None
+        self._last_degradation_level: int = 0
+        self._current_deg_state: Any | None = None
+
         # APEX-V 5-Gate Pipeline
         self._pipeline_size_pct: float | None = None
         self._last_ensemble_result: Any | None = None  # EnsembleResult 캐시
@@ -899,6 +904,19 @@ class BotInstance:
             except Exception as e:
                 self._log.warning(f"ExecutionTracker 초기화 실패: {e}")
 
+        # APEX-V: Graceful Degradation Controller 초기화
+        if getattr(self.config, "use_graceful_degradation", False):
+            try:
+                from src.trading.degradation_controller import (
+                    GracefulDegradationController,
+                )
+                self._degradation_controller = GracefulDegradationController()
+                self._log.info("GracefulDegradationController 초기화 완료")
+            except Exception as e:
+                self._log.warning(
+                    f"GracefulDegradationController 초기화 실패: {e}"
+                )
+
         # Phase 5 통합: TradeApprovalManager 초기화
         if getattr(self.config, "manual_approval_enabled", False):
             try:
@@ -1237,6 +1255,13 @@ class BotInstance:
         if self._executor is None:
             raise RuntimeError("Executor not initialized")
 
+        # Graceful Degradation: 진입 차단 체크
+        if self._current_deg_state and not self._current_deg_state.can_open_position:
+            self._log.info(
+                f"Degradation L{self._current_deg_state.level} — 진입 차단"
+            )
+            return None
+
         # Phase 7: 단일 거래 리스크 검증
         risk_ok, risk_reason = await self._risk_manager.validate_position_risk(
             stop_loss_pct=self.config.get_effective_stop_loss_pct(),
@@ -1254,6 +1279,18 @@ class BotInstance:
             self._pipeline_size_pct = None  # 한번 사용 후 클리어
         else:
             dynamic_size_pct = self._compute_dynamic_size()
+
+        # Graceful Degradation: 사이즈 조절
+        if (
+            self._current_deg_state
+            and dynamic_size_pct is not None
+            and self._current_deg_state.size_multiplier < 1.0
+        ):
+            dynamic_size_pct *= self._current_deg_state.size_multiplier
+            self._log.info(
+                f"Degradation L{self._current_deg_state.level} "
+                f"사이즈 x{self._current_deg_state.size_multiplier} 적용"
+            )
 
         order = await self._executor.open_position(
             signal, current_price, entry_atr, dynamic_size_pct=dynamic_size_pct
@@ -2648,7 +2685,43 @@ class BotInstance:
             else:
                 self._log.warning(f"알 수 없는 Redis 명령: {action}")
 
-    async def _execute_single_loop(self) -> None:
+    def _build_health_status(self) -> Any:
+        """현재 인프라 건강 상태를 HealthStatus로 조립."""
+        from src.trading.degradation_controller import HealthStatus
+        from src.utils.circuit_breaker import CircuitState, get_circuit_state
+
+        # WS 상태
+        ws_connected = True
+        ws_stale = False
+        ws_reconnect_failures = 0
+        ws_enabled = getattr(self.config, "use_websocket", False)
+        if self._ws_manager:
+            ws_connected = self._ws_manager.is_connected
+            ws_reconnect_failures = getattr(
+                self._ws_manager, "_reconnect_failures", 0
+            )
+            # stale: 연결되어 있지만 데이터가 오래됨
+            ws_stale = ws_connected and getattr(
+                self._ws_manager, "_stale", False
+            )
+
+        # Circuit Breaker 상태
+        md_state = get_circuit_state("binance_market_data")
+        tr_state = get_circuit_state("binance_trading")
+        ac_state = get_circuit_state("binance_account")
+
+        return HealthStatus(
+            ws_connected=ws_connected,
+            ws_stale=ws_stale,
+            ws_reconnect_failures=ws_reconnect_failures,
+            market_data_circuit_ok=md_state != CircuitState.OPEN,
+            trading_circuit_ok=tr_state != CircuitState.OPEN,
+            account_circuit_ok=ac_state != CircuitState.OPEN,
+            consecutive_loop_errors=self._consecutive_errors,
+            ws_enabled=ws_enabled,
+        )
+
+    async def _execute_single_loop(self) -> None:  # noqa: PLR0911, PLR0915
         """단일 트레이딩 루프 실행."""
         # Phase 1: Redis 명령 큐 확인
         await self._check_redis_commands()
@@ -2662,6 +2735,53 @@ class BotInstance:
         # 1. 리스크 한도 체크 및 강제 청산
         if await self._handle_risk_halt():
             return
+
+        # 1.5. Graceful Degradation 체크
+        if self._degradation_controller:
+            health = self._build_health_status()
+            deg_state = self._degradation_controller.evaluate(health)
+            self._current_deg_state = deg_state
+
+            # 레벨 변경 시 알림
+            if int(deg_state.level) != self._last_degradation_level:
+                self._log.warning(
+                    f"Degradation 레벨 변경: "
+                    f"L{self._last_degradation_level} → "
+                    f"L{deg_state.level} ({deg_state.reason})"
+                )
+                if self._metrics:
+                    with contextlib.suppress(Exception):
+                        self._metrics.record_gate_outcome(
+                            self.bot_name,
+                            f"degradation_L{deg_state.level}",
+                            "active",
+                        )
+                self._last_degradation_level = int(deg_state.level)
+
+            # L4: 전체 청산 + 일시정지
+            if deg_state.should_close_all:
+                self._log.critical(
+                    "DEGRADATION L4 전체 청산 실행 — "
+                    f"{deg_state.reason}"
+                )
+                await self._close_position(
+                    self._current_price or 0.0, "DEGRADATION_L4"
+                )
+                self._is_paused = True
+                await self._notify_error(
+                    RuntimeError(
+                        f"Degradation L4 전체 청산: {deg_state.reason}"
+                    )
+                )
+                return
+
+            # L3: 포지션 관리만 (SL/TP 체결 감지 후 return)
+            from src.trading.degradation_controller import DegradationLevel
+            if deg_state.level >= DegradationLevel.REST_FAILED:
+                self._log.info(
+                    f"Degradation L{deg_state.level} — 신규 진입/데이터 수집 스킵"
+                )
+                return
 
         # 2. 시장 데이터 수집
         market_data = await self._fetch_market_data()

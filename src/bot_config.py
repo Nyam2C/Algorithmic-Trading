@@ -138,6 +138,9 @@ class BotConfig(BaseModel):
     # APEX-V Phase C: Confluence Engine
     use_confluence_engine: bool = Field(default=False)
 
+    # APEX-V: Graceful Degradation Controller
+    use_graceful_degradation: bool = Field(default=False)
+
     # APEX-V Phase D: Kelly + Risk Enhancement
     use_kelly_sizing: bool = Field(default=False)
     kelly_fraction: float = Field(default=0.25, gt=0, le=1.0)
