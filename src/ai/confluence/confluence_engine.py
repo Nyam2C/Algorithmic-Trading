@@ -89,7 +89,7 @@ class ConfluenceEngine:
     CATEGORIES: dict[str, set[str]] = {
         "trend": {"tsmom", "rule_based"},
         "structure": {"leverage_topology", "funding_basis", "ofi"},
-        "sentiment": {"smart_money", "gemini", "whale_flow"},
+        "sentiment": {"smart_money", "gemini", "whale_flow", "liquidation_cascade"},
     }
 
     # Step 6: Regime x Session 임계값 테이블
@@ -143,6 +143,7 @@ class ConfluenceEngine:
         SignalSource.MEMORY_GEMINI.value: "gemini",  # memory_gemini -> gemini
         SignalSource.OFI.value: "ofi",
         SignalSource.WHALE_FLOW.value: "whale_flow",
+        SignalSource.LIQUIDATION_CASCADE.value: "liquidation_cascade",
     }
 
     def __init__(
@@ -152,6 +153,7 @@ class ConfluenceEngine:
         vitality_tracker: VitalityTracker | None = None,
         session_classifier: SessionClassifier | None = None,
         gemini_verifier: Any | None = None,
+        threshold_table: dict[str, dict[TradingSession, float]] | None = None,
     ) -> None:
         """Confluence Engine 초기화.
 
@@ -161,12 +163,14 @@ class ConfluenceEngine:
             vitality_tracker: 전략 생존력 추적기
             session_classifier: 세션 분류기
             gemini_verifier: Gemini AI 검증기 (Dead Zone용)
+            threshold_table: 커스텀 임계값 테이블 (Threshold Tuner용)
         """
         self._dedup = deduplicator or SignalDeduplicator()
         self._cost = cost_calculator or CostCalculator()
         self._vitality = vitality_tracker
         self._session = session_classifier or SessionClassifier()
         self._gemini = gemini_verifier
+        self._threshold_table = threshold_table or dict(self.THRESHOLD_TABLE)
         self._log = logger.bind(module="confluence")
 
     def _get_regime_key(self, regime: MarketRegime) -> str:
@@ -324,7 +328,7 @@ class ConfluenceEngine:
         """
         _slow_sources = (
             SignalSource.TSMOM, SignalSource.SMART_MONEY,
-            SignalSource.WHALE_FLOW,
+            SignalSource.WHALE_FLOW, SignalSource.LIQUIDATION_CASCADE,
         )
         _medium_sources = (
             SignalSource.LEVERAGE_TOPOLOGY,
@@ -519,10 +523,20 @@ class ConfluenceEngine:
     ) -> float:
         """Step 6: Regime x Session 적응형 임계값."""
         regime_key = self._get_regime_key(regime)
-        session_thresholds = self.THRESHOLD_TABLE.get(
-            regime_key, self.THRESHOLD_TABLE["weak_trend"]
+        session_thresholds = self._threshold_table.get(
+            regime_key,
+            self._threshold_table.get(
+                "weak_trend", self.THRESHOLD_TABLE["weak_trend"]
+            ),
         )
         return session_thresholds.get(session, 0.35)
+
+    def update_thresholds(
+        self, new_table: dict[str, dict[TradingSession, float]]
+    ) -> None:
+        """Threshold 테이블 업데이트 (Threshold Tuner용)."""
+        self._threshold_table = new_table
+        self._log.info(f"Threshold 테이블 업데이트: {len(new_table)} regimes")
 
     # =====================================================================
     # Step 7: Vitality

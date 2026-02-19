@@ -27,6 +27,7 @@ class SignalSource(Enum):
     TSMOM = "tsmom"
     OFI = "ofi"
     WHALE_FLOW = "whale_flow"
+    LIQUIDATION_CASCADE = "liquidation_cascade"
 
 
 @dataclass
@@ -160,6 +161,9 @@ class EnsembleSignalGenerator:
         self._ofi_channel: Any | None = None
         self._whale_flow_channel: Any | None = None
 
+        # APEX-V: Liquidation Cascade Hunter
+        self._liquidation_cascade_channel: Any | None = None
+
         # APEX-V Phase C: Confluence Engine
         self._confluence_engine: Any | None = None
 
@@ -205,6 +209,10 @@ class EnsembleSignalGenerator:
     def set_whale_flow_channel(self, channel: Any) -> None:
         """WhaleFlow 채널 설정."""
         self._whale_flow_channel = channel
+
+    def set_liquidation_cascade_channel(self, channel: Any) -> None:
+        """LiquidationCascadeHunter 채널 설정."""
+        self._liquidation_cascade_channel = channel
 
     def set_confluence_engine(self, engine: Any) -> None:
         """Confluence Engine 설정 (Phase C)."""
@@ -358,6 +366,7 @@ class EnsembleSignalGenerator:
                     sentiment_data.get("funding_rate"),
                     sentiment_data.get("long_short_ratio"),
                     basis=sentiment_data.get("basis"),
+                    oi_change_pct=sentiment_data.get("oi_change_pct"),
                 )
                 signals.append(sig)
             except Exception as e:
@@ -413,6 +422,20 @@ class EnsembleSignalGenerator:
                     signals.append(sig)
             except Exception as e:
                 self._log.warning(f"WhaleFlow 채널 실패: {e}")
+
+        # APEX-V: Liquidation Cascade Hunter
+        if self._liquidation_cascade_channel and sentiment_data:
+            try:
+                liq_snapshot = sentiment_data.get("liquidation_snapshot")
+                daily_avg = sentiment_data.get("liquidation_daily_avg", 0.0)
+                if liq_snapshot:
+                    depth_snap = sentiment_data.get("depth_snapshot")
+                    sig = await self._liquidation_cascade_channel.generate_signal(
+                        liq_snapshot, daily_avg, depth=depth_snap,
+                    )
+                    signals.append(sig)
+            except Exception as e:
+                self._log.warning(f"LiquidationCascade 채널 실패: {e}")
 
         return signals
 

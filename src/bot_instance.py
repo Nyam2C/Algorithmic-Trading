@@ -807,7 +807,16 @@ class BotInstance:
                     from src.ai.channels.funding_basis import (
                         FundingBasisChannel,
                     )
-                    self._ensemble_generator.set_funding_channel(FundingBasisChannel())
+                    _oi_orth = None
+                    if getattr(self.config, "use_oi_orthogonalization", False):
+                        from src.ai.channels.oi_orthogonalization import (
+                            OIOrthogonalizer,
+                        )
+                        _oi_orth = OIOrthogonalizer()
+                        self._log.info("OI Orthogonalizer 초기화")
+                    self._ensemble_generator.set_funding_channel(
+                        FundingBasisChannel(orthogonalizer=_oi_orth)
+                    )
                     self._log.info("FundingBasis 채널 연결")
 
                 if self.config.use_leverage_topology_channel:
@@ -835,6 +844,16 @@ class BotInstance:
                     self._ensemble_generator.set_whale_flow_channel(WhaleFlowChannel())
                     self._log.info("WhaleFlow 채널 연결")
 
+                # APEX-V: Liquidation Cascade Hunter 채널 연결
+                if getattr(self.config, "use_liquidation_cascade_channel", False):
+                    from src.ai.channels.liquidation_cascade import (
+                        LiquidationCascadeHunter,
+                    )
+                    self._ensemble_generator.set_liquidation_cascade_channel(
+                        LiquidationCascadeHunter()
+                    )
+                    self._log.info("LiquidationCascade 채널 연결")
+
                 # APEX-V Phase C: Confluence Engine 초기화
                 if getattr(self.config, "use_confluence_engine", False):
                     from src.ai.confluence.confluence_engine import (
@@ -852,8 +871,18 @@ class BotInstance:
                     from src.ai.confluence.vitality_tracker import (
                         VitalityTracker,
                     )
+                    # KSG MI 통합
+                    _ksg_matrix = None
+                    if getattr(self.config, "use_ksg_mi", False):
+                        from src.ai.confluence.ksg_estimator import (
+                            KSGMIMatrix,
+                        )
+                        _ksg_matrix = KSGMIMatrix()
+                        self._log.info("KSG MI Estimator 초기화")
+
+                    _dedup = SignalDeduplicator(ksg_matrix=_ksg_matrix)
                     _confluence = ConfluenceEngine(
-                        deduplicator=SignalDeduplicator(),
+                        deduplicator=_dedup,
                         cost_calculator=CostCalculator(),
                         vitality_tracker=VitalityTracker(),
                         session_classifier=SessionClassifier(),
@@ -874,6 +903,9 @@ class BotInstance:
                     testnet=getattr(self._binance_client, "_testnet", True),
                     api_key=self._binance_api_key,
                     secret_key=self._binance_secret_key,
+                    use_force_order=getattr(
+                        self.config, "use_force_order_stream", False
+                    ),
                 )
                 await self._ws_manager.start()
                 self._log.info("WebSocket Manager 시작 완료")
@@ -1121,6 +1153,15 @@ class BotInstance:
                         self.symbol
                     )
 
+                # OI 변화율 계산 (Orthogonalization용)
+                oi_change_pct = 0.0
+                _min_oi_history = 2
+                if oi_history and len(oi_history) >= _min_oi_history:
+                    prev_oi = oi_history[-2].get("oi", 0)
+                    curr_oi = sentiment.get("open_interest", 0)
+                    if prev_oi > 0:
+                        oi_change_pct = (curr_oi - prev_oi) / prev_oi
+
                 sentiment_data = {
                     "funding_rate": raw_fr,
                     "long_short_ratio": sentiment["long_short_ratio"],
@@ -1132,6 +1173,7 @@ class BotInstance:
                     "global_long_ratio": sentiment.get("global_long_ratio", 0.5),
                     "global_short_ratio": sentiment.get("global_short_ratio", 0.5),
                     "taker_buy_sell_ratio": sentiment.get("taker_buy_sell_ratio", 1.0),
+                    "oi_change_pct": oi_change_pct,
                 }
             except Exception as e:
                 self._log.warning(f"심리 데이터 수집 실패: {e}")
@@ -1144,6 +1186,18 @@ class BotInstance:
                 sentiment_data["ofi_snapshot"] = ob_snap
             if trade_snap:
                 sentiment_data["whale_snapshot"] = trade_snap
+
+            # forceOrder 스냅샷 주입
+            liq_agg = self._ws_manager.liquidation_aggregator
+            liq_snap = liq_agg.snapshot()
+            if liq_snap:
+                sentiment_data["liquidation_snapshot"] = liq_snap
+                sentiment_data["liquidation_daily_avg"] = liq_agg.daily_average()
+
+            # depth 스냅샷 주입 (Cascade Hunter용)
+            depth_snap = self._ws_manager.orderbook_aggregator.depth_spread_snapshot()
+            if depth_snap:
+                sentiment_data["depth_snapshot"] = depth_snap
 
         return sentiment_data if sentiment_data else None
 

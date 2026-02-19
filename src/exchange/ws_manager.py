@@ -285,6 +285,100 @@ class TradeAggregator:
         }
 
 
+
+
+class LiquidationAggregator:
+    """강제청산 이벤트 집계기.
+
+    forceOrder 메시지에서 청산 이벤트를 수집하여 캐스케이드 감지용 데이터 제공.
+    """
+
+    MAX_BUFFER_SIZE = 3000
+    STALE_THRESHOLD_SEC = 60.0  # 청산은 덜 빈번
+
+    def __init__(self) -> None:
+        self._buffer: deque[tuple[float, str, float, float]] = deque(
+            maxlen=self.MAX_BUFFER_SIZE
+        )
+        self._last_update_time: float = 0.0
+
+    def update(self, msg: dict[str, Any]) -> None:
+        """ForceOrder 메시지 처리.
+
+        Args:
+            msg: Binance forceOrder 메시지 {"o": {"S": side, "q": qty, "p": price}}
+        """
+        now = time.monotonic()
+        order = msg.get("o", msg)
+        side = str(order.get("S", "")).upper()
+        if side not in ("BUY", "SELL"):
+            return
+        try:
+            qty = float(order.get("q", 0))
+            price = float(order.get("p", 0))
+        except (ValueError, TypeError):
+            return
+        if qty <= 0 or price <= 0:
+            return
+
+        self._buffer.append((now, side, qty, price))
+        self._last_update_time = now
+
+    def snapshot(self, window: float = 30.0) -> dict[str, Any] | None:
+        """청산 스냅샷 반환.
+
+        Args:
+            window: 윈도우 크기 (초)
+
+        Returns:
+            {"count": int, "buy_vol": float, "sell_vol": float,
+             "total_vol": float, "events": list} or None if stale
+        """
+        now = time.monotonic()
+        if not self._buffer:
+            return None
+        if now - self._last_update_time > self.STALE_THRESHOLD_SEC:
+            return None
+
+        cutoff = now - window
+        events: list[tuple[float, str, float, float]] = []
+        buy_vol = 0.0
+        sell_vol = 0.0
+        for ts, side, qty, price in self._buffer:
+            if ts >= cutoff:
+                events.append((ts, side, qty, price))
+                if side == "BUY":
+                    buy_vol += qty
+                else:
+                    sell_vol += qty
+
+        return {
+            "count": len(events),
+            "buy_vol": round(buy_vol, 4),
+            "sell_vol": round(sell_vol, 4),
+            "total_vol": round(buy_vol + sell_vol, 4),
+            "events": events,
+        }
+
+    def count_in_window(self, window: float = 30.0) -> int:
+        """윈도우 내 청산 건수."""
+        now = time.monotonic()
+        cutoff = now - window
+        return sum(1 for ts, _, _, _ in self._buffer if ts >= cutoff)
+
+    def daily_average(self) -> float:
+        """버퍼 기반 일평균 청산 건수 추정."""
+        _min_for_avg = 2
+        if len(self._buffer) < _min_for_avg:
+            return 0.0
+        first_ts = self._buffer[0][0]
+        last_ts = self._buffer[-1][0]
+        span = last_ts - first_ts
+        if span <= 0:
+            return 0.0
+        rate_per_sec = len(self._buffer) / span
+        return rate_per_sec * 86400  # 24h
+
 class BinanceWSManager:
     """Binance WebSocket Manager.
 
@@ -303,14 +397,17 @@ class BinanceWSManager:
         testnet: bool = True,
         api_key: str = "",
         secret_key: str = "",
+        use_force_order: bool = False,
     ) -> None:
         self._symbol = symbol.lower()
         self._testnet = testnet
         self._api_key = api_key
         self._secret_key = secret_key
+        self._use_force_order = use_force_order
 
         self.orderbook_aggregator = OrderBookAggregator()
         self.trade_aggregator = TradeAggregator()
+        self.liquidation_aggregator = LiquidationAggregator()
 
         self._running = False
         self._last_message_time: float = 0.0
@@ -408,6 +505,13 @@ class BinanceWSManager:
             # aggTrade stream
             trade_socket = bsm.aggtrade_socket(self._symbol + "usdt")
 
+            # forceOrder stream (optional)
+            force_socket = None
+            if self._use_force_order:
+                force_socket = bsm.symbol_ticker_futures_socket(
+                    self._symbol + "usdt"
+                )
+
             async with depth_socket as ds, trade_socket as ts:
                 # 두 스트림을 병렬로 수신
                 depth_task = asyncio.create_task(
@@ -417,8 +521,17 @@ class BinanceWSManager:
                     self._listen_trades(ts)
                 )
 
+                tasks = [depth_task, trade_task]
+
+                # forceOrder stream 추가
+                if self._use_force_order and force_socket:
+                    force_task = asyncio.create_task(
+                        self._listen_force_orders_rest()
+                    )
+                    tasks.append(force_task)
+
                 done, pending = await asyncio.wait(
-                    [depth_task, trade_task],
+                    tasks,
                     return_when=asyncio.FIRST_EXCEPTION,
                 )
 
@@ -447,3 +560,36 @@ class BinanceWSManager:
             if msg:
                 self.trade_aggregator.update(msg)
                 self._last_message_time = time.monotonic()
+    async def _listen_force_orders_rest(self) -> None:
+        """ForceOrder 이벤트 폴링 (REST fallback).
+
+        Binance python-binance 라이브러리의 multiplex 지원 한계로
+        REST polling 방식으로 청산 데이터를 수집.
+        """
+        while self._running:
+            try:
+                from binance import AsyncClient  # noqa: PLC0415
+                client = await AsyncClient.create(
+                    api_key=self._api_key or "",
+                    api_secret=self._secret_key or "",
+                    testnet=self._testnet,
+                )
+                try:
+                    trades = await client.futures_liquidation_orders(
+                        symbol=self._symbol.upper() + "USDT",
+                        limit=50,
+                    )
+                    for trade in trades:
+                        self.liquidation_aggregator.update({
+                            "o": {
+                                "S": trade.get("side", ""),
+                                "q": trade.get("origQty", "0"),
+                                "p": trade.get("price", "0"),
+                            }
+                        })
+                        self._last_message_time = time.monotonic()
+                finally:
+                    await client.close_connection()
+            except Exception as e:
+                self._log.debug(f"forceOrder 폴링 실패: {e}")
+            await asyncio.sleep(5.0)  # 5초 간격 폴링

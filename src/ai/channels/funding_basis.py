@@ -3,6 +3,8 @@
 Extreme funding rate + 포지션 편중 시 역방향 시그널 생성.
 군중이 과도하게 몰릴 때 반대 방향으로 진입하는 역발상 전략.
 """
+from typing import Any
+
 from loguru import logger
 
 from src.ai.ensemble import IndividualSignal, SignalSource
@@ -20,11 +22,15 @@ class FundingBasisChannel:
     LS_LONG_CROWDED = 0.65      # 65%
     LS_SHORT_CROWDED = 0.60     # 60%
 
+    def __init__(self, orthogonalizer: Any | None = None) -> None:
+        self._orthogonalizer = orthogonalizer
+
     async def generate_signal(
         self,
         funding_rate: float | None,
         long_short_ratio: float | None,
         basis: float | None = None,
+        oi_change_pct: float | None = None,
     ) -> IndividualSignal:
         """Funding-Basis 시그널 생성.
 
@@ -33,6 +39,7 @@ class FundingBasisChannel:
             long_short_ratio: Long/Short 비율 (예: 1.5 = long 60%, short 40%)
                 Long% = ratio / (1 + ratio)
             basis: Mark-Index 스프레드 비율 (예: 0.001 = 0.1%)
+            oi_change_pct: OI 변화율 (직교화용)
 
         Returns:
             IndividualSignal
@@ -45,6 +52,15 @@ class FundingBasisChannel:
                     confidence=0.0,
                     reason="데이터 없음",
                     weight=0.15,
+                )
+
+            # OI 직교화 적용
+            if (self._orthogonalizer is not None
+                    and oi_change_pct is not None):
+                self._orthogonalizer.update(funding_rate, oi_change_pct)
+                self._orthogonalizer.recompute_beta()
+                funding_rate = self._orthogonalizer.orthogonalize(
+                    funding_rate, oi_change_pct
                 )
 
             # Long/Short ratio -> percentage

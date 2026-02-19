@@ -105,7 +105,7 @@ async def test_funding_channel_signal_via_sentiment_data() -> None:
         sentiment_data={"funding_rate": 0.0005, "long_short_ratio": 2.0},
     )
 
-    funding_ch.generate_signal.assert_called_once_with(0.0005, 2.0, basis=None)
+    funding_ch.generate_signal.assert_called_once_with(0.0005, 2.0, basis=None, oi_change_pct=None)
     sources = [s.source for s in result.individual_signals]
     assert SignalSource.FUNDING_BASIS in sources
 

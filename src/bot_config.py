@@ -146,6 +146,21 @@ class BotConfig(BaseModel):
     microprice_atr_offset: float = Field(default=0.1, gt=0, le=1.0)
     microprice_slide_factor: float = Field(default=0.5, gt=0, le=1.0)
 
+    # APEX-V: forceOrder + Liquidation Cascade
+    use_force_order_stream: bool = Field(default=False)
+    use_liquidation_cascade_channel: bool = Field(default=False)
+    use_liquidation_cascade_trigger: bool = Field(default=False)
+    liquidation_cascade_max_risk_pct: float = Field(default=0.01, gt=0, le=0.05)
+
+    # APEX-V: KSG MI Estimator
+    use_ksg_mi: bool = Field(default=False)
+
+    # APEX-V: OI Orthogonalization
+    use_oi_orthogonalization: bool = Field(default=False)
+
+    # APEX-V: Threshold Tuner
+    use_threshold_tuner: bool = Field(default=False)
+
     # APEX-V Phase D: Kelly + Risk Enhancement
     use_kelly_sizing: bool = Field(default=False)
     kelly_fraction: float = Field(default=0.25, gt=0, le=1.0)
