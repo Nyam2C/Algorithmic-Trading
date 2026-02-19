@@ -102,6 +102,41 @@ class OrderBookAggregator:
                 self._large_orders.remove(item)
         return False
 
+    def depth_spread_snapshot(self) -> dict[str, float] | None:
+        """오더북 깊이/스프레드 스냅샷.
+
+        Returns:
+            {"best_bid": float, "best_ask": float, "spread_pct": float,
+             "bid_depth_total": float, "ask_depth_total": float,
+             "depth_ratio": float} or None if stale/empty
+        """
+        now = time.monotonic()
+        if now - self._last_update_time > self.STALE_THRESHOLD_SEC:
+            return None
+        if not self._last_bids or not self._last_asks:
+            return None
+
+        best_bid = max(float(p) for p in self._last_bids)
+        best_ask = min(float(p) for p in self._last_asks)
+        if best_bid <= 0 or best_ask <= 0:
+            return None
+
+        mid = (best_bid + best_ask) / 2
+        spread_pct = (best_ask - best_bid) / mid * 100
+
+        bid_depth_total = sum(self._last_bids.values())
+        ask_depth_total = sum(self._last_asks.values())
+        depth_ratio = bid_depth_total / ask_depth_total if ask_depth_total > 0 else 0.0
+
+        return {
+            "best_bid": round(best_bid, 8),
+            "best_ask": round(best_ask, 8),
+            "spread_pct": round(spread_pct, 6),
+            "bid_depth_total": round(bid_depth_total, 4),
+            "ask_depth_total": round(ask_depth_total, 4),
+            "depth_ratio": round(depth_ratio, 4),
+        }
+
     def snapshot(self) -> dict[str, Any] | None:
         """OFI 스냅샷 반환.
 

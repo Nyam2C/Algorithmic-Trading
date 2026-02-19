@@ -1,10 +1,16 @@
 """Market Tradability Index (MTI) — Gate 0.
 
-APEX-V Phase A: 시장 거래 적합성 판단.
-RSA 대비 단순화 — L2 데이터 불필요:
-- volatility_score (33%): ATR% 히스토리컬 분포 기반
-- session_score (33%): UTC 시간대 (US:100, EU:90, ASIA:70, DeepNight:55)
-- volume_score (33%): 현재/평균 볼륨 비율
+APEX-V 5-Component MTI:
+- Spread Quality (25%): 실시간 bid-ask 스프레드 / ATR 정규화
+- Depth Liquidity (25%): 오더북 깊이 (bid+ask 합계), bid/ask 불균형 감점
+- Volatility Regime (20%): ATR% 히스토리컬 분포 기반
+- Event Calendar (15%): 펀딩 정산(8시간 주기) ±30분 감점
+- Session Quality (15%): UTC 세션별 점수 + EU+US Overlap
+
+Fallback modes:
+- 3-component (하위호환): Volatility(33%) + Session(33%) + Volume(33%)
+- 4-component: Spread(30%) + Volatility(25%) + Event(20%) + Session(25%)
+- 5-component: Spread(25%) + Depth(25%) + Volatility(20%) + Event(15%) + Session(15%)
 
 >=70 OPTIMAL | 40~69 REDUCED | <40 STANDBY(진입 차단)
 """
@@ -25,6 +31,7 @@ _REASON_VOLRATIO_THRESHOLD = 50
 # 세션 시간 경계 (UTC)
 _ASIA_END = 8       # 00:00~08:00
 _EU_END = 13        # 08:00~13:00
+_EU_US_OVERLAP_END = 14  # 13:00~14:00 EU+US Overlap
 _US_END = 21        # 13:00~21:00
 
 # 볼륨 비율 구간 경계
@@ -32,27 +39,53 @@ _VOL_VERY_LOW = 0.3
 _VOL_LOW = 0.7
 _VOL_HIGH = 1.5
 
-# 스프레드 구간 경계
+# 스프레드 구간 경계 (절대값 모드)
 _SPREAD_LOW = 0.5   # < 0.5% → 100점
 _SPREAD_HIGH = 2.0  # > 2.0% → 20점
 
+# 스프레드/ATR 비율 구간 (ATR-정규화 모드)
+_SPREAD_ATR_LOW = 0.1    # spread/ATR < 10% → 100점
+_SPREAD_ATR_HIGH = 0.5   # spread/ATR > 50% → 20점
+
+# Depth 구간 경계 (BTC 수량 기준)
+_DEPTH_VERY_LOW = 5.0     # < 5 BTC → 30점
+_DEPTH_LOW = 20.0         # < 20 BTC → 60점
+_DEPTH_HIGH = 100.0       # < 100 BTC → 90점
+# >= 100 BTC → 100점
+
+# Bid/Ask 불균형 감점 임계값
+_IMBALANCE_THRESHOLD = 3.0  # bid/ask > 3x or < 1/3x → 감점
+
+# 펀딩 정산 시간 (UTC hours)
+_FUNDING_HOURS = (0, 8, 16)
+_FUNDING_WINDOW_MINUTES = 30  # ±30분
+
 # 세션별 점수 (UTC 시간 기준)
 SESSION_SCORES = {
-    "US": 100,        # 13:30~21:00 UTC (NYSE open)
-    "EU": 90,         # 07:00~15:30 UTC (LSE open)
-    "ASIA": 70,       # 00:00~08:00 UTC (Tokyo/HK)
-    "DEEP_NIGHT": 55, # 21:00~00:00 UTC (low liquidity)
+    "US": 100,            # 14:00~21:00 UTC (NYSE open)
+    "EU_US_OVERLAP": 110, # 13:00~14:00 UTC (최고 유동성)
+    "EU": 90,             # 08:00~13:00 UTC (LSE open)
+    "ASIA": 70,           # 00:00~08:00 UTC (Tokyo/HK)
+    "DEEP_NIGHT": 55,     # 21:00~00:00 UTC (low liquidity)
 }
 
 # ATR% 분포 기반 변동성 점수 매핑
-# ATR% < 0.3: 저변동성 (30점), 0.3~0.8: 적정 (80점)
-# 0.8~1.5: 고변동성 (100점), >1.5: 과변동 (60점)
 VOLATILITY_BANDS = [
     (0.3, 30),    # 매우 낮은 변동성 -> 거래 기회 부족
     (0.8, 80),    # 적정 변동성
     (1.5, 100),   # 높은 변동성 -> 최적
     (float("inf"), 60),  # 과도한 변동성 -> 리스크 증가
 ]
+
+# 가중치 프리셋
+_WEIGHTS_5 = {
+    "spread": 0.25, "depth": 0.25, "volatility": 0.20,
+    "event": 0.15, "session": 0.15,
+}
+_WEIGHTS_4 = {
+    "spread": 0.30, "volatility": 0.25,
+    "event": 0.20, "session": 0.25,
+}
 
 
 @dataclass
@@ -76,8 +109,11 @@ class TradabilityScore:
 class MarketTradabilityIndex:
     """Gate 0: 시장 거래 적합성 판단.
 
-    세 가지 요소를 동일 가중치(33%)로 결합하여
-    현재 시장이 거래에 적합한지 판단합니다.
+    5-Component 모드 (WS 데이터 제공 시):
+        Spread(25%) + Depth(25%) + Volatility(20%) + Event(15%) + Session(15%)
+
+    3-Component 폴백 (하위호환):
+        Volatility(33%) + Session(33%) + Volume(33%)
 
     Example:
         >>> mti = MarketTradabilityIndex()
@@ -106,6 +142,10 @@ class MarketTradabilityIndex:
         volume_ratio: float,
         current_time: datetime | None = None,
         bid_ask_spread_pct: float | None = None,
+        bid_depth_total: float | None = None,
+        ask_depth_total: float | None = None,
+        atr_1m_pct: float | None = None,
+        event_times: list[datetime] | None = None,
     ) -> TradabilityScore:
         """시장 거래 적합성 평가.
 
@@ -113,7 +153,11 @@ class MarketTradabilityIndex:
             atr_pct: ATR 퍼센트 (ATR/price * 100)
             volume_ratio: 현재 볼륨 / 평균 볼륨
             current_time: 평가 시간 (기본: 현재 UTC)
-            bid_ask_spread_pct: 호가 스프레드 % (제공 시 5요소 모드)
+            bid_ask_spread_pct: 호가 스프레드 % (제공 시 4/5요소 모드)
+            bid_depth_total: 총 bid 수량 (제공 시 5요소 모드)
+            ask_depth_total: 총 ask 수량 (제공 시 5요소 모드)
+            atr_1m_pct: 1분봉 ATR% (제공 시 spread ATR-정규화)
+            event_times: 커스텀 이벤트 시간 리스트 (FOMC 등)
 
         Returns:
             TradabilityScore
@@ -125,23 +169,49 @@ class MarketTradabilityIndex:
         sess_score = self._session_score(current_time)
         vol_ratio_score = self._volume_score(volume_ratio)
 
-        if bid_ask_spread_pct is not None:
-            # 5요소: Spread/Volume/Volatility/Event/Session 각 20%
-            spread_score = self._spread_score(bid_ask_spread_pct)
-            event_score = 80.0  # 정적 기본값 (캘린더 미연동)
+        if (
+            bid_ask_spread_pct is not None
+            and bid_depth_total is not None
+            and ask_depth_total is not None
+        ):
+            # 5-component 가중치 적용
+            spread_sc = self._spread_score(bid_ask_spread_pct, atr_1m_pct)
+            depth_sc = self._depth_score(bid_depth_total, ask_depth_total)
+            event_sc = self._event_score(current_time, event_times)
+            w = _WEIGHTS_5
             total = (
-                spread_score + vol_ratio_score + vol_score
-                + event_score + sess_score
-            ) / 5
+                w["spread"] * spread_sc
+                + w["depth"] * depth_sc
+                + w["volatility"] * vol_score
+                + w["event"] * event_sc
+                + w["session"] * sess_score
+            )
             components = {
+                "spread_score": round(spread_sc, 1),
+                "depth_score": round(depth_sc, 1),
                 "volatility_score": round(vol_score, 1),
+                "event_score": round(event_sc, 1),
                 "session_score": round(sess_score, 1),
-                "volume_score": round(vol_ratio_score, 1),
-                "spread_score": round(spread_score, 1),
-                "event_score": round(event_score, 1),
+            }
+        elif bid_ask_spread_pct is not None:
+            # 4-component: Spread(30%) + Volatility(25%) + Event(20%) + Session(25%)
+            spread_sc = self._spread_score(bid_ask_spread_pct, atr_1m_pct)
+            event_sc = self._event_score(current_time, event_times)
+            w = _WEIGHTS_4
+            total = (
+                w["spread"] * spread_sc
+                + w["volatility"] * vol_score
+                + w["event"] * event_sc
+                + w["session"] * sess_score
+            )
+            components = {
+                "spread_score": round(spread_sc, 1),
+                "volatility_score": round(vol_score, 1),
+                "event_score": round(event_sc, 1),
+                "session_score": round(sess_score, 1),
             }
         else:
-            # 기존 3요소 모드 (하위호환)
+            # 3-component 폴백 (하위호환)
             total = (vol_score + sess_score + vol_ratio_score) / 3
             components = {
                 "volatility_score": round(vol_score, 1),
@@ -152,31 +222,24 @@ class MarketTradabilityIndex:
         grade = self._determine_grade(total)
         is_tradable = total >= self.reduced_threshold
 
-        reasons = []
-        if vol_score < _REASON_VOL_THRESHOLD:
-            reasons.append(
-                f"변동성 부족 (ATR%={atr_pct:.2f})"
-            )
-        if sess_score < _REASON_SESS_THRESHOLD:
-            session = self._get_session_name(current_time)
-            reasons.append(f"비활성 세션 ({session})")
-        if vol_ratio_score < _REASON_VOLRATIO_THRESHOLD:
-            reasons.append(
-                f"거래량 부족 (ratio={volume_ratio:.2f})"
-            )
-        if bid_ask_spread_pct is not None:
-            spread_sc = self._spread_score(bid_ask_spread_pct)
-            if spread_sc < _REASON_VOLRATIO_THRESHOLD:
-                reasons.append(
-                    f"스프레드 과대 (spread={bid_ask_spread_pct:.2f}%)"
-                )
+        reasons = self._build_reasons(
+            atr_pct, vol_score, sess_score, vol_ratio_score,
+            current_time, bid_ask_spread_pct, atr_1m_pct,
+        )
         reason = ", ".join(reasons) if reasons else "거래 적합"
 
         log_extra = ""
-        if bid_ask_spread_pct is not None:
-            sp = components['spread_score']
-            ev = components['event_score']
-            log_extra = f", spread={sp:.0f}, event={ev:.0f}"
+        if "depth_score" in components:
+            log_extra = (
+                f", spread={components['spread_score']:.0f}"
+                f", depth={components['depth_score']:.0f}"
+                f", event={components['event_score']:.0f}"
+            )
+        elif "spread_score" in components:
+            log_extra = (
+                f", spread={components['spread_score']:.0f}"
+                f", event={components['event_score']:.0f}"
+            )
         logger.info(
             f"MTI 평가: {total:.1f} ({grade}) — "
             f"vol={vol_score:.0f}, sess={sess_score:.0f}, "
@@ -191,25 +254,142 @@ class MarketTradabilityIndex:
             reason=reason,
         )
 
+    def _build_reasons(
+        self,
+        atr_pct: float,
+        vol_score: float,
+        sess_score: float,
+        vol_ratio_score: float,
+        current_time: datetime,
+        bid_ask_spread_pct: float | None,
+        atr_1m_pct: float | None,
+    ) -> list[str]:
+        """판단 사유 리스트 생성."""
+        reasons: list[str] = []
+        if vol_score < _REASON_VOL_THRESHOLD:
+            reasons.append(f"변동성 부족 (ATR%={atr_pct:.2f})")
+        if sess_score < _REASON_SESS_THRESHOLD:
+            session = self._get_session_name(current_time)
+            reasons.append(f"비활성 세션 ({session})")
+        if vol_ratio_score < _REASON_VOLRATIO_THRESHOLD:
+            # volume_ratio는 외부에서 접근 불가하므로 점수로 판단
+            reasons.append("거래량 부족")
+        if bid_ask_spread_pct is not None:
+            spread_sc = self._spread_score(bid_ask_spread_pct, atr_1m_pct)
+            if spread_sc < _REASON_VOLRATIO_THRESHOLD:
+                reasons.append(
+                    f"스프레드 과대 (spread={bid_ask_spread_pct:.2f}%)"
+                )
+        return reasons
+
     @staticmethod
-    def _spread_score(bid_ask_spread_pct: float) -> float:
+    def _spread_score(
+        bid_ask_spread_pct: float,
+        atr_1m_pct: float | None = None,
+    ) -> float:
         """호가 스프레드 기반 점수.
+
+        ATR-정규화: atr_1m_pct 제공 시 spread/ATR 비율로 채점.
+        절대값 모드: 미제공 시 기존 구간 매핑.
 
         Args:
             bid_ask_spread_pct: 스프레드 퍼센트
+            atr_1m_pct: 1분봉 ATR% (선택)
 
         Returns:
             점수 (0-100). 낮은 스프레드 = 높은 점수.
         """
         if bid_ask_spread_pct <= 0:
             return 100.0
-        if bid_ask_spread_pct < _SPREAD_LOW:
+
+        # ATR-정규화 모드: spread/ATR 비율 사용
+        if atr_1m_pct is not None and atr_1m_pct > 0:
+            value = bid_ask_spread_pct / atr_1m_pct
+            low, high = _SPREAD_ATR_LOW, _SPREAD_ATR_HIGH
+        else:
+            # 절대값 모드 (하위호환)
+            value = bid_ask_spread_pct
+            low, high = _SPREAD_LOW, _SPREAD_HIGH
+
+        if value < low:
             return 100.0
-        if bid_ask_spread_pct <= _SPREAD_HIGH:
-            # 0.5~2.0% 구간 선형 보간: 100 → 20
-            span = _SPREAD_HIGH - _SPREAD_LOW
-            return 100.0 - (bid_ask_spread_pct - _SPREAD_LOW) / span * 80.0
+        if value <= high:
+            return 100.0 - (value - low) / (high - low) * 80.0
         return 20.0
+
+    @staticmethod
+    def _depth_score(
+        bid_depth_total: float,
+        ask_depth_total: float,
+    ) -> float:
+        """오더북 깊이 기반 점수.
+
+        Args:
+            bid_depth_total: 총 bid 수량
+            ask_depth_total: 총 ask 수량
+
+        Returns:
+            점수 (0-100). 깊은 유동성 = 높은 점수.
+        """
+        total = bid_depth_total + ask_depth_total
+        if total <= 0:
+            return 0.0
+
+        # 기본 깊이 점수
+        if total < _DEPTH_VERY_LOW:
+            base = 30.0
+        elif total < _DEPTH_LOW:
+            base = 60.0
+        elif total < _DEPTH_HIGH:
+            base = 90.0
+        else:
+            base = 100.0
+
+        # Bid/Ask 불균형 감점
+        if ask_depth_total > 0 and bid_depth_total > 0:
+            ratio = bid_depth_total / ask_depth_total
+            if ratio > _IMBALANCE_THRESHOLD or ratio < 1.0 / _IMBALANCE_THRESHOLD:
+                base *= 0.85  # 15% 감점
+
+        return min(base, 100.0)
+
+    @staticmethod
+    def _event_score(
+        current_time: datetime,
+        event_times: list[datetime] | None = None,
+    ) -> float:
+        """이벤트 캘린더 기반 점수.
+
+        펀딩 정산 (00:00/08:00/16:00 UTC) ±30분 → 40점.
+        커스텀 이벤트 시간 ±30분 → 40점.
+        그 외 → 100점.
+
+        Args:
+            current_time: 현재 UTC 시간
+            event_times: 커스텀 이벤트 시간 리스트 (선택)
+
+        Returns:
+            점수 (40 or 100).
+        """
+        minute_of_day = current_time.hour * 60 + current_time.minute
+
+        # 펀딩 정산 체크
+        for funding_hour in _FUNDING_HOURS:
+            funding_minute = funding_hour * 60
+            dist = abs(minute_of_day - funding_minute)
+            # 자정 경계 처리 (23:30 ~ 00:30)
+            dist = min(dist, 1440 - dist)
+            if dist <= _FUNDING_WINDOW_MINUTES:
+                return 40.0
+
+        # 커스텀 이벤트 체크
+        if event_times:
+            for evt in event_times:
+                diff_sec = abs((current_time - evt).total_seconds())
+                if diff_sec <= _FUNDING_WINDOW_MINUTES * 60:
+                    return 40.0
+
+        return 100.0
 
     def _volatility_score(self, atr_pct: float) -> float:
         """ATR% 기반 변동성 점수.
@@ -234,7 +414,7 @@ class MarketTradabilityIndex:
             current_time: UTC datetime
 
         Returns:
-            점수 (0-100)
+            점수 (55-110)
         """
         session = self._get_session_name(current_time)
         return float(SESSION_SCORES.get(session, 55))
@@ -246,7 +426,9 @@ class MarketTradabilityIndex:
             return "ASIA"
         if _ASIA_END <= hour < _EU_END:
             return "EU"
-        if _EU_END <= hour < _US_END:
+        if _EU_END <= hour < _EU_US_OVERLAP_END:
+            return "EU_US_OVERLAP"
+        if _EU_US_OVERLAP_END <= hour < _US_END:
             return "US"
         return "DEEP_NIGHT"  # 21~24
 

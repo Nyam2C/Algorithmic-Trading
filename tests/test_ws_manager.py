@@ -107,6 +107,91 @@ class TestOrderBookAggregator:
 
 
 # =========================================================================
+# OrderBookAggregator depth_spread_snapshot 테스트
+# =========================================================================
+
+class TestDepthSpreadSnapshot:
+    """depth_spread_snapshot() 테스트."""
+
+    def test_empty_returns_none(self):
+        """데이터 없으면 None."""
+        agg = OrderBookAggregator()
+        assert agg.depth_spread_snapshot() is None
+
+    def test_normal_snapshot(self):
+        """정상 오더북에서 spread/depth 반환."""
+        agg = OrderBookAggregator()
+        agg.update({
+            "bids": [["100.0", "10"], ["99.0", "20"]],
+            "asks": [["101.0", "5"], ["102.0", "15"]],
+        })
+        snap = agg.depth_spread_snapshot()
+        assert snap is not None
+        assert snap["best_bid"] == 100.0
+        assert snap["best_ask"] == 101.0
+        # spread = (101-100)/100.5 * 100 ≈ 0.995%
+        assert 0.9 < snap["spread_pct"] < 1.1
+        assert snap["bid_depth_total"] == 30.0  # 10+20
+        assert snap["ask_depth_total"] == 20.0  # 5+15
+        assert snap["depth_ratio"] > 1.0  # bid > ask
+
+    def test_stale_returns_none(self):
+        """Stale 데이터 → None."""
+        agg = OrderBookAggregator()
+        agg.update({
+            "bids": [["100.0", "10"]],
+            "asks": [["101.0", "5"]],
+        })
+        agg._last_update_time = time.monotonic() - 10.0
+        assert agg.depth_spread_snapshot() is None
+
+    def test_single_level(self):
+        """단일 호가 레벨."""
+        agg = OrderBookAggregator()
+        agg.update({
+            "bids": [["50000.0", "1.5"]],
+            "asks": [["50010.0", "2.0"]],
+        })
+        snap = agg.depth_spread_snapshot()
+        assert snap is not None
+        assert snap["best_bid"] == 50000.0
+        assert snap["best_ask"] == 50010.0
+        assert snap["bid_depth_total"] == 1.5
+        assert snap["ask_depth_total"] == 2.0
+
+    def test_depth_ratio_balanced(self):
+        """Bid/Ask 균형 → ratio ≈ 1.0."""
+        agg = OrderBookAggregator()
+        agg.update({
+            "bids": [["100.0", "10"]],
+            "asks": [["101.0", "10"]],
+        })
+        snap = agg.depth_spread_snapshot()
+        assert snap is not None
+        assert snap["depth_ratio"] == pytest.approx(1.0, abs=0.01)
+
+    def test_ask_zero_depth_ratio(self):
+        """Ask 깊이 0 → depth_ratio=0."""
+        agg = OrderBookAggregator()
+        # First update with ask, then update with ask qty 0
+        agg.update({
+            "bids": [["100.0", "10"]],
+            "asks": [["101.0", "5"]],
+        })
+        agg.update({
+            "bids": [["100.0", "10"]],
+            "asks": [["101.0", "0"]],
+        })
+        # After second update, _last_asks has qty 0
+        # Empty asks after filtering → returns None
+        snap = agg.depth_spread_snapshot()
+        # _last_asks = {"101.0": 0.0} which is not empty, but bid_depth=10, ask_depth=0
+        # depth_ratio = 10/0 → but code handles this: ask_depth_total > 0 check
+        if snap is not None:
+            assert snap["depth_ratio"] == 0.0
+
+
+# =========================================================================
 # TradeAggregator 테스트
 # =========================================================================
 

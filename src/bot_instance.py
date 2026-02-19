@@ -2001,7 +2001,7 @@ class BotInstance:
             return (high - low) / self._current_price * 100
         return None
 
-    async def _run_five_gate_pipeline(
+    async def _run_five_gate_pipeline(  # noqa: PLR0915
         self,
         market_data: dict[str, Any],
         indicators: dict[str, Any],
@@ -2026,9 +2026,22 @@ class BotInstance:
             from src.data.tradability import MarketTradabilityIndex
             mti = MarketTradabilityIndex()
 
+            # WS 오더북 데이터로 실시간 spread/depth 제공
+            spread_pct = self._calc_spread_pct(market_data)
+            depth_bid: float | None = None
+            depth_ask: float | None = None
+            if self._ws_manager and self._ws_manager.is_connected:
+                ds = self._ws_manager.orderbook_aggregator.depth_spread_snapshot()
+                if ds:
+                    spread_pct = ds["spread_pct"]
+                    depth_bid = ds["bid_depth_total"]
+                    depth_ask = ds["ask_depth_total"]
+
             mti_score = mti.evaluate(
                 atr_pct, volume_ratio,
-                bid_ask_spread_pct=self._calc_spread_pct(market_data),
+                bid_ask_spread_pct=spread_pct,
+                bid_depth_total=depth_bid,
+                ask_depth_total=depth_ask,
             )
             self._last_mti_grade = mti_score.grade
             if self._metrics:
