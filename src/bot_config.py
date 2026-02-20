@@ -188,6 +188,9 @@ class BotConfig(BaseModel):
     # APEX-V: Regime-based split TP ratios
     use_regime_tp_ratios: bool = Field(default=False)
 
+    # APEX-V: Event Bus
+    use_event_bus: bool = Field(default=False)
+
     # APEX-V Phase D: Kelly + Risk Enhancement
     use_kelly_sizing: bool = Field(default=False)
     kelly_fraction: float = Field(default=0.25, gt=0, le=1.0)

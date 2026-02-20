@@ -19,6 +19,7 @@ from binance.enums import (
 from binance.exceptions import BinanceAPIException
 from loguru import logger
 
+from src.exchange.api_weight_tracker import APIWeightTracker
 from src.utils.circuit_breaker import circuit_breaker
 from src.utils.retry import async_retry
 from src.utils.validation import validate_ohlcv_dataframe
@@ -46,6 +47,7 @@ class BinanceTestnetClient:
         self._testnet = testnet
         self._client: AsyncClient | None = None
         self._metrics: Any | None = None
+        self._weight_tracker = APIWeightTracker()
         try:
             from src.metrics.prometheus import _get_metrics  # noqa: PLC0415
             self._metrics = _get_metrics()
@@ -748,7 +750,13 @@ class BinanceTestnetClient:
         Returns:
             통합 시장 심리 데이터
         """
+        # WS-6: API weight delay check
+        delay = self._weight_tracker.should_delay()
+        if delay > 0:
+            await asyncio.sleep(delay)
+
         # 6개 API를 병렬로 호출하여 응답 시간 단축
+        self._weight_tracker.record("get_market_sentiment")
         funding, ls_ratio, oi, premium, global_ls, taker_ls = await asyncio.gather(
             self.get_funding_rate(symbol),
             self.get_long_short_ratio(symbol),
@@ -902,6 +910,14 @@ class BinanceTestnetClient:
         finally:
             self._record_latency("create_take_profit_market_order", t0)
 
+    def get_api_weight_status(self) -> dict[str, int | float]:
+        """API weight 사용량 모니터링.
+
+        Returns:
+            현재 weight 상태 딕셔너리
+        """
+        return self._weight_tracker.get_status()
+
     @async_retry(
         max_attempts=3,
         delay=1.0,
@@ -924,3 +940,4 @@ class BinanceTestnetClient:
         except Exception as e:
             logger.error(f"{symbol} 미체결 주문 취소 실패: {e}")
             raise
+

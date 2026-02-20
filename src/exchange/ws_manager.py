@@ -29,6 +29,11 @@ class OrderBookAggregator:
     SPOOF_DECAY_SEC = 3.0
     SPOOF_DECAY_RATIO = 0.8
 
+    # WS-2: Depth Absorption
+    ABSORPTION_MULTIPLIER = 5.0
+    ABSORPTION_LOOKBACK = 50
+    ABSORPTION_RECENT = 5
+
     def __init__(self) -> None:
         self._buffer: deque[tuple[float, float, float]] = deque(
             maxlen=self.MAX_BUFFER_SIZE
@@ -169,13 +174,60 @@ class OrderBookAggregator:
         # CVD: cumulative (bid_delta - ask_delta) over all
         cvd = sum(b - a for _, b, a in items)
 
-        return {
+        result = {
             "ofi_5": round(ofi_5, 4),
             "ofi_20": round(ofi_20, 4),
             "ofi_50": round(ofi_50, 4),
             "cvd": round(cvd, 4),
             "sample_count": n,
         }
+        # Absorption 데이터 병합
+        absorption = self._check_absorption()
+        result.update(absorption)
+        return result
+
+    def _check_absorption(self) -> dict[str, bool]:
+        """Depth Absorption 감지.
+
+        최근 delta 중앙값 대비 5x 이상 큰 delta → absorption.
+        bid_delta 흡수 → sell absorption (매도벽 흡수).
+        ask_delta 흡수 → buy absorption (매수벽 흡수).
+
+        Returns:
+            {"absorption_buy": bool, "absorption_sell": bool}
+        """
+        n = len(self._buffer)
+        if n < self.ABSORPTION_LOOKBACK:
+            return {"absorption_buy": False, "absorption_sell": False}
+
+        items = list(self._buffer)
+        lookback = items[-self.ABSORPTION_LOOKBACK:]
+
+        bid_deltas = [abs(b) for _, b, _ in lookback]
+        ask_deltas = [abs(a) for _, _, a in lookback]
+
+        bid_median = statistics.median(bid_deltas) if bid_deltas else 0.0
+        ask_median = statistics.median(ask_deltas) if ask_deltas else 0.0
+
+        recent = items[-self.ABSORPTION_RECENT:]
+
+        # ask absorption → buy signal (large ask consumed)
+        absorption_buy = False
+        if ask_median > 0:
+            for _, _, a in recent:
+                if abs(a) > ask_median * self.ABSORPTION_MULTIPLIER:
+                    absorption_buy = True
+                    break
+
+        # bid absorption → sell signal (large bid consumed)
+        absorption_sell = False
+        if bid_median > 0:
+            for _, b, _ in recent:
+                if abs(b) > bid_median * self.ABSORPTION_MULTIPLIER:
+                    absorption_sell = True
+                    break
+
+        return {"absorption_buy": absorption_buy, "absorption_sell": absorption_sell}
 
 
 class TradeAggregator:
@@ -194,7 +246,7 @@ class TradeAggregator:
     MIN_TRADES_FOR_PERCENTILE = 20
 
     def __init__(self) -> None:
-        self._buffer: deque[tuple[float, float, bool]] = deque(
+        self._buffer: deque[tuple[float, float, bool, float]] = deque(
             maxlen=self.MAX_BUFFER_SIZE
         )
         self._last_update_time: float = 0.0
@@ -211,8 +263,9 @@ class TradeAggregator:
         now = time.monotonic()
         qty = float(msg.get("q", msg.get("quantity", 0)))
         is_buyer_maker = msg.get("m", msg.get("is_buyer_maker", False))
+        price = float(msg.get("p", msg.get("price", 0)))
 
-        self._buffer.append((now, qty, is_buyer_maker))
+        self._buffer.append((now, qty, is_buyer_maker, price))
         self._last_update_time = now
 
         # 주기적 percentile 재계산
@@ -223,7 +276,7 @@ class TradeAggregator:
         """분류 임계값 재계산."""
         if len(self._buffer) < self.MIN_TRADES_FOR_PERCENTILE:
             return
-        quantities = [qty for _, qty, _ in self._buffer]
+        quantities = [qty for _, qty, _, _ in self._buffer]
         quantities.sort()
         n = len(quantities)
         self._whale_threshold = quantities[
@@ -259,7 +312,7 @@ class TradeAggregator:
         retail_buy = 0.0
         retail_sell = 0.0
 
-        for _, qty, is_buyer_maker in self._buffer:
+        for _, qty, is_buyer_maker, _ in self._buffer:
             # is_buyer_maker=True → seller is taker (sell)
             # is_buyer_maker=False → buyer is taker (buy)
             is_buy = not is_buyer_maker
@@ -276,12 +329,66 @@ class TradeAggregator:
                     retail_sell += qty
             # algo 범위는 whale_snapshot에 포함하지 않음
 
-        return {
+        result = {
             "whale_buy_vol": round(whale_buy, 4),
             "whale_sell_vol": round(whale_sell, 4),
             "retail_buy_vol": round(retail_buy, 4),
             "retail_sell_vol": round(retail_sell, 4),
             "total_trades": len(self._buffer),
+        }
+        # Iceberg 데이터 병합
+        iceberg = self.iceberg_snapshot()
+        result.update(iceberg)
+        return result
+
+    # Iceberg 감지 상수
+    ICEBERG_REPEAT_THRESHOLD = 10
+
+    def iceberg_snapshot(self) -> dict[str, Any]:
+        """Iceberg 주문 감지 스냅샷.
+
+        동일 가격/수량 그룹에서 반복 체결 패턴을 감지.
+        10건+ 동일 그룹 → iceberg_detected=True.
+
+        Returns:
+            {"iceberg_detected": bool, "iceberg_direction": str,
+             "iceberg_count": int}
+        """
+        if len(self._buffer) < self.ICEBERG_REPEAT_THRESHOLD:
+            return {
+                "iceberg_detected": False,
+                "iceberg_direction": "none",
+                "iceberg_count": 0,
+            }
+
+        groups: dict[tuple[float, float], list[bool]] = {}
+        for _, qty, is_buyer_maker, price in self._buffer:
+            key = (round(price, 1), round(qty, 4))
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(is_buyer_maker)
+
+        best_count = 0
+        best_direction = "none"
+        for _key, makers in groups.items():
+            if (
+                len(makers) >= self.ICEBERG_REPEAT_THRESHOLD
+                and len(makers) > best_count
+            ):
+                    best_count = len(makers)
+                    buy_count = sum(1 for m in makers if not m)
+                    sell_count = sum(1 for m in makers if m)
+                    if buy_count > sell_count:
+                        best_direction = "buy"
+                    elif sell_count > buy_count:
+                        best_direction = "sell"
+                    else:
+                        best_direction = "mixed"
+
+        return {
+            "iceberg_detected": best_count >= self.ICEBERG_REPEAT_THRESHOLD,
+            "iceberg_direction": best_direction,
+            "iceberg_count": best_count,
         }
 
 

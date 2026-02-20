@@ -59,6 +59,7 @@ _IMBALANCE_THRESHOLD = 3.0  # bid/ask > 3x or < 1/3x → 감점
 # 펀딩 정산 시간 (UTC hours)
 _FUNDING_HOURS = (0, 8, 16)
 _FUNDING_WINDOW_MINUTES = 30  # ±30분
+_ECONOMIC_EVENT_SCORE = 20  # 경제 이벤트 시 점수
 
 # 세션별 점수 (UTC 시간 기준)
 SESSION_SCORES = {
@@ -146,6 +147,7 @@ class MarketTradabilityIndex:
         ask_depth_total: float | None = None,
         atr_1m_pct: float | None = None,
         event_times: list[datetime] | None = None,
+        economic_events: list[tuple[datetime, int]] | None = None,
     ) -> TradabilityScore:
         """시장 거래 적합성 평가.
 
@@ -158,6 +160,7 @@ class MarketTradabilityIndex:
             ask_depth_total: 총 ask 수량 (제공 시 5요소 모드)
             atr_1m_pct: 1분봉 ATR% (제공 시 spread ATR-정규화)
             event_times: 커스텀 이벤트 시간 리스트 (FOMC 등)
+            economic_events: 경제 이벤트 [(event_time, window_min)] 리스트 (선택)
 
         Returns:
             TradabilityScore
@@ -177,7 +180,7 @@ class MarketTradabilityIndex:
             # 5-component 가중치 적용
             spread_sc = self._spread_score(bid_ask_spread_pct, atr_1m_pct)
             depth_sc = self._depth_score(bid_depth_total, ask_depth_total)
-            event_sc = self._event_score(current_time, event_times)
+            event_sc = self._event_score(current_time, event_times, economic_events)
             w = _WEIGHTS_5
             total = (
                 w["spread"] * spread_sc
@@ -196,7 +199,7 @@ class MarketTradabilityIndex:
         elif bid_ask_spread_pct is not None:
             # 4-component: Spread(30%) + Volatility(25%) + Event(20%) + Session(25%)
             spread_sc = self._spread_score(bid_ask_spread_pct, atr_1m_pct)
-            event_sc = self._event_score(current_time, event_times)
+            event_sc = self._event_score(current_time, event_times, economic_events)
             w = _WEIGHTS_4
             total = (
                 w["spread"] * spread_sc
@@ -357,9 +360,11 @@ class MarketTradabilityIndex:
     def _event_score(
         current_time: datetime,
         event_times: list[datetime] | None = None,
+        economic_events: list[tuple[datetime, int]] | None = None,
     ) -> float:
         """이벤트 캘린더 기반 점수.
 
+        경제 이벤트 (FOMC/CPI 등) ±window 이내 → 20점.
         펀딩 정산 (00:00/08:00/16:00 UTC) ±30분 → 40점.
         커스텀 이벤트 시간 ±30분 → 40점.
         그 외 → 100점.
@@ -367,10 +372,20 @@ class MarketTradabilityIndex:
         Args:
             current_time: 현재 UTC 시간
             event_times: 커스텀 이벤트 시간 리스트 (선택)
+            economic_events: 경제 이벤트 [(event_time, window_min), ...] (선택)
 
         Returns:
-            점수 (40 or 100).
+            점수 (20, 40, or 100). 최소 점수 우선.
         """
+        min_score = 100.0
+
+        # WS-4: 경제 이벤트 체크 (FOMC, CPI 등)
+        if economic_events:
+            for evt_time, window_min in economic_events:
+                diff_sec = abs((current_time - evt_time).total_seconds())
+                if diff_sec <= window_min * 60:
+                    min_score = min(min_score, 20.0)
+
         minute_of_day = current_time.hour * 60 + current_time.minute
 
         # 펀딩 정산 체크
@@ -380,16 +395,16 @@ class MarketTradabilityIndex:
             # 자정 경계 처리 (23:30 ~ 00:30)
             dist = min(dist, 1440 - dist)
             if dist <= _FUNDING_WINDOW_MINUTES:
-                return 40.0
+                min_score = min(min_score, 40.0)
 
         # 커스텀 이벤트 체크
         if event_times:
             for evt in event_times:
                 diff_sec = abs((current_time - evt).total_seconds())
                 if diff_sec <= _FUNDING_WINDOW_MINUTES * 60:
-                    return 40.0
+                    min_score = min(min_score, 40.0)
 
-        return 100.0
+        return min_score
 
     def _volatility_score(self, atr_pct: float) -> float:
         """ATR% 기반 변동성 점수.

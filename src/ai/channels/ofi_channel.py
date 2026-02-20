@@ -19,6 +19,7 @@ class OFIChannel:
     SIGNAL_THRESHOLD = 30
     CVD_AGREE_MULT = 1.3
     CVD_DISAGREE_MULT = 0.6
+    ABSORPTION_BONUS = 15
     MIN_SAMPLE_COUNT = 10
 
     async def generate_signal(
@@ -76,10 +77,31 @@ class OFIChannel:
                 else:
                     confidence *= self.CVD_DISAGREE_MULT
 
+            # Absorption 감지: 오더북 흡수 패턴 확인
+            absorption_tag = ""
+            absorption_buy = ofi_snapshot.get("absorption_buy", False)
+            absorption_sell = ofi_snapshot.get("absorption_sell", False)
+            if absorption_buy:
+                score = max(-100.0, min(100.0, score + self.ABSORPTION_BONUS))
+                absorption_tag += " [Absorption:buy]"
+            if absorption_sell:
+                score = max(-100.0, min(100.0, score - self.ABSORPTION_BONUS))
+                absorption_tag += " [Absorption:sell]"
+
+            # Absorption으로 방향이 바뀌었을 수 있으므로 재결정
+            if absorption_buy or absorption_sell:
+                if abs(score) <= self.SIGNAL_THRESHOLD:
+                    return self._wait(
+                        f"Absorption 후 임계값 미달: "
+                        f"|{score:.1f}|<={self.SIGNAL_THRESHOLD}"
+                    )
+                direction = "LONG" if score > 0 else "SHORT"
+                confidence = min(1.0, abs(score) / 100.0)
+
             reason = (
                 f"OFI={weighted_ofi:.1f} "
                 f"(5:{ofi_5:.1f}/20:{ofi_20:.1f}/50:{ofi_50:.1f}), "
-                f"CVD={cvd:.1f}"
+                f"CVD={cvd:.1f}{absorption_tag}"
             )
 
             return IndividualSignal(

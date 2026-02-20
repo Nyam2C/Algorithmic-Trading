@@ -7,7 +7,7 @@ import pandas as pd
 from loguru import logger
 
 from src.ai.ensemble import IndividualSignal, SignalSource
-from src.data.indicators import calculate_returns
+from src.data.indicators import calculate_returns, calculate_vwap
 
 
 class TSMOMChannel:
@@ -18,8 +18,10 @@ class TSMOMChannel:
     """
 
     LOOKBACK_WINDOWS = [5, 10, 20, 60]
+    VWAP_ZONE_PCT = 0.003  # ±0.3%
+    VWAP_CONFIDENCE_BOOST = 0.1
 
-    async def generate_signal(self, df: pd.DataFrame) -> IndividualSignal:
+    async def generate_signal(self, df: pd.DataFrame) -> IndividualSignal:  # noqa: PLR0912
         """TSMOM 시그널 생성.
 
         Args:
@@ -81,6 +83,20 @@ class TSMOMChannel:
                 confidence = max(long_count, short_count) / valid_count
                 signal = "WAIT"
                 reason = f"TSMOM 혼합 (long={long_count}, short={short_count})"
+
+            # VWAP Zone: 현재가가 VWAP 근처이면 confidence 부스트
+            vwap_tag = ""
+            if signal in ("LONG", "SHORT"):
+                import math  # noqa: PLC0415
+                vwap = calculate_vwap(df)
+                if not math.isnan(vwap) and vwap > 0:
+                    close = float(df["close"].iloc[-1])
+                    vwap_dist = abs(close - vwap) / vwap
+                    if vwap_dist <= self.VWAP_ZONE_PCT:
+                        confidence = min(1.0, confidence + self.VWAP_CONFIDENCE_BOOST)
+                        vwap_tag = " [VWAP Zone]"
+
+            reason = reason + vwap_tag
 
             logger.debug(f"TSMOM 시그널: {signal} (confidence={confidence:.2f})")
             return IndividualSignal(

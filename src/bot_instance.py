@@ -198,6 +198,9 @@ class BotInstance:
         # APEX-V Fast Layer: WebSocket Manager
         self._ws_manager: Any | None = None
 
+        # WS-5: REST Polling Scheduler
+        self._rest_poller: Any | None = None
+
         # APEX-V Phase D: Kelly sizer + Execution tracker
         self._kelly_sizer: Any | None = None
         self._execution_tracker: Any | None = None
@@ -221,6 +224,12 @@ class BotInstance:
 
         # APEX-V: 주간 AI 배치 분석 리포트
         self._last_weekly_report: datetime | None = None
+
+        # WS-7: Event Bus
+        self._event_bus: Any | None = None
+        if getattr(config, "use_event_bus", False):
+            from src.utils.event_bus import EventBus
+            self._event_bus = EventBus()
 
         # Phase 5 통합: SignalTracker (인메모리)
         self._signal_tracker = SignalTracker(db_pool=None)
@@ -838,6 +847,14 @@ class BotInstance:
             )
             self._log.info("SignalCooldownManager 초기화 완료")
 
+        # WS-5: REST Polling Scheduler 초기화
+        try:
+            from src.exchange.rest_poller import RESTPollingScheduler
+            self._rest_poller = RESTPollingScheduler()
+            self._log.info("REST Polling Scheduler 초기화 완료")
+        except Exception as e:
+            self._log.warning(f"REST Polling Scheduler 초기화 실패: {e}")
+
         # Phase 5 통합: EnsembleSignalGenerator 초기화
         if getattr(self.config, "use_ensemble", False):
             try:
@@ -1167,7 +1184,25 @@ class BotInstance:
             "higher_tf_data": higher_tf_data,
         }
 
-    async def _fetch_sentiment_data(self) -> dict[str, Any] | None:
+
+    async def _publish_event(self, event_type_str: str, data: Any = None) -> None:
+        """WS-7: EventBus 이벤트 발행 (fire-and-forget)."""
+        if self._event_bus is None:
+            return
+        try:
+            from src.utils.event_bus import EventType
+            et_map = {
+                "trade_opened": EventType.TRADE_OPENED,
+                "trade_closed": EventType.TRADE_CLOSED,
+                "regime_changed": EventType.REGIME_CHANGED,
+            }
+            et = et_map.get(event_type_str)
+            if et:
+                await self._event_bus.publish(et, data)
+        except Exception as e:
+            self._log.debug(f"EventBus publish 실패: {e}")
+
+    async def _fetch_sentiment_data(self) -> dict[str, Any] | None:  # noqa: PLR0915
         """시장 심리 데이터 수집 (Phase B 채널 + Fast Layer용)."""
         cfg = self.config
         has_rest_channels = any([
@@ -1187,7 +1222,15 @@ class BotInstance:
         # REST 채널용 데이터 수집
         if has_rest_channels and self._binance_client is not None:
             try:
-                sentiment = await self._binance_client.get_market_sentiment(self.symbol)
+                # WS-5: REST Polling Scheduler 사용 (TTL 캐시)
+                if self._rest_poller is not None:
+                    sentiment = await self._rest_poller.get_all_sentiment(
+                        self._binance_client, self.symbol
+                    )
+                else:
+                    sentiment = await self._binance_client.get_market_sentiment(
+                        self.symbol
+                    )
 
                 # 단위 변환: Binance는 percentage(0.05=0.05%), 채널은 raw(0.0005=0.05%)
                 raw_fr = sentiment["funding_rate"] / 100.0
@@ -1488,6 +1531,11 @@ class BotInstance:
                     )
                 except Exception as e:
                     self._log.debug(f"진입 감사 로그 기록 실패: {e}")
+
+            # WS-7: EventBus trade_opened 이벤트
+            await self._publish_event("trade_opened", {
+                "symbol": self.symbol, "side": signal, "price": current_price,
+            })
 
             # 콜백 호출
             await self._notify_trade("OPEN", signal, current_price, None)
@@ -1825,6 +1873,11 @@ class BotInstance:
                 pnl_usd=pnl_usd,
                 pnl_pct=pnl_pct,
             )
+
+            # WS-7: EventBus trade_closed 이벤트
+            await self._publish_event("trade_closed", {
+                "symbol": self.symbol, "exit_reason": exit_reason, "pnl_pct": pnl_pct,
+            })
 
             # Phase C: Vitality Tracker에 거래 결과 기록
             if (
@@ -2296,11 +2349,26 @@ class BotInstance:
                     depth_bid = ds["bid_depth_total"]
                     depth_ask = ds["ask_depth_total"]
 
+            # WS-4: 경제 이벤트 캘린더
+            economic_events: list | None = None
+            try:
+                from datetime import timezone as _tz
+
+                from src.data.economic_calendar import (
+                    get_active_economic_events,
+                )
+                economic_events = get_active_economic_events(
+                    datetime.now(_tz.utc)
+                )
+            except Exception:  # noqa: S110
+                pass
+
             mti_score = mti.evaluate(
                 atr_pct, volume_ratio,
                 bid_ask_spread_pct=spread_pct,
                 bid_depth_total=depth_bid,
                 ask_depth_total=depth_ask,
+                economic_events=economic_events,
             )
             self._last_mti_grade = mti_score.grade
             self._last_mti_score = mti_score.total_score
@@ -2323,6 +2391,9 @@ class BotInstance:
         indicators["regime"] = self._current_regime
         indicators["leverage"] = self.config.get_effective_leverage()
         self._log.info(f"[5G] Gate 1 레짐: {self._current_regime.value}")
+        await self._publish_event(
+            "regime_changed", {"regime": self._current_regime.value}
+        )
 
         # Regime Transition Protocol 적용 (pipeline)
         if self._regime_transition_mgr is not None:

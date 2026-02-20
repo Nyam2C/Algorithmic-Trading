@@ -16,6 +16,7 @@ class WhaleFlowChannel:
     """
 
     SIGNAL_THRESHOLD = 25
+    ICEBERG_BONUS = 20
     PREDATORY_MULTIPLIER = 1.5
     INTENSITY_SCALE = 250
     MIN_TOTAL_TRADES = 50
@@ -83,6 +84,18 @@ class WhaleFlowChannel:
                 score = max(-100.0, min(100.0, score * self.PREDATORY_MULTIPLIER))
                 is_predatory = True
 
+            # Iceberg 감지: 반복 체결 패턴 확인
+            iceberg_tag = ""
+            iceberg_detected = whale_snapshot.get("iceberg_detected", False)
+            if iceberg_detected:
+                iceberg_dir = whale_snapshot.get("iceberg_direction", "none")
+                if iceberg_dir == "buy":
+                    score = max(-100.0, min(100.0, score + self.ICEBERG_BONUS))
+                elif iceberg_dir == "sell":
+                    score = max(-100.0, min(100.0, score - self.ICEBERG_BONUS))
+                iceberg_tag = f" [Iceberg:{iceberg_dir}]"
+
+
             if abs(score) <= self.SIGNAL_THRESHOLD:
                 return self._wait(
                     f"임계값 미달: |{score:.1f}|<={self.SIGNAL_THRESHOLD}"
@@ -95,7 +108,7 @@ class WhaleFlowChannel:
             reason = (
                 f"WhaleNet={whale_net:.2f} "
                 f"(buy:{whale_buy:.2f}/sell:{whale_sell:.2f}), "
-                f"intensity={intensity:.3f}{pred_tag}"
+                f"intensity={intensity:.3f}{pred_tag}{iceberg_tag}"
             )
 
             return IndividualSignal(

@@ -321,6 +321,28 @@ def calculate_returns(
         raise
 
 
+def calculate_vwap(df: pd.DataFrame) -> float:
+    """Calculate VWAP (Volume-Weighted Average Price).
+
+    Args:
+        df: DataFrame with 'high', 'low', 'close', 'volume' columns
+
+    Returns:
+        VWAP value. float('nan') if volume sum <= 0.
+    """
+    try:
+        typical = (df["high"] + df["low"] + df["close"]) / 3
+        vol_sum = df["volume"].sum()
+        if vol_sum <= 0:
+            return float("nan")
+        vwap = (typical * df["volume"]).sum() / vol_sum
+        logger.debug(f"VWAP calculated: ${vwap:,.2f}")
+        return float(vwap)
+    except Exception as e:
+        logger.error(f"Failed to calculate VWAP: {e}")
+        return float("nan")
+
+
 def analyze_market(
     df: pd.DataFrame, ticker_24h: dict, current_price: float
 ) -> dict:
