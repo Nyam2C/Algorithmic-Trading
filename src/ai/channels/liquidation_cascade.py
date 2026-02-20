@@ -80,6 +80,10 @@ class LiquidationCascadeHunter:
         short_count = sum(1 for ts, _, _, _ in events if ts >= cutoff_short)
         long_count = sum(1 for ts, _, _, _ in events if ts >= cutoff_long)
 
+        # 감속 판단을 위한 최소 이벤트 부족
+        if short_count < _min_events or long_count < _min_events:
+            return False
+
         # Rate per second
         short_rate = short_count / self.DECEL_SHORT_WINDOW
         long_rate = long_count / self.CASCADE_WINDOW_SEC

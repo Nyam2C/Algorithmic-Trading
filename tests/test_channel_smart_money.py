@@ -417,13 +417,13 @@ async def test_3d_strong_short(channel: SmartMoneyDivergenceChannel) -> None:
 
 @pytest.mark.asyncio
 async def test_3d_overheat_long_side(channel: SmartMoneyDivergenceChannel) -> None:
-    """Top Long>70% + Global Long>70% → 과열 SHORT."""
+    """Top Long>70% + Global Long>70% + Taker 매도 우세 → 과열 SHORT."""
     # ratio=3.0 -> top_long_pct=75%
     sig = await channel.generate_signal(
         3.0, 0.005,
         global_long_ratio=0.75,
         global_short_ratio=0.25,
-        taker_buy_sell_ratio=1.0,
+        taker_buy_sell_ratio=0.8,  # P2-4: taker 매도 > 매수일 때만 과열 SHORT
     )
     assert sig.signal == "SHORT"
     assert "과열" in sig.reason
@@ -431,13 +431,13 @@ async def test_3d_overheat_long_side(channel: SmartMoneyDivergenceChannel) -> No
 
 @pytest.mark.asyncio
 async def test_3d_overheat_short_side(channel: SmartMoneyDivergenceChannel) -> None:
-    """Top Short>70% + Global Short>70% → 과열 LONG."""
+    """Top Short>70% + Global Short>70% + Taker 매수 우세 → 과열 LONG."""
     # ratio=0.2 -> top_long_pct=16.7%, top_short_pct=83.3%
     sig = await channel.generate_signal(
         0.2, -0.005,
         global_long_ratio=0.25,
         global_short_ratio=0.75,
-        taker_buy_sell_ratio=1.0,
+        taker_buy_sell_ratio=1.2,  # P2-4: taker 매수 > 매도일 때만 과열 LONG
     )
     assert sig.signal == "LONG"
     assert "과열" in sig.reason

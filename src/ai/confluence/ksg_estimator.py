@@ -17,7 +17,7 @@ def digamma(x: float) -> float:
     scipy.special.digamma 대체.
     """
     if x <= 0:
-        return -1e10
+        return -50.0  # 하한 클리핑 (overflow 방지)
     result = 0.0
     # x가 충분히 클 때까지 recurrence: psi(x) = psi(x+1) - 1/x
     _asymptotic_threshold = 6.0
@@ -30,7 +30,7 @@ def digamma(x: float) -> float:
     result -= 1.0 / (12.0 * x2)
     result += 1.0 / (120.0 * x2 * x2)
     result -= 1.0 / (252.0 * x2 * x2 * x2)
-    return result
+    return max(-50.0, result)  # P2-6: 극소값 underflow 방지
 
 
 def ksg_mutual_information(

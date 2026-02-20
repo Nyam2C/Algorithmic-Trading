@@ -191,6 +191,7 @@ class BotInstance:
 
         # APEX-V: Regime Transition Manager
         self._regime_transition_mgr: RegimeTransitionManager | None = None
+        self._regime_transition_block: bool = False
         if getattr(config, 'use_regime_transition_protocol', False):
             self._regime_transition_mgr = RegimeTransitionManager()
 
@@ -561,11 +562,17 @@ class BotInstance:
                     f"{self.bot_name}:entry_confluence"
                 )
                 if conf_data and "threshold" in conf_data:
-                    self._entry_confluence_threshold = conf_data["threshold"]
-                    self._log.info(
-                        f"Confluence threshold 복구: "
-                        f"{self._entry_confluence_threshold}"
-                    )
+                    _restored = conf_data["threshold"]
+                    if isinstance(_restored, (int, float)) and _restored > 0:
+                        self._entry_confluence_threshold = _restored
+                        self._log.info(
+                            f"Confluence threshold 복구: "
+                            f"{self._entry_confluence_threshold}"
+                        )
+                    else:
+                        self._log.warning(
+                            f"Confluence threshold 무효 ({_restored}), 무시"
+                        )
             except Exception as e:
                 self._log.debug(f"Confluence threshold 복구 실패: {e}")
 
@@ -1360,7 +1367,7 @@ class BotInstance:
     # 포지션 관리
     # =========================================================================
 
-    async def _open_position(
+    async def _open_position(  # noqa: PLR0915
         self, signal: str, current_price: float, entry_atr: float | None = None
     ) -> dict | None:
         """포지션 오픈.
@@ -1381,6 +1388,11 @@ class BotInstance:
             self._log.info(
                 f"Degradation L{self._current_deg_state.level} — 진입 차단"
             )
+            return None
+
+        # Regime Transition: 축소 실패 시 신규 진입 차단
+        if self._regime_transition_block:
+            self._log.warning("레짐 전환 포지션 축소 실패 — 신규 진입 차단")
             return None
 
         # Phase 7: 단일 거래 리스크 검증
@@ -1525,11 +1537,15 @@ class BotInstance:
         if not self._ws_manager or not self._ws_manager.is_connected:
             return None
 
+        import math
+
+        # P2-2: ATR NaN 가드
+        if math.isnan(entry_atr):
+            return None
+
         ds = self._ws_manager.orderbook_aggregator.depth_spread_snapshot()
         if not ds or ds.get("best_bid", 0) <= 0 or ds.get("best_ask", 0) <= 0:
             return None
-
-        import math
 
         # 5분 ATR → 1분 근사: ATR_1m ≈ ATR_5m / sqrt(5)
         atr_1m = entry_atr / math.sqrt(5)
@@ -2328,9 +2344,17 @@ class BotInstance:
                     "[5G] 레짐 전환 → 포지션 50% 축소"
                 )
                 try:
-                    await self._executor.reduce_position_pct(0.50)
+                    _reduce_result = await self._executor.reduce_position_pct(0.50)
+                    if _reduce_result is None:
+                        self._log.warning(
+                            "[5G] 포지션 축소 결과 None — 신규 진입 차단"
+                        )
+                        self._regime_transition_block = True
                 except Exception as _e:
-                    self._log.error(f"포지션 축소 실패: {_e}")
+                    self._log.error(
+                        f"포지션 축소 실패: {_e} — 신규 진입 차단"
+                    )
+                    self._regime_transition_block = True
 
         # Prometheus: RSI 기록
         _rsi = indicators.get("rsi")
@@ -3101,9 +3125,22 @@ class BotInstance:
                     "DEGRADATION L4 전체 청산 실행 — "
                     f"{deg_state.reason}"
                 )
-                await self._close_position(
-                    self._current_price or 0.0, "DEGRADATION_L4"
-                )
+                # P1-3: 가격 미수신 시 긴급 가격 조회
+                _l4_price: float | None = self._current_price
+                if not _l4_price or _l4_price <= 0:
+                    self._log.critical("L4 청산가 불명 — 긴급 가격 조회")
+                    try:
+                        if self._binance_client is not None:
+                            _l4_price = await self._binance_client.get_current_price(
+                                self.symbol
+                            )
+                    except Exception as _pe:
+                        self._log.critical(f"L4 긴급 가격 조회 예외: {_pe}")
+                        _l4_price = None
+                if _l4_price and _l4_price > 0:
+                    await self._close_position(_l4_price, "DEGRADATION_L4")
+                else:
+                    self._log.critical("긴급 가격 조회 실패 — 청산 불가")
                 self._is_paused = True
                 await self._notify_error(
                     RuntimeError(

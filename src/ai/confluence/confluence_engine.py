@@ -126,9 +126,6 @@ class ConfluenceEngine:
     # Step 8: Dead Zone 범위
     DEAD_ZONE_MARGIN = 0.10
 
-    # Step 5.5: Net Edge 최저선 (수수료 대비 수익 부족 방지)
-    MIN_NET_EDGE = 0.05
-
     # 카테고리 보너스
     CATEGORY_BONUS = 0.05
 
@@ -160,6 +157,7 @@ class ConfluenceEngine:
         session_classifier: SessionClassifier | None = None,
         gemini_verifier: Any | None = None,
         threshold_table: dict[str, dict[TradingSession, float]] | None = None,
+        min_net_edge: float | None = None,
     ) -> None:
         """Confluence Engine 초기화.
 
@@ -170,6 +168,7 @@ class ConfluenceEngine:
             session_classifier: 세션 분류기
             gemini_verifier: Gemini AI 검증기 (Dead Zone용)
             threshold_table: 커스텀 임계값 테이블 (Threshold Tuner용)
+            min_net_edge: Net Edge 최저선 (None = 클래스 기본값 사용)
         """
         self._dedup = deduplicator or SignalDeduplicator()
         self._cost = cost_calculator or CostCalculator()
@@ -177,6 +176,9 @@ class ConfluenceEngine:
         self._session = session_classifier or SessionClassifier()
         self._gemini = gemini_verifier
         self._threshold_table = threshold_table or dict(self.THRESHOLD_TABLE)
+        self.min_net_edge = (
+            min_net_edge if min_net_edge is not None else self.MIN_NET_EDGE
+        )
         self._log = logger.bind(module="confluence")
 
     def _get_regime_key(self, regime: MarketRegime) -> str:
@@ -277,22 +279,11 @@ class ConfluenceEngine:
         step_details["step5_cost"] = round(cost_penalty, 4)
 
         # Step 5.5: Net Edge 최저선 (수수료 > 기대 수익 방지)
-        if net_edge < self.MIN_NET_EDGE:
+        if net_edge < self.min_net_edge:
             step_details["step5_5_min_edge_block"] = True
             self._log.info(
-                f"Net edge {net_edge:.3f} < MIN_NET_EDGE {self.MIN_NET_EDGE} — WAIT"
+                f"Net edge {net_edge:.3f} < MIN_NET_EDGE {self.min_net_edge} — WAIT"
             )
-            return ConfluenceResult(
-                final_signal="WAIT",
-                confluence_score=score,
-                net_edge=net_edge,
-                threshold_used=0.0,
-                step_details=step_details,
-            )
-
-        # Step 5.5: Net Edge 최저선 체크
-        if net_edge < self.MIN_NET_EDGE:
-            step_details["step5_5_min_edge_block"] = True
             return ConfluenceResult(
                 final_signal="WAIT",
                 confluence_score=score,

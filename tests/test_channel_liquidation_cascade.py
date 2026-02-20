@@ -54,13 +54,14 @@ class TestCheckDeceleration:
         assert not hunter._check_deceleration([(now, "SELL", 1.0, 50000.0)])
 
     def test_decelerating(self, hunter):
-        """30초 전체에 10건, 최근 10초에 1건 → 감속."""
+        """30초 전체에 10건, 최근 10초에 2건 → 감속."""
         now = time.monotonic()
         events = []
-        # 20~30초 전: 9건 (가속)
-        for i in range(9):
+        # 20~30초 전: 8건 (앞부분 집중)
+        for i in range(8):
             events.append((now - 30 + i * 2, "SELL", 1.0, 50000.0))
-        # 최근 10초: 1건 (감속)
+        # 최근 10초: 2건 (감속 — short_count >= 2 최소 요건 충족)
+        events.append((now - 5, "SELL", 1.0, 50000.0))
         events.append((now - 2, "SELL", 1.0, 50000.0))
         assert hunter._check_deceleration(events)
 
@@ -130,8 +131,11 @@ class TestModeASignal:
     async def test_cascade_with_deceleration(self, hunter):
         now = time.monotonic()
         events = []
-        for i in range(9):
+        # 앞부분 8건 (감속 패턴: 앞쪽 집중)
+        for i in range(8):
             events.append((now - 28 + i * 2, "SELL", 1.0, 50000.0))
+        # 최근 10초: 2건 (short_count >= 2 최소 요건)
+        events.append((now - 5, "SELL", 1.0, 50000.0))
         events.append((now - 1, "SELL", 1.0, 50000.0))
 
         snap = {
@@ -173,8 +177,11 @@ class TestModeBTrigger:
     async def test_all_conditions_met(self, hunter):
         now = time.monotonic()
         events = []
-        for i in range(9):
+        # 앞부분 8건 (감속 패턴)
+        for i in range(8):
             events.append((now - 28 + i * 2, "SELL", 1.0, 50000.0))
+        # 최근 10초: 2건 (short_count >= 2 최소 요건)
+        events.append((now - 5, "SELL", 1.0, 50000.0))
         events.append((now - 1, "SELL", 1.0, 50000.0))
 
         snap = {

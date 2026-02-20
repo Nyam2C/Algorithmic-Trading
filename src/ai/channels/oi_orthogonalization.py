@@ -65,10 +65,11 @@ class OIOrthogonalizer:
         ) / n
         var_oi = sum((oi_list[i] - oi_mean) ** 2 for i in range(n)) / n
 
-        if var_oi == 0:
+        _min_var = 1e-8
+        if var_oi < _min_var:  # 수치 안정성 임계값 (near-zero var_oi → beta 폭발 방지)
             return self._beta
 
-        calc_beta = cov / var_oi
+        calc_beta = max(-10.0, min(10.0, cov / var_oi))  # beta 클리핑
 
         # Smoothing
         if self._beta == 0:

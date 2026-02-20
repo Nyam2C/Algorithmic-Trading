@@ -29,7 +29,7 @@ class TestDigamma:
 
     def test_zero_returns_large_negative(self):
         result = digamma(0.0)
-        assert result < -1e9
+        assert result == -50.0  # P2-6: 하한 클리핑
 
     def test_monotonically_increasing(self):
         values = [digamma(x) for x in [1.0, 2.0, 5.0, 10.0]]

@@ -594,9 +594,30 @@ class TradingExecutor:
 
         if tier_config["allow_market_fallback"]:
             logger.warning("Microprice limit 미체결 — Market fallback")
-            return await self.client.create_market_order(
+            fallback_order = await self.client.create_market_order(
                 symbol=self.config.symbol, side=side, quantity=quantity,
             )
+            # P2-7: Market fallback 후 슬리피지 검증
+            if fallback_order:
+                _fb_price = (
+                    microprice_data.get("best_bid", 0)
+                    if signal == "LONG"
+                    else microprice_data.get("best_ask", 0)
+                )
+                if _fb_price > 0:
+                    should_close, _ = self._handle_slippage_detection(
+                        fallback_order, _fb_price
+                    )
+                    if should_close:
+                        logger.critical(
+                            "Microprice fallback 슬리피지 — 청산"
+                        )
+                        try:
+                            await self.client.close_position(self.config.symbol)
+                        except Exception as _close_err:
+                            logger.critical(f"슬리피지 청산 실패: {_close_err}")
+                        return fallback_order  # 호출자가 None 체크로 처리
+            return fallback_order
 
         # Low liquidity: Market 금지 → 진입 포기
         raise RuntimeError(

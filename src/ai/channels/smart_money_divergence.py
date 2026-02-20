@@ -106,19 +106,24 @@ class SmartMoneyDivergenceChannel:
         top_short_pct = 1.0 - top_long_pct
 
         # 과열 경고: top과 global 모두 한 방향으로 극단적 → 반대 방향
+        # P2-4: Taker ratio 검증 — 실제 매도/매수 압력 확인 후 contrarian 발동
         if (top_long_pct > self.OVERHEAT_THRESHOLD
-                and global_long_ratio > self.OVERHEAT_THRESHOLD):
+                and global_long_ratio > self.OVERHEAT_THRESHOLD
+                and taker_buy_sell_ratio < 1.0):  # 테이커 매도 > 매수일 때만
             return self._make_signal(
                 "SHORT", 0.7,
                 f"3D 과열: Top Long={top_long_pct:.1%},"
-                f" Global Long={global_long_ratio:.1%} → 역행",
+                f" Global Long={global_long_ratio:.1%},"
+                f" Taker={taker_buy_sell_ratio:.2f} → 역행",
             )
         if (top_short_pct > self.OVERHEAT_THRESHOLD
-                and global_short_ratio > self.OVERHEAT_THRESHOLD):
+                and global_short_ratio > self.OVERHEAT_THRESHOLD
+                and taker_buy_sell_ratio > 1.0):  # 테이커 매수 > 매도일 때만
             return self._make_signal(
                 "LONG", 0.7,
                 f"3D 과열: Top Short={top_short_pct:.1%},"
-                f" Global Short={global_short_ratio:.1%} → 역행",
+                f" Global Short={global_short_ratio:.1%},"
+                f" Taker={taker_buy_sell_ratio:.2f} → 역행",
             )
 
         # STRONG LONG: top long > 60% + global short > 60% + taker > 1.3
