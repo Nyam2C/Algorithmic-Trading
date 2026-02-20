@@ -38,7 +38,7 @@ class TestShadowComparison:
             primary_signal="LONG",
             shadow_signal="WAIT",
             direction_match=False,
-            primary_source="rule_based",
+            primary_source="fallback",
             shadow_source="shadow:pipeline",
         )
         assert c.direction_match is False
@@ -95,7 +95,7 @@ class TestShadowModeIntegration:
         with patch.object(
             bot, "_generate_combined_signal",
             new_callable=AsyncMock,
-            return_value=("LONG", "rule_based"),
+            return_value=("LONG", "fallback"),
         ):
             await bot._run_shadow_path(
                 market_data,
@@ -160,7 +160,7 @@ class TestShadowModeIntegration:
             primary_signal="LONG",
             shadow_signal="SHORT",
             direction_match=False,
-            primary_source="rule_based",
+            primary_source="fallback",
             shadow_source="shadow:pipeline",
         )
         bot._record_shadow_comparison(comparison)
@@ -221,6 +221,6 @@ class TestShadowModeIntegration:
                 {"rsi": 50},
                 None,
                 "LONG",
-                "rule_based",
+                "fallback",
             )
             mock_pipe.assert_called_once()

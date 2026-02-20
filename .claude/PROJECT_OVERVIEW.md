@@ -33,7 +33,7 @@
 | 전략 | 마켓 레짐 감지, 다중 타임프레임 분석, ATR 기반 TP/SL |
 | 모니터링 | Prometheus 메트릭, Grafana 대시보드, 감사 로그 |
 | 제어 | Discord 봇, REST API, 수동 승인 모드 |
-| 검증 | 백테스트 엔진, 1860+ 테스트 |
+| 검증 | 백테스트 엔진, 2863+ 테스트 |
 
 ---
 
@@ -49,7 +49,7 @@
 | REST API | FastAPI | 0.109.0+ |
 | 알림/제어 | Discord Bot | discord.py |
 | 모니터링 | Grafana + Loki | Docker Compose |
-| 테스트 | pytest | 1860+ 테스트 |
+| 테스트 | pytest | 2863+ 테스트 |
 | 코드 품질 | ruff, mypy | 린트 + 타입 체크 ✅ 통과 |
 | CI/CD | GitHub Actions | 자동 테스트 |
 
@@ -82,7 +82,7 @@ Algorithmic-Trading/
 │   ├── ai/                       # AI 신호 생성
 │   │   ├── gemini.py             # Gemini AI 클라이언트
 │   │   ├── enhanced_gemini.py    # 메모리 주입 Gemini
-│   │   ├── rule_based.py         # 규칙 기반 신호
+│   │   ├── ensemble.py           # 앙상블 시그널 엔진
 │   │   ├── signals.py            # 신호 파싱/검증
 │   │   └── prompts/              # AI 프롬프트 템플릿
 │   ├── backtest/                 # 백테스트 프레임워크
@@ -135,7 +135,7 @@ Algorithmic-Trading/
 |------|------|------|
 | Binance API | `src/exchange/binance.py` | Testnet/Mainnet 클라이언트 |
 | 기술적 지표 | `src/data/indicators.py` | RSI, MA, ATR, Volume |
-| 규칙 기반 신호 | `src/ai/rule_based.py` | LONG/SHORT/WAIT |
+| 앙상블 신호 | `src/ai/ensemble.py` | 6채널 + Confluence Engine |
 | AI 신호 | `src/ai/gemini.py` | Gemini AI 클라이언트 |
 | 주문 실행 | `src/trading/executor.py` | Market/Limit Order, TP/SL |
 | 거래 기록 | `src/storage/trade_history.py` | PostgreSQL 저장 |
@@ -531,7 +531,7 @@ async def trader_command(interaction):
 ## 검증 상태
 - **Ruff**: ✅ All checks passed!
 - **MyPy**: ✅ Success: no issues found
-- **테스트**: ✅ 1860+ passed (Phase 5 통합 테스트 포함)
+- **테스트**: ✅ 2863 passed (APEX-V 전체 + 레거시 정리)
 
 ### 검증 방법
 ```bash

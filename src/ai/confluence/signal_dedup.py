@@ -34,7 +34,7 @@ class SignalDeduplicator:
         SignalSource.LEVERAGE_TOPOLOGY,
         SignalSource.FUNDING_BASIS, SignalSource.OFI,
     }
-    BASE_LAYER = {SignalSource.GEMINI_AI, SignalSource.RULE_BASED, SignalSource.SCORING}
+    BASE_LAYER = {SignalSource.GEMINI_AI, SignalSource.SCORING}
 
     # 정적 MI 계수 (높을수록 중복 → 가중치 더 깎음)
     SAME_LAYER_MI = 0.3      # 동일 계층 → weight x (1 - 0.3) = 0.7

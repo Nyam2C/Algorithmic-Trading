@@ -57,23 +57,23 @@ class ConfluenceEngine:
     REGIME_WEIGHTS: dict[str, dict[str, float]] = {
         "strong_trend": {
             "tsmom": 0.20, "smart_money": 0.10, "leverage_topology": 0.15,
-            "funding_basis": 0.15, "gemini": 0.15, "rule_based": 0.10,
-            "scoring": 0.05, "ofi": 0.05, "whale_flow": 0.05,
+            "funding_basis": 0.15, "gemini": 0.15,
+            "scoring": 0.15, "ofi": 0.05, "whale_flow": 0.05,
         },
         "weak_trend": {
             "tsmom": 0.15, "smart_money": 0.15, "leverage_topology": 0.15,
-            "funding_basis": 0.15, "gemini": 0.15, "rule_based": 0.10,
-            "scoring": 0.05, "ofi": 0.05, "whale_flow": 0.05,
+            "funding_basis": 0.15, "gemini": 0.15,
+            "scoring": 0.15, "ofi": 0.05, "whale_flow": 0.05,
         },
         "ranging": {
             "tsmom": 0.10, "smart_money": 0.20, "leverage_topology": 0.15,
-            "funding_basis": 0.15, "gemini": 0.15, "rule_based": 0.10,
-            "scoring": 0.05, "ofi": 0.05, "whale_flow": 0.05,
+            "funding_basis": 0.15, "gemini": 0.15,
+            "scoring": 0.15, "ofi": 0.05, "whale_flow": 0.05,
         },
         "uncertainty": {
             "tsmom": 0.15, "smart_money": 0.15, "leverage_topology": 0.15,
-            "funding_basis": 0.15, "gemini": 0.15, "rule_based": 0.10,
-            "scoring": 0.05, "ofi": 0.05, "whale_flow": 0.05,
+            "funding_basis": 0.15, "gemini": 0.15,
+            "scoring": 0.15, "ofi": 0.05, "whale_flow": 0.05,
         },
     }
 
@@ -87,7 +87,7 @@ class ConfluenceEngine:
 
     # Step 4: 카테고리 분류
     CATEGORIES: dict[str, set[str]] = {
-        "trend": {"tsmom", "rule_based"},
+        "trend": {"tsmom", "scoring"},
         "structure": {"leverage_topology", "funding_basis", "ofi"},
         "sentiment": {"smart_money", "gemini", "whale_flow", "liquidation_cascade"},
     }
@@ -141,7 +141,6 @@ class ConfluenceEngine:
         SignalSource.LEVERAGE_TOPOLOGY.value: "leverage_topology",
         SignalSource.FUNDING_BASIS.value: "funding_basis",
         SignalSource.GEMINI_AI.value: "gemini",
-        SignalSource.RULE_BASED.value: "rule_based",
         SignalSource.SCORING.value: "scoring",
         SignalSource.MEMORY_GEMINI.value: "gemini",  # memory_gemini -> gemini
         SignalSource.OFI.value: "ofi",
@@ -365,7 +364,7 @@ class ConfluenceEngine:
         base_signals = [
             s for s in signals
             if s.source in (
-                SignalSource.GEMINI_AI, SignalSource.RULE_BASED,
+                SignalSource.GEMINI_AI,
                 SignalSource.SCORING, SignalSource.MEMORY_GEMINI,
             )
         ]

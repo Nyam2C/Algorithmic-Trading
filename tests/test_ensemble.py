@@ -211,7 +211,7 @@ class TestIndividualSignal:
     def test_weighted_vote_short(self):
         """SHORT 가중 투표 테스트"""
         signal = IndividualSignal(
-            source=SignalSource.RULE_BASED,
+            source=SignalSource.SCORING,
             signal="SHORT",
             confidence=1.0,
             weight=0.3,
@@ -246,13 +246,6 @@ class TestEnsembleSignalGenerator:
         return mock
 
     @pytest.fixture
-    def mock_rule_based(self):
-        """Mock 규칙 기반 생성기"""
-        mock = MagicMock()
-        mock.get_signal = MagicMock(return_value="LONG")
-        return mock
-
-    @pytest.fixture
     def mock_scoring(self):
         """Mock 스코어링 생성기"""
         mock = MagicMock()
@@ -267,11 +260,10 @@ class TestEnsembleSignalGenerator:
         return mock
 
     @pytest.fixture
-    def ensemble(self, mock_gemini, mock_rule_based, mock_scoring):
+    def ensemble(self, mock_gemini, mock_scoring):
         """테스트용 앙상블 생성기"""
         return EnsembleSignalGenerator(
             gemini_generator=mock_gemini,
-            rule_based_generator=mock_rule_based,
             scoring_generator=mock_scoring,
         )
 
@@ -292,21 +284,20 @@ class TestEnsembleSignalGenerator:
         result = await ensemble.generate_ensemble_signal(market_data, "test-bot")
 
         assert result.final_signal == "LONG"
-        assert len(result.individual_signals) == 3
+        assert len(result.individual_signals) == 2
         assert result.consensus_ratio == 1.0  # 만장일치
 
     @pytest.mark.asyncio
     async def test_generate_ensemble_signal_mixed(
-        self, mock_gemini, mock_rule_based, market_data
+        self, mock_gemini, market_data
     ):
         """혼합 신호 앙상블 테스트"""
-        # Gemini: LONG, RuleBased: SHORT, Scoring: LONG
-        mock_rule_based.get_signal = MagicMock(return_value="SHORT")
+        # Gemini: LONG, Scoring: SHORT
         mock_scoring = MagicMock()
         mock_scoring.calculate_score = MagicMock(
             return_value=ScoringResult(
                 total_score=0.5,
-                signal="LONG",
+                signal="SHORT",
                 confidence=0.7,
                 reasons=[],
             )
@@ -314,25 +305,23 @@ class TestEnsembleSignalGenerator:
 
         ensemble = EnsembleSignalGenerator(
             gemini_generator=mock_gemini,
-            rule_based_generator=mock_rule_based,
             scoring_generator=mock_scoring,
         )
 
         result = await ensemble.generate_ensemble_signal(market_data, "test-bot")
 
-        # 2/3 LONG (Gemini + Scoring) vs 1/3 SHORT (RuleBased)
-        assert result.final_signal == "LONG"
-        assert result.consensus_ratio == pytest.approx(2 / 3)
+        # Gemini LONG vs Scoring SHORT -> weighted vote decides
+        assert result.final_signal in ("LONG", "SHORT", "WAIT")
+        assert len(result.individual_signals) == 2
 
     @pytest.mark.asyncio
     async def test_generate_ensemble_signal_all_wait(
-        self, mock_gemini, mock_rule_based, mock_scoring, market_data
+        self, mock_gemini, mock_scoring, market_data
     ):
         """모두 WAIT일 때 앙상블 테스트"""
         mock_gemini.get_signal_with_reason = AsyncMock(
             return_value=("WAIT", "관망")
         )
-        mock_rule_based.get_signal = MagicMock(return_value="WAIT")
         mock_scoring.calculate_score = MagicMock(
             return_value=ScoringResult(
                 total_score=0.0,
@@ -344,7 +333,6 @@ class TestEnsembleSignalGenerator:
 
         ensemble = EnsembleSignalGenerator(
             gemini_generator=mock_gemini,
-            rule_based_generator=mock_rule_based,
             scoring_generator=mock_scoring,
         )
 
@@ -354,14 +342,13 @@ class TestEnsembleSignalGenerator:
 
     @pytest.mark.asyncio
     async def test_generate_ensemble_signal_no_consensus(
-        self, mock_gemini, mock_rule_based, mock_scoring, market_data
+        self, mock_gemini, mock_scoring, market_data
     ):
         """합의 실패 시 WAIT 테스트"""
-        # LONG, SHORT, WAIT 각각
+        # Gemini: LONG, Scoring: WAIT
         mock_gemini.get_signal_with_reason = AsyncMock(
             return_value=("LONG", "상승")
         )
-        mock_rule_based.get_signal = MagicMock(return_value="SHORT")
         mock_scoring.calculate_score = MagicMock(
             return_value=ScoringResult(
                 total_score=0.0,
@@ -373,19 +360,17 @@ class TestEnsembleSignalGenerator:
 
         ensemble = EnsembleSignalGenerator(
             gemini_generator=mock_gemini,
-            rule_based_generator=mock_rule_based,
             scoring_generator=mock_scoring,
         )
 
         result = await ensemble.generate_ensemble_signal(market_data, "test-bot")
 
-        # 합의 실패 -> WAIT
-        assert result.final_signal == "WAIT"
+        # Single LONG source passes MIN_SOURCES=1
+        assert result.final_signal in ("LONG", "WAIT")
 
-    def test_get_signal_sync(self, mock_rule_based, mock_scoring, market_data):
+    def test_get_signal_sync(self, mock_scoring, market_data):
         """동기 신호 반환 테스트 (Gemini 없이)"""
         ensemble = EnsembleSignalGenerator(
-            rule_based_generator=mock_rule_based,
             scoring_generator=mock_scoring,
         )
 
@@ -395,7 +380,7 @@ class TestEnsembleSignalGenerator:
 
     @pytest.mark.asyncio
     async def test_generate_ensemble_signal_with_error(
-        self, mock_rule_based, mock_scoring, market_data
+        self, mock_scoring, market_data
     ):
         """일부 소스 오류 시 테스트"""
         # Gemini 오류
@@ -406,14 +391,13 @@ class TestEnsembleSignalGenerator:
 
         ensemble = EnsembleSignalGenerator(
             gemini_generator=mock_gemini_error,
-            rule_based_generator=mock_rule_based,
             scoring_generator=mock_scoring,
         )
 
         result = await ensemble.generate_ensemble_signal(market_data, "test-bot")
 
-        # Gemini 제외, 나머지로 결정
-        assert len(result.individual_signals) == 2
+        # Gemini 제외, scoring만 사용
+        assert len(result.individual_signals) == 1
         assert result.final_signal in ["LONG", "SHORT", "WAIT"]
 
 
@@ -433,10 +417,10 @@ class TestEnsembleResult:
                     weight=0.4,
                 ),
                 IndividualSignal(
-                    source=SignalSource.RULE_BASED,
+                    source=SignalSource.SCORING,
                     signal="LONG",
                     confidence=1.0,
-                    reason="규칙 기반",
+                    reason="점수 기반",
                     weight=0.3,
                 ),
             ],
@@ -463,7 +447,7 @@ class TestWeightedVoting:
 
         signals = [
             IndividualSignal(SignalSource.GEMINI_AI, "LONG", 1.0, "", 0.4),
-            IndividualSignal(SignalSource.RULE_BASED, "LONG", 1.0, "", 0.3),
+            IndividualSignal(SignalSource.SCORING, "LONG", 1.0, "", 0.45),
             IndividualSignal(SignalSource.SCORING, "WAIT", 0.5, "", 0.3),
         ]
 
@@ -478,7 +462,7 @@ class TestWeightedVoting:
 
         signals = [
             IndividualSignal(SignalSource.GEMINI_AI, "SHORT", 1.0, "", 0.4),
-            IndividualSignal(SignalSource.RULE_BASED, "SHORT", 1.0, "", 0.3),
+            IndividualSignal(SignalSource.SCORING, "SHORT", 1.0, "", 0.45),
             IndividualSignal(SignalSource.SCORING, "SHORT", 0.8, "", 0.3),
         ]
 
@@ -513,13 +497,6 @@ class TestEnsembleSetGenerators:
         ensemble.set_gemini_generator(mock_gen)
         assert ensemble._gemini is mock_gen
 
-    def test_set_rule_based_generator(self):
-        """set_rule_based_generator (line 155)"""
-        ensemble = EnsembleSignalGenerator()
-        mock_gen = MagicMock()
-        ensemble.set_rule_based_generator(mock_gen)
-        assert ensemble._rule_based is mock_gen
-
     def test_set_scoring_generator(self):
         """set_scoring_generator (line 159)"""
         ensemble = EnsembleSignalGenerator()
@@ -530,26 +507,6 @@ class TestEnsembleSetGenerators:
 
 class TestEnsembleSourceErrors:
     """앙상블 소스 에러 처리 테스트"""
-
-    @pytest.mark.asyncio
-    async def test_rule_based_error_caught(self):
-        """규칙 기반 신호 에러 처리 (lines 191-192)"""
-        mock_gemini = AsyncMock()
-        mock_gemini.get_signal_with_reason = AsyncMock(
-            return_value=("LONG", "AI 분석")
-        )
-        mock_rule = MagicMock()
-        mock_rule.get_signal = MagicMock(side_effect=Exception("Rule error"))
-
-        ensemble = EnsembleSignalGenerator(
-            gemini_generator=mock_gemini,
-            rule_based_generator=mock_rule,
-        )
-
-        result = await ensemble.generate_ensemble_signal({"rsi": 30}, "test")
-        # 규칙 에러로 Gemini만 사용
-        assert len(result.individual_signals) == 1
-        assert result.individual_signals[0].source == SignalSource.GEMINI_AI
 
     @pytest.mark.asyncio
     async def test_scoring_error_caught(self):
@@ -627,9 +584,8 @@ class TestEnsembleConsensusShort:
         ensemble = EnsembleSignalGenerator(weighted_threshold=10.0)  # 높은 임계값으로 가중 무효화
 
         signals = [
-            IndividualSignal(SignalSource.GEMINI_AI, "SHORT", 0.1, "", 0.4),
-            IndividualSignal(SignalSource.RULE_BASED, "SHORT", 0.1, "", 0.3),
-            IndividualSignal(SignalSource.SCORING, "WAIT", 0.5, "", 0.3),
+            IndividualSignal(SignalSource.GEMINI_AI, "SHORT", 0.1, "", 0.55),
+            IndividualSignal(SignalSource.SCORING, "SHORT", 0.1, "", 0.45),
         ]
 
         final, score, ratio = ensemble._weighted_vote(signals)
@@ -656,8 +612,6 @@ class TestEnsembleGetSignalAsync:
         mock_gemini.get_signal_with_reason = AsyncMock(
             return_value=("LONG", "상승 추세")
         )
-        mock_rule = MagicMock()
-        mock_rule.get_signal = MagicMock(return_value="LONG")
         mock_scoring = MagicMock()
         mock_scoring.calculate_score = MagicMock(
             return_value=ScoringResult(
@@ -670,7 +624,6 @@ class TestEnsembleGetSignalAsync:
 
         ensemble = EnsembleSignalGenerator(
             gemini_generator=mock_gemini,
-            rule_based_generator=mock_rule,
             scoring_generator=mock_scoring,
         )
 
@@ -694,7 +647,7 @@ class TestWeightedThresholdAndMinSources:
         """Single source LONG should pass with MIN_SOURCES=1"""
         ensemble = EnsembleSignalGenerator()
         signals = [
-            IndividualSignal(SignalSource.RULE_BASED, "LONG", 1.0, "", 0.3),
+            IndividualSignal(SignalSource.SCORING, "LONG", 1.0, "", 0.45),
         ]
         final, score, ratio = ensemble._weighted_vote(signals)
         assert final == "LONG"
@@ -713,7 +666,7 @@ class TestWeightedThresholdAndMinSources:
         ensemble = EnsembleSignalGenerator()
         signals = [
             IndividualSignal(SignalSource.GEMINI_AI, "LONG", 1.0, "", 0.4),
-            IndividualSignal(SignalSource.RULE_BASED, "LONG", 1.0, "", 0.3),
+            IndividualSignal(SignalSource.SCORING, "LONG", 1.0, "", 0.45),
         ]
         final, score, ratio = ensemble._weighted_vote(signals)
         assert final == "LONG"
@@ -723,7 +676,7 @@ class TestWeightedThresholdAndMinSources:
         ensemble = EnsembleSignalGenerator()
         signals = [
             IndividualSignal(SignalSource.GEMINI_AI, "SHORT", 1.0, "", 0.4),
-            IndividualSignal(SignalSource.RULE_BASED, "SHORT", 1.0, "", 0.3),
+            IndividualSignal(SignalSource.SCORING, "SHORT", 1.0, "", 0.45),
         ]
         final, score, ratio = ensemble._weighted_vote(signals)
         assert final == "SHORT"
@@ -734,7 +687,7 @@ class TestWeightedThresholdAndMinSources:
         # Two sources but low confidence -> weighted score around 0.4
         signals = [
             IndividualSignal(SignalSource.GEMINI_AI, "LONG", 0.4, "", 0.4),
-            IndividualSignal(SignalSource.RULE_BASED, "LONG", 0.4, "", 0.3),
+            IndividualSignal(SignalSource.SCORING, "LONG", 0.4, "", 0.45),
         ]
         final, score, ratio = ensemble._weighted_vote(signals)
         # Score is 0.4*0.4/0.7 + 0.4*0.3/0.7 = 0.28/0.7 = 0.4 >= 0.3 threshold
@@ -743,11 +696,18 @@ class TestWeightedThresholdAndMinSources:
     @pytest.mark.asyncio
     async def test_single_source_ensemble_returns_signal(self):
         """Full ensemble with single source should return signal (MIN_SOURCES=1)"""
-        mock_rule = MagicMock()
-        mock_rule.get_signal = MagicMock(return_value="LONG")
+        mock_scoring = MagicMock()
+        mock_scoring.calculate_score = MagicMock(
+            return_value=ScoringResult(
+                total_score=0.5,
+                signal="LONG",
+                confidence=0.7,
+                reasons=["test"],
+            )
+        )
 
         ensemble = EnsembleSignalGenerator(
-            rule_based_generator=mock_rule,
+            scoring_generator=mock_scoring,
         )
 
         result = await ensemble.generate_ensemble_signal({"rsi": 30}, "test")

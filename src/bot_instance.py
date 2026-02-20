@@ -19,7 +19,6 @@ from typing import Any
 from loguru import logger
 
 from src.ai.enhanced_gemini import EnhancedGeminiSignalGenerator
-from src.ai.rule_based import RuleBasedSignalGenerator
 from src.ai.signals import should_enter_trade, validate_signal
 from src.analytics.memory_context import AIMemoryContextBuilder
 
@@ -163,14 +162,6 @@ class BotInstance:
         self._redis_state_manager = redis_state_manager
         self._executor: TradingExecutor | None = None
 
-        # 시그널 생성기 (커스텀 RSI 파라미터 적용)
-        self._signal_generator = RuleBasedSignalGenerator(
-            rsi_oversold=config.rsi_oversold,
-            rsi_overbought=config.rsi_overbought,
-            volume_threshold=config.volume_threshold,
-            strategy=getattr(config, "signal_strategy", "trend_pullback"),
-        )
-
         # Phase 4: AI 메모리 시스템
         self._enhanced_gemini = enhanced_gemini
         self._use_memory_signals = use_memory_signals
@@ -227,6 +218,9 @@ class BotInstance:
 
         # APEX-V: ThresholdTuner 주간 자동 실행
         self._last_threshold_tuning: datetime | None = None
+
+        # APEX-V: 주간 AI 배치 분석 리포트
+        self._last_weekly_report: datetime | None = None
 
         # Phase 5 통합: SignalTracker (인메모리)
         self._signal_tracker = SignalTracker(db_pool=None)
@@ -848,9 +842,7 @@ class BotInstance:
         if getattr(self.config, "use_ensemble", False):
             try:
                 from src.ai.ensemble import EnsembleSignalGenerator
-                self._ensemble_generator = EnsembleSignalGenerator(
-                    rule_based_generator=self._signal_generator,
-                )
+                self._ensemble_generator = EnsembleSignalGenerator()
                 # Gemini 생성기 연결
                 if self._enhanced_gemini:
                     self._ensemble_generator.set_gemini_generator(self._enhanced_gemini)
@@ -1091,11 +1083,11 @@ class BotInstance:
 
         # 시그널 모드 로그
         if self._ensemble_generator:
-            mode = "앙상블 (Gemini + Rule-based)"
+            mode = "앙상블 (Gemini + Scoring + Channels)"
         elif self._use_memory_signals and self._enhanced_gemini:
             mode = "AI 메모리 (Enhanced Gemini)"
         else:
-            mode = "규칙 기반 (Rule-based only)"
+            mode = "폴백 (WAIT only)"
         self._log.warning(f"시그널 모드: {mode}")
 
         self._log.info("봇 초기화 완료")
@@ -1297,26 +1289,18 @@ class BotInstance:
     # 시그널 생성
     # =========================================================================
 
-    def _generate_signal(self, market_data: dict[str, Any]) -> str:
-        """시그널 생성 (규칙 기반).
+    def _generate_signal(self, market_data: dict[str, Any]) -> str:  # noqa: ARG002
+        """폴백 시그널 (모든 소스 실패 시 안전하게 WAIT).
 
         Args:
             market_data: 시장 데이터
 
         Returns:
-            시그널 ("LONG", "SHORT", "WAIT")
+            시그널 ("WAIT")
         """
-        indicators = market_data.get("indicators", {})
-        signal = self._signal_generator.get_signal(indicators)
-
-        if not validate_signal(signal):
-            self._log.warning(f"유효하지 않은 시그널 '{signal}', WAIT으로 변경")
-            signal = "WAIT"
-
-        self._last_signal = signal
+        self._last_signal = "WAIT"
         self._last_signal_time = datetime.now()
-
-        return signal
+        return "WAIT"
 
     async def _generate_signal_with_memory(self, market_data: dict[str, Any]) -> str:
         """메모리 기반 시그널 생성 (Phase 4).
@@ -1330,7 +1314,7 @@ class BotInstance:
             시그널 ("LONG", "SHORT", "WAIT")
         """
         if not self._enhanced_gemini or not self._use_memory_signals:
-            # Fallback to rule-based signal
+            # Fallback to safe WAIT
             return self._generate_signal(market_data)
 
         try:
@@ -1342,7 +1326,7 @@ class BotInstance:
 
             if not validate_signal(signal):
                 self._log.warning(
-                    f"유효하지 않은 AI 시그널 '{signal}', 규칙 기반으로 대체"
+                    f"유효하지 않은 AI 시그널 '{signal}', 안전 WAIT으로 폴백"
                 )
                 return self._generate_signal(market_data)
 
@@ -1353,7 +1337,7 @@ class BotInstance:
             return signal
 
         except Exception as e:
-            self._log.warning(f"AI 시그널 생성 실패, 규칙 기반으로 폴백: {e}")
+            self._log.warning(f"AI 시그널 생성 실패, 안전 WAIT으로 폴백: {e}")
             if self._metrics:
                 try:
                     self._metrics.record_signal(
@@ -2044,7 +2028,19 @@ class BotInstance:
         market_data: dict[str, Any],
         sentiment_data: dict[str, Any] | None = None,
     ) -> tuple[str, str]:
-        """4-source 시그널 생성 (injected > ensemble > memory > rule_based).
+        """시그널 생성 (injected > ensemble > memory > fallback WAIT).
+
+        APEX-V 아키텍처:
+        - Pipeline 경로 (use_confluence_engine=True):
+          Gemini = Step 8 Dead Zone 경계 검증 전용 (호출 ~5-10%)
+        - Legacy 경로 (use_confluence_engine=False):
+          Gemini = 매 루프 시그널 생성 (이전 방식)
+
+        APEX-V 아키텍처:
+        - Pipeline 경로 (use_confluence_engine=True):
+          Gemini = Step 8 Dead Zone 경계 검증 전용 (호출 ~5-10%)
+        - Legacy 경로 (use_confluence_engine=False):
+          Gemini = 매 루프 시그널 생성 (이전 방식)
 
         Returns:
             (signal, signal_source) 튜플
@@ -2098,9 +2094,12 @@ class BotInstance:
             except Exception as e:
                 self._log.warning(f"앙상블 시그널 실패, 폴백: {e}")
                 signal = self._generate_signal(market_data)
-                return signal, "rule_based"
+                return signal, "fallback"
 
-        if self._use_memory_signals and self._enhanced_gemini:
+        # 메모리 Gemini는 confluence 비활성화 시에만 사용
+        if (self._use_memory_signals
+                and self._enhanced_gemini
+                and not getattr(self.config, "use_confluence_engine", False)):
             _ai_t0 = time.monotonic()
             signal = await self._generate_signal_with_memory(market_data)
             signal_source = "memory_gemini"
@@ -2116,7 +2115,7 @@ class BotInstance:
 
         signal = self._generate_signal(market_data)
         self._log.info(f"시그널: {signal} @ ${current_price:,.2f}")
-        return signal, "rule_based"
+        return signal, "fallback"
 
     def _apply_signal_filters(  # noqa: PLR0915
         self, signal: str, indicators: dict[str, Any]
@@ -2190,15 +2189,11 @@ class BotInstance:
         _wait_alert_threshold = 3  # 3 hours
         if signal == "WAIT":
             self._consecutive_wait_count += 1
-            if (
-                self._consecutive_wait_count % _wait_log_interval == 0
-                and hasattr(self._signal_generator, 'get_signal_diagnostic')
-            ):
-                diag = self._signal_generator.get_signal_diagnostic(
-                    indicators,
-                )
+            if self._consecutive_wait_count % _wait_log_interval == 0:
                 self._log.warning(
-                    f"연속 WAIT #{self._consecutive_wait_count}: {diag}"
+                    f"연속 WAIT #{self._consecutive_wait_count}: "
+                    f"RSI={indicators.get('rsi', 'N/A')}, "
+                    f"regime={indicators.get('regime', 'N/A')}"
                 )
             if self._consecutive_wait_count >= _wait_alert_threshold:
                 cnt = self._consecutive_wait_count
@@ -2228,13 +2223,11 @@ class BotInstance:
         _wait_alert_threshold = 3
         if signal == "WAIT":
             self._consecutive_wait_count += 1
-            if (
-                self._consecutive_wait_count % _wait_log_interval == 0
-                and hasattr(self._signal_generator, 'get_signal_diagnostic')
-            ):
-                diag = self._signal_generator.get_signal_diagnostic(indicators)
+            if self._consecutive_wait_count % _wait_log_interval == 0:
                 self._log.warning(
-                    f"연속 WAIT #{self._consecutive_wait_count}: {diag}"
+                    f"연속 WAIT #{self._consecutive_wait_count}: "
+                    f"RSI={indicators.get('rsi', 'N/A')}, "
+                    f"regime={indicators.get('regime', 'N/A')}"
                 )
             if self._consecutive_wait_count >= _wait_alert_threshold:
                 self._log.warning(
@@ -3079,6 +3072,53 @@ class BotInstance:
         except Exception as e:
             self._log.warning(f"ThresholdTuner 자동 실행 실패: {e}")
 
+    async def _maybe_generate_weekly_report(self) -> None:
+        """주간 AI 분석 리포트 생성 (일요일 1회)."""
+        if not getattr(self.config, "use_weekly_report", False):
+            return
+        if not self._enhanced_gemini:
+            return
+
+        now = datetime.utcnow()
+        _sunday = 6
+        if now.weekday() != _sunday:
+            return
+
+        # 24시간 이내 중복 방지
+        _one_day_seconds = 86400
+        if (
+            self._last_weekly_report
+            and (now - self._last_weekly_report).total_seconds() < _one_day_seconds
+        ):
+            return
+
+        try:
+            report = await self._enhanced_gemini.generate_weekly_report(
+                bot_id=str(self.config.bot_id),
+                days=7,
+            )
+            self._last_weekly_report = now
+
+            summary = report.get("summary", "")
+            insights = report.get("insights", [])
+            recommendations = report.get("recommendations", [])
+
+            self._log.info(
+                f"주간 리포트 생성 완료: {summary[:100]}"
+            )
+
+            # 리포트 로그 출력
+            if summary != "분석 불가":
+                report_lines = [f"주간 AI 분석 리포트 — 요약: {summary}"]
+                for ins in insights[:5]:
+                    report_lines.append(f"  분석: {ins}")
+                for rec in recommendations[:5]:
+                    report_lines.append(f"  권장: {rec}")
+                self._log.info("\n".join(report_lines))
+
+        except Exception as e:
+            self._log.warning(f"주간 리포트 생성 실패: {e}")
+
     async def _execute_single_loop(self) -> None:  # noqa: PLR0911, PLR0915
         """단일 트레이딩 루프 실행."""
         # Phase 1: Redis 명령 큐 확인
@@ -3092,6 +3132,9 @@ class BotInstance:
 
         # 0.5. ThresholdTuner 주간 자동 실행
         await self._maybe_run_threshold_tuner()
+
+        # 0.6. 주간 AI 배치 분석 리포트
+        await self._maybe_generate_weekly_report()
 
         # 1. 리스크 한도 체크 및 강제 청산
         if await self._handle_risk_halt():

@@ -1,7 +1,7 @@
 """AI 앙상블 시스템.
 
 Phase 6.3: 다중 신호 소스 앙상블
-- Gemini AI, 규칙 기반, 스코어링 신호 결합
+- Gemini AI, 스코어링, 6채널 신호 결합
 - 가중 투표로 최종 신호 결정
 - 2/3 합의 시 신호 발생
 """
@@ -18,7 +18,6 @@ class SignalSource(Enum):
     """신호 소스 종류."""
 
     GEMINI_AI = "gemini"
-    RULE_BASED = "rule_based"
     SCORING = "scoring"
     MEMORY_GEMINI = "memory_gemini"
     FUNDING_BASIS = "funding_basis"
@@ -113,9 +112,8 @@ class EnsembleSignalGenerator:
 
     # 기본 가중치
     DEFAULT_WEIGHTS = {
-        SignalSource.GEMINI_AI: 0.4,
-        SignalSource.RULE_BASED: 0.3,
-        SignalSource.SCORING: 0.3,
+        SignalSource.GEMINI_AI: 0.55,
+        SignalSource.SCORING: 0.45,
     }
 
     # 합의 임계값
@@ -130,7 +128,6 @@ class EnsembleSignalGenerator:
         weighted_threshold: float = WEIGHTED_THRESHOLD,
         # 의존성 주입
         gemini_generator: Any | None = None,
-        rule_based_generator: Any | None = None,
         scoring_generator: Any | None = None,
     ) -> None:
         """앙상블 생성기 초기화.
@@ -140,7 +137,6 @@ class EnsembleSignalGenerator:
             consensus_threshold: 합의 임계값
             weighted_threshold: 가중 점수 임계값
             gemini_generator: Gemini AI 생성기
-            rule_based_generator: 규칙 기반 생성기
             scoring_generator: 스코어링 생성기
         """
         self.weights = weights or self.DEFAULT_WEIGHTS
@@ -148,7 +144,6 @@ class EnsembleSignalGenerator:
         self.weighted_threshold = weighted_threshold
 
         self._gemini = gemini_generator
-        self._rule_based = rule_based_generator
         self._scoring = scoring_generator
 
         # APEX-V Phase B: 4채널 슬롯
@@ -177,10 +172,6 @@ class EnsembleSignalGenerator:
     def set_gemini_generator(self, generator: Any) -> None:
         """Gemini 생성기 설정."""
         self._gemini = generator
-
-    def set_rule_based_generator(self, generator: Any) -> None:
-        """규칙 기반 생성기 설정."""
-        self._rule_based = generator
 
     def set_scoring_generator(self, generator: Any) -> None:
         """스코어링 생성기 설정."""
@@ -246,14 +237,6 @@ class EnsembleSignalGenerator:
                 individual_signals.append(gemini_signal)
             except Exception as e:
                 self._log.warning(f"Gemini 신호 생성 실패: {e}")
-
-        # Rule-based
-        if self._rule_based:
-            try:
-                rule_signal = self._get_rule_based_signal(market_data)
-                individual_signals.append(rule_signal)
-            except Exception as e:
-                self._log.warning(f"규칙 기반 신호 생성 실패: {e}")
 
         # Scoring
         if self._scoring:
@@ -466,22 +449,6 @@ class EnsembleSignalGenerator:
             weight=self.weights.get(SignalSource.GEMINI_AI, 0.4),
         )
 
-    def _get_rule_based_signal(
-        self, market_data: dict[str, Any]
-    ) -> IndividualSignal:
-        """규칙 기반 신호 가져오기."""
-        if self._rule_based is None:
-            raise RuntimeError("Rule-based generator is required")
-        signal = self._rule_based.get_signal(market_data)
-
-        return IndividualSignal(
-            source=SignalSource.RULE_BASED,
-            signal=signal,
-            confidence=1.0,  # 규칙 기반은 명확
-            reason="규칙 기반 분석",
-            weight=self.weights.get(SignalSource.RULE_BASED, 0.3),
-        )
-
     def _get_scoring_signal(
         self, market_data: dict[str, Any]
     ) -> IndividualSignal:
@@ -559,7 +526,7 @@ class EnsembleSignalGenerator:
         return "WAIT", weighted_score, consensus_ratio
 
     def get_signal(self, market_data: dict[str, Any]) -> str:
-        """동기 신호 반환 (규칙 기반 + 스코어링만 사용).
+        """동기 신호 반환 (스코어링만 사용).
 
         Args:
             market_data: 시장 데이터
@@ -568,9 +535,6 @@ class EnsembleSignalGenerator:
             신호
         """
         signals: list[IndividualSignal] = []
-
-        if self._rule_based:
-            signals.append(self._get_rule_based_signal(market_data))
 
         if self._scoring:
             signals.append(self._get_scoring_signal(market_data))

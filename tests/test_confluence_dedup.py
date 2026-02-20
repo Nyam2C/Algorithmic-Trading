@@ -71,7 +71,7 @@ class TestSignalDeduplicator:
         """Base 소스 간 → MI=0.2 → weight x 0.8."""
         signals = [
             IndividualSignal(source=SignalSource.GEMINI_AI, signal="LONG", weight=0.4),
-            IndividualSignal(source=SignalSource.RULE_BASED, signal="LONG", weight=0.3),
+            IndividualSignal(source=SignalSource.SCORING, signal="LONG", weight=0.3),
         ]
         result = self.dedup.adjust_weights(signals)
         assert result[0].weight == pytest.approx(0.4 * 0.8)
@@ -99,7 +99,7 @@ class TestSignalDeduplicator:
         assert self.dedup._get_layer(SignalSource.LEVERAGE_TOPOLOGY) == "medium"
         assert self.dedup._get_layer(SignalSource.FUNDING_BASIS) == "medium"
         assert self.dedup._get_layer(SignalSource.GEMINI_AI) == "base"
-        assert self.dedup._get_layer(SignalSource.RULE_BASED) == "base"
+        assert self.dedup._get_layer(SignalSource.SCORING) == "base"
         assert self.dedup._get_layer(SignalSource.SCORING) == "base"
 
     def test_signal_direction_preserved(self):

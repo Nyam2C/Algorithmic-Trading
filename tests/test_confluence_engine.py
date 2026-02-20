@@ -107,7 +107,7 @@ class TestStep2HierarchicalGate:
         signals = [
             _make_signal(SignalSource.TSMOM, "LONG"),
             _make_signal(SignalSource.SMART_MONEY, "SHORT"),
-            _make_signal(SignalSource.RULE_BASED, "LONG"),
+            _make_signal(SignalSource.SCORING, "LONG"),
             _make_signal(SignalSource.GEMINI_AI, "LONG"),
         ]
         direction, details = self.engine._step2_hierarchical_gate(signals)
@@ -183,7 +183,7 @@ class TestStep4CategoryBonus:
     def test_all_categories_aligned_bonus(self):
         signals = [
             _make_signal(SignalSource.TSMOM, "LONG"),       # trend
-            _make_signal(SignalSource.RULE_BASED, "LONG"),  # trend
+            _make_signal(SignalSource.SCORING, "LONG"),  # trend
             _make_signal(SignalSource.FUNDING_BASIS, "LONG"), # structure
             _make_signal(SignalSource.SMART_MONEY, "LONG"),  # sentiment
         ]
@@ -333,7 +333,7 @@ class TestEvaluateIntegration:
             _make_signal(SignalSource.TSMOM, "LONG", confidence=0.9),
             _make_signal(SignalSource.SMART_MONEY, "LONG", confidence=0.8),
             _make_signal(SignalSource.FUNDING_BASIS, "LONG", confidence=0.7),
-            _make_signal(SignalSource.RULE_BASED, "LONG", confidence=0.8),
+            _make_signal(SignalSource.SCORING, "LONG", confidence=0.8),
         ]
         market_data = {"indicators": {"atr_pct": 1.0, "leverage": 5}}
         result = await engine.evaluate(

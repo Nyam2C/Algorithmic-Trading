@@ -197,7 +197,7 @@ class TestGate1Regime:
         market_data = {"current_price": 50000.0, "indicators": indicators}
 
         bot._generate_combined_signal = AsyncMock(
-            return_value=("WAIT", "rule_based")
+            return_value=("WAIT", "fallback")
         )
 
         await bot._run_five_gate_pipeline(
@@ -488,7 +488,7 @@ class TestPipelineIntegration:
         # _run_five_gate_pipeline should NOT be called
         bot._run_five_gate_pipeline = AsyncMock()
         bot._generate_combined_signal = AsyncMock(
-            return_value=("WAIT", "rule_based")
+            return_value=("WAIT", "fallback")
         )
         bot._apply_signal_filters = MagicMock(return_value="WAIT")
         bot._record_signal = AsyncMock()
@@ -578,7 +578,7 @@ class TestGateMetrics:
         market_data = {"current_price": 50000.0, "indicators": indicators}
 
         bot._generate_combined_signal = AsyncMock(
-            return_value=("WAIT", "rule_based")
+            return_value=("WAIT", "fallback")
         )
 
         await bot._run_five_gate_pipeline(

@@ -252,6 +252,152 @@ Output ONLY: LONG, SHORT, or WAIT."""
             "signal": self._last_signal,
         }
 
+    async def generate_weekly_report(
+        self,
+        bot_id: str,
+        days: int = 7,
+    ) -> dict[str, Any]:
+        """주간 배치 분석 리포트 생성.
+
+        과거 거래 통계를 수집하여 AI에게 패턴 분석/파라미터 제안을 요청.
+
+        Args:
+            bot_id: 봇 ID
+            days: 분석 기간 (기본: 7일)
+
+        Returns:
+            리포트 딕셔너리 (summary, insights, recommendations, raw_context)
+        """
+        t0 = time.monotonic()
+        empty_result: dict[str, Any] = {
+            "summary": "분석 불가",
+            "insights": [],
+            "recommendations": [],
+            "raw_context": None,
+        }
+
+        if not self.context_builder:
+            self._log.warning("주간 리포트: context_builder 미설정")
+            return empty_result
+
+        # 1. 메모리 컨텍스트 수집
+        try:
+            memory_context = await self.context_builder.build_context(
+                bot_id=bot_id,
+                days=days,
+            )
+        except Exception as e:
+            self._log.warning(f"주간 리포트: 컨텍스트 수집 실패: {e}")
+            return empty_result
+
+        if memory_context.is_empty():
+            self._log.info("주간 리포트: 거래 이력 없음 — 스킵")
+            empty_result["summary"] = "거래 이력 없음"
+            return empty_result
+
+        # 2. 분석 프롬프트 로드
+        analysis_prompt = self._load_weekly_analysis_prompt()
+
+        # 3. 전체 프롬프트 조합
+        full_prompt = (
+            f"{analysis_prompt}\n\n"
+            f"=== 거래 통계 ===\n{memory_context.to_prompt()}"
+        )
+
+        # 4. Gemini API 호출
+        try:
+            async with self._get_semaphore():
+                response = await self.client.aio.models.generate_content(
+                    model=self.model,
+                    contents=full_prompt,
+                    config={
+                        "temperature": 0.3,
+                        "max_output_tokens": 1024,
+                    },
+                )
+
+            raw_text = response.text or ""
+            latency_ms = (time.monotonic() - t0) * 1000
+
+            self._ai_logger.log_gemini_call(
+                bot_name=bot_id,
+                prompt_summary="weekly_report",
+                raw_response=raw_text[:200],
+                parsed_signal="REPORT",
+                reason="weekly_analysis",
+                memory_used=True,
+                latency_ms=latency_ms,
+                model=self.model,
+            )
+
+            # 5. 응답 파싱 (단순 텍스트 → 구조화)
+            return self._parse_weekly_report(raw_text, memory_context)
+
+        except Exception as e:
+            self._log.warning(f"주간 리포트: Gemini 호출 실패: {e}")
+            return empty_result
+
+    def _load_weekly_analysis_prompt(self) -> str:
+        """주간 분석 프롬프트 로드."""
+        try:
+            prompt_dir = Path(__file__).parent / "prompts"
+            prompt_path = prompt_dir / "weekly_analysis.txt"
+            with prompt_path.open(encoding="utf-8") as f:
+                return f.read()
+        except FileNotFoundError:
+            return (
+                "You are a trading performance analyst.\n"
+                "Analyze the following trade statistics and provide:\n"
+                "1. Summary of performance\n"
+                "2. Key insights and patterns\n"
+                "3. Actionable recommendations\n"
+                "Format: SUMMARY: ..., INSIGHTS: ..., RECOMMENDATIONS: ..."
+            )
+
+    @staticmethod
+    def _parse_weekly_report(
+        raw_text: str, memory_context: MemoryContext
+    ) -> dict[str, Any]:
+        """주간 리포트 응답 파싱."""
+        lines = raw_text.strip().split("\n")
+
+        summary = ""
+        insights: list[str] = []
+        recommendations: list[str] = []
+
+        section = "summary"
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            lower = stripped.lower()
+            if lower.startswith(("insight", "패턴", "분석")):
+                section = "insights"
+                continue
+            if lower.startswith(("recommend", "제안", "권장")):
+                section = "recommendations"
+                continue
+            if lower.startswith("summary") or lower.startswith("요약"):
+                section = "summary"
+                continue
+
+            if section == "summary":
+                summary += stripped + " "
+            elif section == "insights":
+                insights.append(stripped.lstrip("- •"))
+            elif section == "recommendations":
+                recommendations.append(stripped.lstrip("- •"))
+
+        if not summary:
+            summary = raw_text[:200]
+
+        return {
+            "summary": summary.strip(),
+            "insights": insights,
+            "recommendations": recommendations,
+            "raw_context": memory_context,
+        }
+
     def _build_prompt_with_memory(
         self,
         market_data: dict,

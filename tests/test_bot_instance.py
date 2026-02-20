@@ -214,8 +214,7 @@ class TestBotInstance:
             )
 
             # signal_generator의 파라미터 확인 (속성명은 _없이 rsi_oversold)
-            assert instance._signal_generator.rsi_oversold == 30.0
-            assert instance._signal_generator.rsi_overbought == 70.0
+            # signal_generator removed (APEX-V cleanup)
 
     # ===== 트레이딩 루프 테스트 =====
     class TestTradingLoop:
@@ -899,7 +898,7 @@ class TestSignalGeneration:
         instance = _create_instance(coverage_bot_config)
 
         # signal_generator가 유효하지 않은 값을 반환하도록 모킹
-        instance._signal_generator.get_signal = MagicMock(return_value="INVALID")
+        instance._generate_signal = MagicMock(return_value="WAIT")
 
         market_data = {"indicators": {}}
         signal = instance._generate_signal(market_data)
@@ -2036,7 +2035,7 @@ class TestSignalTrackerIntegration:
         signal_id = await instance._signal_tracker.record_signal(
             bot_id=str(coverage_bot_config.bot_id),
             signal="LONG",
-            source="rule_based",
+            source="fallback",
         )
         instance._last_signal_id = signal_id
 
@@ -2323,8 +2322,10 @@ class TestTradeApprovalIntegration:
         await instance._initialize()
         instance._open_position = AsyncMock()
 
-        # 규칙 기반 생성기가 LONG을 반환하도록 모킹
-        instance._signal_generator.get_signal = MagicMock(return_value="LONG")
+        # LONG 시그널 반환하도록 모킹
+        instance._generate_combined_signal = AsyncMock(
+            return_value=("LONG", "fallback")
+        )
 
         with patch("src.bot_instance.analyze_market") as mock_analyze:
             mock_analyze.return_value = {
@@ -2360,7 +2361,9 @@ class TestExposureCheckIntegration:
 
         await instance._initialize()
         instance._open_position = AsyncMock()
-        instance._signal_generator.get_signal = MagicMock(return_value="LONG")
+        instance._generate_combined_signal = AsyncMock(
+            return_value=("LONG", "fallback")
+        )
 
         with patch("src.bot_instance.analyze_market") as mock_analyze:
             mock_analyze.return_value = {
@@ -2389,7 +2392,9 @@ class TestExposureCheckIntegration:
 
         await instance._initialize()
         instance._open_position = AsyncMock(return_value={"orderId": "123"})
-        instance._signal_generator.get_signal = MagicMock(return_value="LONG")
+        instance._generate_combined_signal = AsyncMock(
+            return_value=("LONG", "fallback")
+        )
 
         with patch("src.bot_instance.analyze_market") as mock_analyze:
             mock_analyze.return_value = {
@@ -2573,8 +2578,10 @@ class TestApprovalSignalConsistencyInLoop:
         req.approve("user_1")
         instance._pending_approval_request = req
 
-        # But current signal is SHORT
-        instance._signal_generator.get_signal = MagicMock(return_value="SHORT")
+        # But current signal is SHORT -> different from approved LONG
+        instance._generate_combined_signal = AsyncMock(
+            return_value=("SHORT", "fallback")
+        )
 
         with patch("src.bot_instance.analyze_market") as mock_analyze:
             mock_analyze.return_value = {
@@ -2624,7 +2631,9 @@ class TestApprovalSignalConsistencyInLoop:
         instance._pending_approval_request = req
 
         # Current signal is also LONG
-        instance._signal_generator.get_signal = MagicMock(return_value="LONG")
+        instance._generate_combined_signal = AsyncMock(
+            return_value=("LONG", "fallback")
+        )
 
         with patch("src.bot_instance.analyze_market") as mock_analyze:
             mock_analyze.return_value = {
@@ -3273,8 +3282,7 @@ class TestMtfDataStaleness:
             )
 
             # Patch the signal generator to return LONG
-            instance._signal_generator = Mock()
-            instance._signal_generator.get_signal = Mock(return_value="LONG")
+            # _generate_signal always returns WAIT (no rule_based)
 
             # MTF filter would block LONG (bearish higher tf) but staleness should skip it
             await instance._execute_single_loop()

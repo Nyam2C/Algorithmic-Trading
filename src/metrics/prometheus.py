@@ -560,7 +560,7 @@ class TradingMetrics:
         Args:
             bot_name: 봇 이름
             signal: 시그널 (LONG, SHORT, WAIT)
-            source: 시그널 소스 (rule_based, ensemble, memory_gemini)
+            source: 시그널 소스 (fallback, ensemble, memory_gemini)
         """
         self.signal_total.labels(bot_name=bot_name, signal=signal, source=source).inc()
 

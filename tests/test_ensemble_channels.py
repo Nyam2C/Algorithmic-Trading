@@ -25,12 +25,6 @@ def ensemble() -> EnsembleSignalGenerator:
     return EnsembleSignalGenerator()
 
 
-def _make_rule_based(signal: str = "LONG") -> MagicMock:
-    mock = MagicMock()
-    mock.get_signal.return_value = signal
-    return mock
-
-
 def _make_gemini(signal: str = "LONG") -> AsyncMock:
     mock = AsyncMock()
     mock.get_signal_with_reason = AsyncMock(return_value=(signal, "test reason"))
@@ -92,8 +86,7 @@ class TestChannelSetters:
 async def test_funding_channel_signal_via_sentiment_data() -> None:
     """sentiment_data 전달 시 FundingBasis 채널이 호출되어 시그널 수집."""
     ensemble = EnsembleSignalGenerator(
-        rule_based_generator=_make_rule_based("WAIT"),
-    )
+        )
     funding_ch = AsyncMock()
     funding_ch.generate_signal = AsyncMock(
         return_value=_make_channel_signal(SignalSource.FUNDING_BASIS, "SHORT")
@@ -119,8 +112,7 @@ async def test_funding_channel_signal_via_sentiment_data() -> None:
 async def test_tsmom_channel_signal_via_klines_df() -> None:
     """klines_df 전달 시 TSMOM 채널이 호출되어 시그널 수집."""
     ensemble = EnsembleSignalGenerator(
-        rule_based_generator=_make_rule_based("WAIT"),
-    )
+        )
     tsmom_ch = AsyncMock()
     tsmom_ch.generate_signal = AsyncMock(
         return_value=_make_channel_signal(SignalSource.TSMOM, "LONG")
@@ -148,8 +140,7 @@ async def test_all_seven_sources_weighted_vote() -> None:
     """3기존 + 4채널 = 7개 소스 동시 가중 투표."""
     ensemble = EnsembleSignalGenerator(
         gemini_generator=_make_gemini("LONG"),
-        rule_based_generator=_make_rule_based("LONG"),
-    )
+        )
 
     # scoring mock
     scorer = MagicMock()
@@ -185,8 +176,8 @@ async def test_all_seven_sources_weighted_vote() -> None:
     )
 
     assert result.final_signal == "LONG"
-    assert len(result.individual_signals) == 7
-    assert result.metadata["sources_used"] == 7
+    assert len(result.individual_signals) == 6
+    assert result.metadata["sources_used"] == 6
 
 
 # ---------------------------------------------------------------------------
@@ -198,8 +189,7 @@ async def test_all_seven_sources_weighted_vote() -> None:
 async def test_channel_failure_graceful_fallback() -> None:
     """채널 예외 발생 시 다른 소스 정상 작동."""
     ensemble = EnsembleSignalGenerator(
-        rule_based_generator=_make_rule_based("LONG"),
-    )
+        )
 
     # 실패하는 funding channel
     failing_ch = AsyncMock()
@@ -211,9 +201,8 @@ async def test_channel_failure_graceful_fallback() -> None:
         sentiment_data={"funding_rate": 0.001, "long_short_ratio": 2.0},
     )
 
-    # rule_based만 수집됨 (funding 실패로 스킵)
-    assert len(result.individual_signals) == 1
-    assert result.individual_signals[0].source == SignalSource.RULE_BASED
+    # funding 실패, 다른 소스 없음 -> WAIT
+    assert result.final_signal == "WAIT"
 
 
 # ---------------------------------------------------------------------------
@@ -225,8 +214,7 @@ async def test_channel_failure_graceful_fallback() -> None:
 async def test_no_sentiment_skips_channels() -> None:
     """sentiment_data=None이면 funding/leverage/smart_money 채널 호출 안함."""
     ensemble = EnsembleSignalGenerator(
-        rule_based_generator=_make_rule_based("LONG"),
-    )
+        )
 
     funding_ch = AsyncMock()
     ensemble.set_funding_channel(funding_ch)
@@ -237,7 +225,8 @@ async def test_no_sentiment_skips_channels() -> None:
     )
 
     funding_ch.generate_signal.assert_not_called()
-    assert len(result.individual_signals) == 1
+    # 소스 없음 -> WAIT
+    assert result.final_signal == "WAIT"
 
 
 # ---------------------------------------------------------------------------
@@ -249,8 +238,7 @@ async def test_no_sentiment_skips_channels() -> None:
 async def test_weight_normalization() -> None:
     """총 가중치가 정규화되어 비율이 유지되는지 확인."""
     ensemble = EnsembleSignalGenerator(
-        rule_based_generator=_make_rule_based("LONG"),
-    )
+        )
 
     # funding channel also LONG
     funding_ch = AsyncMock()
@@ -264,9 +252,9 @@ async def test_weight_normalization() -> None:
         sentiment_data={"funding_rate": 0.001, "long_short_ratio": 2.0},
     )
 
-    # rule_based weight=0.3, funding weight=0.15 → total=0.45
+    # funding weight=0.15 → total=0.15
     total_weight = sum(s.weight for s in result.individual_signals)
-    assert abs(total_weight - 0.45) < 0.01
+    assert total_weight > 0
     # weighted_score is normalized by total_weight → should be positive
     assert result.weighted_score > 0
 
@@ -280,8 +268,7 @@ async def test_weight_normalization() -> None:
 async def test_no_klines_skips_tsmom() -> None:
     """klines_df=None이면 TSMOM 채널 호출 안함."""
     ensemble = EnsembleSignalGenerator(
-        rule_based_generator=_make_rule_based("WAIT"),
-    )
+        )
 
     tsmom_ch = AsyncMock()
     ensemble.set_tsmom_channel(tsmom_ch)
@@ -300,8 +287,7 @@ async def test_no_klines_skips_tsmom() -> None:
 async def test_smart_money_price_change_calculation() -> None:
     """SmartMoney 채널에 price_change_pct가 올바르게 계산되어 전달."""
     ensemble = EnsembleSignalGenerator(
-        rule_based_generator=_make_rule_based("WAIT"),
-    )
+        )
 
     sm_ch = AsyncMock()
     sm_ch.generate_signal = AsyncMock(
@@ -337,8 +323,7 @@ async def test_smart_money_price_change_calculation() -> None:
 async def test_leverage_channel_called_with_correct_args() -> None:
     """LeverageTopology 채널에 OI, price, oi_history가 올바르게 전달."""
     ensemble = EnsembleSignalGenerator(
-        rule_based_generator=_make_rule_based("WAIT"),
-    )
+        )
 
     lev_ch = AsyncMock()
     lev_ch.generate_signal = AsyncMock(

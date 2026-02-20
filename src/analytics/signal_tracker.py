@@ -24,7 +24,7 @@ class SignalRecord:
         timestamp: 신호 생성 시간
         bot_id: 봇 ID
         signal: 신호 종류 (LONG, SHORT, WAIT)
-        source: 신호 소스 (rule_based, gemini, memory_gemini, ensemble)
+        source: 신호 소스 (fallback, gemini, memory_gemini, ensemble)
         market_conditions: 시장 상황 데이터
         trade_result: 거래 결과 (win, loss, None)
         pnl: 손익
@@ -35,7 +35,7 @@ class SignalRecord:
     timestamp: datetime
     bot_id: str
     signal: str  # LONG, SHORT, WAIT
-    source: str  # rule_based, gemini, memory_gemini, ensemble
+    source: str  # fallback, gemini, memory_gemini, ensemble
     market_conditions: dict[str, Any] = field(default_factory=dict)
     trade_result: str | None = None  # win, loss, None
     pnl: float | None = None

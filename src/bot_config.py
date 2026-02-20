@@ -176,6 +176,9 @@ class BotConfig(BaseModel):
     # APEX-V: Shadow Mode (시그널 경로 병렬 비교)
     use_shadow_mode: bool = Field(default=False)
 
+    # APEX-V: 주간 AI 배치 분석 리포트
+    use_weekly_report: bool = Field(default=False)
+
     # APEX-V: Regime Transition Protocol
     use_regime_transition_protocol: bool = Field(default=False)
 
@@ -208,12 +211,12 @@ class BotConfig(BaseModel):
     manual_approval_trades: int = Field(default=5, ge=1)
     approval_timeout: int = Field(default=60, ge=1)
 
-    # 신호 파라미터
+    # 신호 파라미터 (deprecated: rule_based 제거 후 사용하지 않음, 역호환용 유지)
     rsi_oversold: float = Field(default=30.0, ge=0, le=100)
     rsi_overbought: float = Field(default=70.0, ge=0, le=100)
-    volume_threshold: float = Field(default=0.5, ge=0)  # 테스트넷 호환 (프로덕션: 1.2)
+    volume_threshold: float = Field(default=0.5, ge=0)
 
-    # 신호 전략
+    # 신호 전략 (deprecated: rule_based 제거 후 사용하지 않음, 역호환용 유지)
     signal_strategy: str = Field(default="trend_following")
 
     # API 키 참조 (Secrets Manager 또는 환경변수 참조용)
