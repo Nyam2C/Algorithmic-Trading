@@ -157,6 +157,7 @@ class ConfluenceEngine:
         gemini_verifier: Any | None = None,
         threshold_table: dict[str, dict[TradingSession, float]] | None = None,
         min_net_edge: float | None = None,
+        lgb_verifier: Any | None = None,
     ) -> None:
         """Confluence Engine 초기화.
 
@@ -168,17 +169,21 @@ class ConfluenceEngine:
             gemini_verifier: Gemini AI 검증기 (Dead Zone용)
             threshold_table: 커스텀 임계값 테이블 (Threshold Tuner용)
             min_net_edge: Net Edge 최저선 (None = 클래스 기본값 사용)
+            lgb_verifier: LGBDeadZoneVerifier 인스턴스 (Dead Zone LGB 검증용)
         """
         self._dedup = deduplicator or SignalDeduplicator()
         self._cost = cost_calculator or CostCalculator()
         self._vitality = vitality_tracker
         self._session = session_classifier or SessionClassifier()
         self._gemini = gemini_verifier
+        self._lgb = lgb_verifier
         self._threshold_table = threshold_table or dict(self.THRESHOLD_TABLE)
         self.min_net_edge = (
             min_net_edge if min_net_edge is not None else self.MIN_NET_EDGE
         )
         self._log = logger.bind(module="confluence")
+        # PCMCI 인과 순서 (Phase 2 Step 5)
+        self._causal_ordering: list[list[str]] | None = None
 
     def _get_regime_key(self, regime: MarketRegime) -> str:
         """MarketRegime -> 가중치 테이블 키 변환."""
@@ -202,6 +207,8 @@ class ConfluenceEngine:
         signals: list[IndividualSignal],
         regime: MarketRegime,
         market_data: dict[str, Any],
+        *,
+        regime_confidence: float = 1.0,
     ) -> ConfluenceResult:
         """8-Step 합류 평가.
 
@@ -209,6 +216,7 @@ class ConfluenceEngine:
             signals: 개별 시그널 리스트
             regime: 현재 마켓 레짐
             market_data: 시장 데이터
+            regime_confidence: BOCPD 레짐 안정도 (0~1, 기본 1.0)
 
         Returns:
             ConfluenceResult
@@ -249,9 +257,11 @@ class ConfluenceEngine:
 
         # Step 3: Regime x Session 가중합
         score = self._step3_regime_session_weighted_sum(
-            deduped, direction, regime, session
+            deduped, direction, regime, session,
+            regime_confidence=regime_confidence,
         )
         step_details["step3_score"] = round(score, 4)
+        step_details["step3_regime_confidence"] = round(regime_confidence, 4)
 
         # Step 4: 카테고리 보너스/충돌
         score, has_conflict = self._step4_category_bonus_conflict(
@@ -440,8 +450,17 @@ class ConfluenceEngine:
         direction: str,
         regime: MarketRegime,
         session: TradingSession,
+        *,
+        regime_confidence: float = 1.0,
     ) -> float:
         """Step 3: Regime x Session 적응형 가중합.
+
+        Args:
+            signals: 시그널 리스트
+            direction: 방향 ("LONG" 또는 "SHORT")
+            regime: 마켓 레짐
+            session: 트레이딩 세션
+            regime_confidence: BOCPD confidence (0~1). 가중치에 반영.
 
         Returns:
             confluence_score (0.0 ~ 1.0)
@@ -456,6 +475,8 @@ class ConfluenceEngine:
         for sig in signals:
             source_key = self._get_source_key(sig.source)
             regime_weight = weights.get(source_key, 0.05)
+            # BOCPD confidence 반영: confidence 낮으면 regime 가중치 감소
+            regime_weight *= regime_confidence
 
             # 방향 일치 시 양수, 반대 시 음수 기여
             if sig.signal == direction:
@@ -559,6 +580,19 @@ class ConfluenceEngine:
         self._threshold_table = new_table
         self._log.info(f"Threshold 테이블 업데이트: {len(new_table)} regimes")
 
+    def update_causal_ordering(
+        self, ordering: list[list[str]]
+    ) -> None:
+        """PCMCI 인과 순서 업데이트.
+
+        Args:
+            ordering: 계층 리스트 (상위 → 하위)
+        """
+        self._causal_ordering = ordering
+        self._log.info(
+            f"PCMCI 인과 순서 업데이트: {len(ordering)} layers"
+        )
+
     # =====================================================================
     # Step 7: Vitality
     # =====================================================================
@@ -582,7 +616,11 @@ class ConfluenceEngine:
     ) -> str:
         """Step 8: Dead Zone 경계 검증.
 
-        threshold +/- DEAD_ZONE_MARGIN 범위에 net_edge가 있으면 Gemini 호출.
+        threshold +/- DEAD_ZONE_MARGIN 범위에 net_edge가 있으면:
+        1. LightGBM 가용 → LightGBM 판단 (빠르고 결정적)
+        2. LightGBM confidence < 0.6 → Gemini 2차 확인
+        3. LightGBM 미가용 → 기존 Gemini 폴백
+
         Dead Zone 밖 위: 자동 PASS.
         Dead Zone 밖 아래: 자동 BLOCK.
         """
@@ -595,13 +633,84 @@ class ConfluenceEngine:
         if net_edge < lower:
             return "WAIT"  # Dead Zone 아래: 자동 BLOCK
 
-        # Dead Zone 내: Gemini 검증 시도
+        # Dead Zone 내: LightGBM → Gemini 폴백
+        lgb_available = (
+            self._lgb is not None
+            and hasattr(self._lgb, "is_available")
+            and self._lgb.is_available
+        )
+        if lgb_available:
+            return await self._lgb_verify(
+                direction, net_edge, threshold, market_data
+            )
+
+        # LightGBM 미가용 → Gemini 폴백
         if self._gemini is None:
             return direction if net_edge >= threshold else "WAIT"
 
         return await self._gemini_verify(
             direction, net_edge, threshold, market_data
         )
+
+    async def _lgb_verify(
+        self,
+        direction: str,
+        net_edge: float,
+        threshold: float,
+        market_data: dict[str, Any],
+    ) -> str:
+        """Dead Zone 내 LightGBM 검증.
+
+        LGB confidence >= 0.6 → LGB 판단 사용.
+        LGB confidence < 0.6 → Gemini 2차 확인 폴백.
+        """
+        from src.ai.lgb_booster import LGB_MIN_CONFIDENCE  # noqa: PLC0415
+
+        try:
+            indicators = market_data.get("indicators", {})
+            features = {
+                "net_edge": net_edge,
+                "regime_idx": float(indicators.get("regime_idx", 6)),
+                "session_idx": float(indicators.get("session_idx", 0)),
+                "atr_pct": float(indicators.get("atr_pct", 0.5)),
+                "spread_pct": float(indicators.get("spread_pct", 0.01)),
+                "ofi_score": float(indicators.get("ofi_score", 0.0)),
+                "whale_score": float(indicators.get("whale_score", 0.0)),
+                "funding_rate": float(indicators.get("funding_rate", 0.0)),
+                "rsi": float(indicators.get("rsi", 50.0)),
+                "volume_ratio": float(indicators.get("volume_ratio", 1.0)),
+            }
+
+            assert self._lgb is not None  # noqa: S101
+            lgb_direction, lgb_confidence = self._lgb.predict(features)
+
+            if lgb_confidence >= LGB_MIN_CONFIDENCE:
+                self._log.info(
+                    f"Dead Zone LGB 판단: {lgb_direction} "
+                    f"(confidence={lgb_confidence:.3f})"
+                )
+                if lgb_direction == direction:
+                    return direction
+                return "WAIT"
+
+            # LGB confidence 부족 → Gemini 2차 확인
+            self._log.info(
+                f"Dead Zone LGB confidence 부족 ({lgb_confidence:.3f}) "
+                f"→ Gemini 폴백"
+            )
+            if self._gemini is not None:
+                return await self._gemini_verify(
+                    direction, net_edge, threshold, market_data
+                )
+            return direction if net_edge >= threshold else "WAIT"
+
+        except Exception as e:
+            self._log.warning(f"Dead Zone LGB 실패: {e}")
+            if self._gemini is not None:
+                return await self._gemini_verify(
+                    direction, net_edge, threshold, market_data
+                )
+            return direction if net_edge >= threshold else "WAIT"
 
     async def _gemini_verify(
         self,

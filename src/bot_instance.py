@@ -225,6 +225,9 @@ class BotInstance:
         # APEX-V: 주간 AI 배치 분석 리포트
         self._last_weekly_report: datetime | None = None
 
+        # APEX-V Phase 2: PCMCI 인과 분석 주간 배치
+        self._last_pcmci_analysis: datetime | None = None
+
         # WS-7: Event Bus
         self._event_bus: Any | None = None
         if getattr(config, "use_event_bus", False):
@@ -3190,6 +3193,70 @@ class BotInstance:
         except Exception as e:
             self._log.warning(f"주간 리포트 생성 실패: {e}")
 
+    async def _maybe_run_pcmci_analysis(self) -> None:
+        """PCMCI 인과 분석 주간 배치 (일요일 1회)."""
+        if not getattr(self.config, "use_pcmci_causal", False):
+            return
+
+        now = datetime.utcnow()
+        _sunday = 6
+        if now.weekday() != _sunday:
+            return
+
+        # 24시간 이내 중복 방지
+        _one_day_seconds = 86400
+        if (
+            self._last_pcmci_analysis
+            and (now - self._last_pcmci_analysis).total_seconds() < _one_day_seconds
+        ):
+            return
+
+        # ConfluenceEngine 참조 확인
+        if (
+            not self._ensemble_generator
+            or not hasattr(self._ensemble_generator, "_confluence_engine")
+            or not self._ensemble_generator._confluence_engine
+        ):
+            return
+
+        try:
+            from src.ai.causal.pcmci_analyzer import PCMCIAnalyzer
+
+            # 시그널 히스토리 수집 (SignalTracker가 있다면 활용)
+            signal_tracker = getattr(
+                self._ensemble_generator, "_signal_tracker", None
+            )
+            if signal_tracker is None or not hasattr(signal_tracker, "get_history"):
+                self._log.debug("PCMCI: 시그널 히스토리 없음, 스킵")
+                return
+
+            history = signal_tracker.get_history()
+            min_samples = getattr(self.config, "pcmci_min_samples", 200)
+
+            if not history or min(len(v) for v in history.values()) < min_samples:
+                self._log.debug(
+                    f"PCMCI: 샘플 부족 (최소 {min_samples}), 스킵"
+                )
+                return
+
+            analyzer = PCMCIAnalyzer(min_samples=min_samples)
+            graph = analyzer.analyze(history)
+            ordering = analyzer.suggest_layer_ordering(graph)
+
+            if ordering:
+                self._ensemble_generator._confluence_engine.update_causal_ordering(
+                    ordering
+                )
+                self._log.info(
+                    f"PCMCI 인과 순서 업데이트: {len(graph.edges)}개 엣지, "
+                    f"{len(ordering)}개 계층"
+                )
+
+            self._last_pcmci_analysis = now
+
+        except Exception as e:
+            self._log.warning(f"PCMCI 분석 실패: {e}")
+
     async def _execute_single_loop(self) -> None:  # noqa: PLR0911, PLR0915
         """단일 트레이딩 루프 실행."""
         # Phase 1: Redis 명령 큐 확인
@@ -3206,6 +3273,9 @@ class BotInstance:
 
         # 0.6. 주간 AI 배치 분석 리포트
         await self._maybe_generate_weekly_report()
+
+        # 0.7. PCMCI 인과 분석 주간 배치
+        await self._maybe_run_pcmci_analysis()
 
         # 1. 리스크 한도 체크 및 강제 청산
         if await self._handle_risk_halt():

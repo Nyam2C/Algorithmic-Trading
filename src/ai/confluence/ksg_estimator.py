@@ -94,6 +94,62 @@ def ksg_mutual_information(
     return max(0.0, mi)  # MI는 이론적으로 >= 0
 
 
+def ksg_transfer_entropy(
+    source: list[float],
+    target: list[float],
+    k: int = 3,
+    lag: int = 1,
+) -> float:
+    """KSG 기반 Transfer Entropy 추정.
+
+    TE(X→Y) = H(Y_t | Y_{t-lag}) - H(Y_t | Y_{t-lag}, X_{t-lag})
+
+    KSG MI를 사용하여 조건부 엔트로피 차이를 근사:
+    TE(X→Y) ≈ MI(X_{t-lag}; Y_t | Y_{t-lag})
+            = MI((X_{t-lag}, Y_{t-lag}); Y_t) - MI(Y_{t-lag}; Y_t)
+
+    Args:
+        source: 소스 시계열 (X)
+        target: 타겟 시계열 (Y)
+        k: k-nearest neighbors (기본 3)
+        lag: 시차 (기본 1)
+
+    Returns:
+        Transfer Entropy 추정치 (>= 0)
+    """
+    n = min(len(source), len(target))
+    if n < lag + k + 2:
+        return 0.0
+
+    # 시차 적용: X_{t-lag}, Y_{t-lag}, Y_t
+    x_lagged = np.array(source[: n - lag], dtype=np.float64)
+    y_lagged = np.array(target[: n - lag], dtype=np.float64)
+    y_current = np.array(target[lag:n], dtype=np.float64)
+
+    min_len = min(len(x_lagged), len(y_lagged), len(y_current))
+    if min_len < k + 2:
+        return 0.0
+
+    x_lagged = x_lagged[:min_len]
+    y_lagged = y_lagged[:min_len]
+    y_current = y_current[:min_len]
+
+    # TE ≈ MI(X_{t-lag}; Y_t | Y_{t-lag})
+    # = MI((X_{t-lag}, Y_{t-lag}); Y_t) - MI(Y_{t-lag}; Y_t)
+    # 근사: joint MI - marginal MI
+
+    # 1. MI(Y_{t-lag}; Y_t) — 자기 상관
+    mi_yy = ksg_mutual_information(y_lagged, y_current, k=k)
+
+    # 2. MI((X_{t-lag} + Y_{t-lag}); Y_t) — 결합 MI
+    # X와 Y를 합성: interleave or sum
+    # 간단한 근사: X+Y 방향의 MI
+    joint_xy = x_lagged + y_lagged  # 1D 결합 근사
+    mi_xy_y = ksg_mutual_information(joint_xy, y_current, k=k)
+
+    return max(0.0, mi_xy_y - mi_yy)
+
+
 class KSGMIMatrix:
     """KSG MI 행렬 관리자.
 
@@ -151,6 +207,61 @@ class KSGMIMatrix:
             f"KSG MI 행렬 계산 완료: {len(result)} pairs"
         )
         return result
+
+    def compute_te_matrix(
+        self,
+        signal_history: dict[str, list[float]],
+        lag: int = 1,
+    ) -> dict[tuple[str, str], float]:
+        """시그널 히스토리에서 Transfer Entropy 행렬 계산.
+
+        비대칭 행렬: TE(A→B) != TE(B→A)
+
+        Args:
+            signal_history: {source_name: [score_1, score_2, ...]}
+            lag: 시차 (기본 1)
+
+        Returns:
+            {(source, target): te_value}
+        """
+        sources = list(signal_history.keys())
+        result: dict[tuple[str, str], float] = {}
+
+        for i in range(len(sources)):
+            for j in range(len(sources)):
+                if i == j:
+                    continue
+                a, b = sources[i], sources[j]
+                values_a = signal_history[a]
+                values_b = signal_history[b]
+
+                min_len = min(len(values_a), len(values_b))
+                if min_len < self.MIN_SAMPLES:
+                    continue
+
+                te = ksg_transfer_entropy(
+                    values_a[:min_len],
+                    values_b[:min_len],
+                    k=self.DEFAULT_K,
+                    lag=lag,
+                )
+                result[(a, b)] = te
+
+        self._te_matrix = result
+        self._log.info(
+            f"KSG TE 행렬 계산 완료: {len(result)} pairs"
+        )
+        return result
+
+    @property
+    def te_computed(self) -> bool:
+        """TE 행렬이 계산되었는지."""
+        return len(getattr(self, "_te_matrix", {})) > 0
+
+    def get_te(self, source: str, target: str) -> float:
+        """Transfer Entropy TE(source → target) 반환."""
+        te_matrix = getattr(self, "_te_matrix", {})
+        return te_matrix.get((source, target), 0.0)
 
     def get_penalty(self, source_a: str, source_b: str) -> float:
         """MI 기반 페널티 반환.

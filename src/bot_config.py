@@ -191,6 +191,25 @@ class BotConfig(BaseModel):
     # APEX-V: Event Bus
     use_event_bus: bool = Field(default=False)
 
+    # APEX-V Phase 2: Half-Kelly Transition
+    use_half_kelly_transition: bool = Field(default=False)
+    half_kelly_min_trades: int = Field(default=50, ge=20)
+
+    # APEX-V Phase 2: BOCPD Regime Detection
+    use_bocpd_regime: bool = Field(default=False)
+    bocpd_window_size: int = Field(default=100, ge=20, le=500)
+
+    # APEX-V Phase 2: Transfer Entropy
+    use_transfer_entropy: bool = Field(default=False)
+
+    # APEX-V Phase 2: LightGBM Dead Zone Verifier
+    use_lightgbm_dead_zone: bool = Field(default=False)
+    lightgbm_model_path: str | None = Field(default=None)
+
+    # APEX-V Phase 2: PCMCI Causal Discovery
+    use_pcmci_causal: bool = Field(default=False)
+    pcmci_min_samples: int = Field(default=200, ge=50)
+
     # APEX-V Phase D: Kelly + Risk Enhancement
     use_kelly_sizing: bool = Field(default=False)
     kelly_fraction: float = Field(default=0.25, gt=0, le=1.0)

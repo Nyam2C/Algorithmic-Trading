@@ -3,13 +3,18 @@
 Phase 6.2: 마켓 레짐 감지 (횡보 vs 추세)
 - MA 정렬과 ATR로 시장 상태 분류
 - 횡보장에서는 진입 회피
+- Phase 2: BOCPD confidence 통합
 """
 import math
 from enum import Enum
+from typing import Any
 
 from loguru import logger
 
 from src.utils.validation import sanitize_nan_values
+
+# BOCPD confidence → UNCERTAINTY 자동 분류 임계값
+BOCPD_LOW_CONFIDENCE_THRESHOLD = 0.5
 
 
 class MarketRegime(Enum):
@@ -53,6 +58,7 @@ class RegimeDetector:
         adx_trend_threshold: float = 25.0,
         adx_uncertainty_low: float = 20.0,
         adx_uncertainty_high: float = 30.0,
+        bocpd: Any | None = None,
     ) -> None:
         """레짐 감지기 초기화.
 
@@ -64,6 +70,7 @@ class RegimeDetector:
             adx_trend_threshold: ADX 추세 판단 임계값 (기본 25.0)
             adx_uncertainty_low: UNCERTAINTY 구간 하한 (기본 20.0)
             adx_uncertainty_high: UNCERTAINTY 구간 상한 (기본 30.0)
+            bocpd: BOCPDDetector 인스턴스 (None이면 비활성)
         """
         self.atr_strong_threshold = atr_strong_threshold
         self.atr_weak_threshold = atr_weak_threshold
@@ -73,10 +80,13 @@ class RegimeDetector:
         self.adx_uncertainty_low = adx_uncertainty_low
         self.adx_uncertainty_high = adx_uncertainty_high
         self._bb_squeeze_threshold = 0.03  # BB 수축 판단 임계값
+        self._bocpd = bocpd
+        self._last_atr_pct: float | None = None  # BOCPD 관측값용
 
         logger.debug(
             f"RegimeDetector 초기화: strong_threshold={atr_strong_threshold}%, "
-            f"weak_threshold={atr_weak_threshold}%, use_adx={use_adx}"
+            f"weak_threshold={atr_weak_threshold}%, use_adx={use_adx}, "
+            f"bocpd={'활성' if bocpd else '비활성'}"
         )
 
     def detect(self, market_data: dict) -> MarketRegime:
@@ -156,10 +166,27 @@ class RegimeDetector:
                 is_bearish_partial=is_bearish_partial,
             )
 
+            # BOCPD 업데이트 및 confidence 계산
+            confidence = 1.0
+            if self._bocpd is not None:
+                observation = self._compute_bocpd_observation(atr_pct)
+                self._bocpd.update(observation)
+                confidence = self._bocpd.get_confidence()
+
+                # 낮은 confidence → UNCERTAINTY 자동 분류
+                if confidence < BOCPD_LOW_CONFIDENCE_THRESHOLD:
+                    logger.info(
+                        f"BOCPD 낮은 confidence {confidence:.3f} → UNCERTAINTY"
+                    )
+                    regime = MarketRegime.UNCERTAINTY
+
+            self._last_confidence = confidence
+
             logger.info(
                 f"마켓 레짐: {regime.value} "
                 f"(MA7={ma_7:.2f}, MA25={ma_25:.2f}, "
-                f"MA99={ma_99:.2f}, ATR%={atr_pct:.2f}%)"
+                f"MA99={ma_99:.2f}, ATR%={atr_pct:.2f}%, "
+                f"confidence={confidence:.3f})"
             )
 
             return regime
@@ -167,6 +194,27 @@ class RegimeDetector:
         except Exception as e:
             logger.error(f"레짐 감지 실패: {e}")
             return MarketRegime.UNKNOWN
+
+    def _compute_bocpd_observation(self, atr_pct: float) -> float:
+        """BOCPD 관측값 계산 (ATR % 변화율).
+
+        Args:
+            atr_pct: 현재 ATR %
+
+        Returns:
+            ATR % 변화율 (이전 대비)
+        """
+        if self._last_atr_pct is None:
+            self._last_atr_pct = atr_pct
+            return 0.0
+        delta = atr_pct - self._last_atr_pct
+        self._last_atr_pct = atr_pct
+        return delta
+
+    @property
+    def last_confidence(self) -> float:
+        """마지막 detect()의 BOCPD confidence (BOCPD 비활성 시 1.0)."""
+        return getattr(self, "_last_confidence", 1.0)
 
     def _determine_regime(
         self,
