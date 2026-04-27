@@ -12,4 +12,4 @@ aiohttp>=3.9.0
 loguru>=0.7.0
 
 # Environment
-python-dotenv>=1.0.0
+python-dotenv>=1.2.2
