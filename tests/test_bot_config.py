@@ -620,3 +620,88 @@ class TestPhase9ExposureConsistency:
         # After fix:  position_value = 50000 * 0.05 * 5 = 12500
         position_value = current_price * pct * leverage
         assert position_value == 12500.0
+
+
+class TestSilentNoopFlagWarnings:
+    """Architecture P1 후속: BOCPD/LGB silent no-op 플래그 deprecated 검증.
+
+    배경: use_bocpd_regime, use_lightgbm_dead_zone는 BotConfig 필드로 받지만 운영
+    코드에서 BOCPDDetector/LGBDeadZoneVerifier가 인스턴스화·주입되지 않아 효과가
+    없는 silent no-op이다. 운영자가 활성화로 오인하지 않도록 BotConfig 초기화 시
+    명시 경고 로그를 발생시킨다.
+    """
+
+    def test_use_bocpd_regime_true_emits_warning(self, caplog) -> None:
+        """use_bocpd_regime=True이면 silent no-op 경고가 로그에 기록된다."""
+        from loguru import logger as loguru_logger
+
+        from src.bot_config import BotConfig
+
+        # loguru → caplog 연결 (loguru 기본 sink는 caplog로 가지 않음)
+        handler_id = loguru_logger.add(caplog.handler, format="{message}", level="WARNING")
+        try:
+            BotConfig(
+                bot_name="bocpd-test",
+                symbol="BTCUSDT",
+                use_bocpd_regime=True,
+            )
+        finally:
+            loguru_logger.remove(handler_id)
+
+        warnings_text = "\n".join(r.message for r in caplog.records if r.levelname == "WARNING")
+        assert "use_bocpd_regime=True지만" in warnings_text
+        assert "silent no-op" in warnings_text
+
+    def test_use_lightgbm_dead_zone_true_emits_warning(self, caplog) -> None:
+        """use_lightgbm_dead_zone=True이면 silent no-op 경고가 로그에 기록된다."""
+        from loguru import logger as loguru_logger
+
+        from src.bot_config import BotConfig
+
+        handler_id = loguru_logger.add(caplog.handler, format="{message}", level="WARNING")
+        try:
+            BotConfig(
+                bot_name="lgb-test",
+                symbol="BTCUSDT",
+                use_lightgbm_dead_zone=True,
+            )
+        finally:
+            loguru_logger.remove(handler_id)
+
+        warnings_text = "\n".join(r.message for r in caplog.records if r.levelname == "WARNING")
+        assert "use_lightgbm_dead_zone=True지만" in warnings_text
+        assert "silent no-op" in warnings_text
+
+    def test_default_false_no_warning(self, caplog) -> None:
+        """기본값(False)에서는 silent no-op 경고가 발생하지 않는다."""
+        from loguru import logger as loguru_logger
+
+        from src.bot_config import BotConfig
+
+        handler_id = loguru_logger.add(caplog.handler, format="{message}", level="WARNING")
+        try:
+            BotConfig(bot_name="default-test", symbol="BTCUSDT")
+        finally:
+            loguru_logger.remove(handler_id)
+
+        warnings_text = "\n".join(r.message for r in caplog.records if r.levelname == "WARNING")
+        assert "silent no-op" not in warnings_text
+
+    def test_field_marked_deprecated(self) -> None:
+        """플래그가 Pydantic 메타데이터에서 deprecated로 마킹되어 있다.
+
+        IDE/타입 체커/문서 생성기가 이 정보를 활용한다. Field(deprecated=...)는
+        Pydantic 2.7+ 에서 FieldInfo.deprecated 또는 metadata에 반영된다.
+        """
+        from src.bot_config import BotConfig
+
+        fields = BotConfig.model_fields
+        for name in ("use_bocpd_regime", "use_lightgbm_dead_zone",
+                     "bocpd_window_size", "lightgbm_model_path"):
+            field = fields[name]
+            # Pydantic 2.x: Field(deprecated=...)는 FieldInfo.deprecated 또는
+            # metadata 안의 deprecated 마커로 보존된다.
+            deprecated_marker = getattr(field, "deprecated", None)
+            assert deprecated_marker, (
+                f"{name}이 deprecated로 마킹되어야 하지만 마커가 없음."
+            )

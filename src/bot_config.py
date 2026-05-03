@@ -195,16 +195,34 @@ class BotConfig(BaseModel):
     use_half_kelly_transition: bool = Field(default=False)
     half_kelly_min_trades: int = Field(default=50, ge=20)
 
-    # APEX-V Phase 2: BOCPD Regime Detection
-    use_bocpd_regime: bool = Field(default=False)
-    bocpd_window_size: int = Field(default=100, ge=20, le=500)
+    # APEX-V Phase 2: BOCPD Regime Detection — DEPRECATED (2026-05-03)
+    # BOCPDDetector 클래스는 존재하나 운영 코드 wiring 0건 → silent no-op.
+    # Redis 직렬화 페이로드 역호환 위해 필드는 유지. wiring 또는 제거 결정 대기.
+    use_bocpd_regime: bool = Field(
+        default=False,
+        deprecated="silent no-op: BOCPDDetector wiring 미구현 — 효과 없음.",
+    )
+    bocpd_window_size: int = Field(
+        default=100,
+        ge=20,
+        le=500,
+        deprecated="use_bocpd_regime 미통합으로 사용되지 않음.",
+    )
 
     # APEX-V Phase 2: Transfer Entropy
     use_transfer_entropy: bool = Field(default=False)
 
-    # APEX-V Phase 2: LightGBM Dead Zone Verifier
-    use_lightgbm_dead_zone: bool = Field(default=False)
-    lightgbm_model_path: str | None = Field(default=None)
+    # APEX-V Phase 2: LightGBM Dead Zone Verifier — DEPRECATED (2026-05-03)
+    # LGBDeadZoneVerifier 클래스는 존재하나 ConfluenceEngine.lgb_verifier 인자에
+    # 실제 인스턴스 주입 호출처 0건 → silent no-op. Redis 역호환 위해 필드 유지.
+    use_lightgbm_dead_zone: bool = Field(
+        default=False,
+        deprecated="silent no-op: LGBDeadZoneVerifier wiring 미구현 — 효과 없음.",
+    )
+    lightgbm_model_path: str | None = Field(
+        default=None,
+        deprecated="use_lightgbm_dead_zone 미통합으로 사용되지 않음.",
+    )
 
     # APEX-V Phase 2: PCMCI Causal Discovery
     use_pcmci_causal: bool = Field(default=False)
@@ -298,6 +316,29 @@ class BotConfig(BaseModel):
                 f"리스크 불일치: SL({sl:.2%}) x 레버리지({leverage}x) = "
                 f"{single_trade_loss:.2%} > 일일한도({self.max_daily_loss_pct:.2%}). "
                 f"SL 또는 레버리지를 줄이세요."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def warn_silent_noop_flags(self) -> "BotConfig":
+        """Silent no-op 플래그가 True인 경우 운영자에게 경고 로그.
+
+        BOCPD/LGB는 클래스 정의는 있으나 운영 코드 wiring이 미구현이다. 활성화해도
+        효과 0이므로, BotConfig 초기화 시 명시 경고 로그를 남겨 즉시 발견 가능하게 한다.
+        """
+        if self.use_bocpd_regime:
+            logger.warning(
+                f"[{self.bot_name}] use_bocpd_regime=True지만 "
+                f"BOCPDDetector wiring이 미구현입니다. "
+                f"이 설정은 효과가 없는 silent no-op입니다. "
+                f"제거하거나 wiring 완성 결정 필요."
+            )
+        if self.use_lightgbm_dead_zone:
+            logger.warning(
+                f"[{self.bot_name}] use_lightgbm_dead_zone=True지만 "
+                f"LGBDeadZoneVerifier wiring이 미구현입니다. "
+                f"이 설정은 효과가 없는 silent no-op입니다. "
+                f"제거하거나 wiring 완성 결정 필요."
             )
         return self
 

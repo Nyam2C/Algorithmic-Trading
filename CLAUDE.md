@@ -162,21 +162,48 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ### 데이터 흐름
 
+> **갱신 이력**: 2026-05-03 — APEX-V Phase 2 통합 완료 후 실제 코드 흐름과 동기화. Gemini는 메인 분석 → Step 8 Dead Zone 검증으로 강등(약 5~10% 호출). 5-Gate Pipeline + Confluence Engine + Microprice + 자가 튜닝 5루프가 신규 추가. (이전 다이어그램은 git history 참조)
+
 ```
-Binance Futures API
-  ├─ 시세 데이터 수신 (5분봉)
+Binance Futures (REST + WebSocket Fast Layer)
+  ├─ 시세/오더북/체결/강제청산 수신 (5분봉 + WS depth/aggTrade/forceOrder)
   │
-  ├─ [데이터] indicators.py → regime_detector.py → multi_timeframe.py
-  ├─ [AI] enhanced_gemini.py (메모리 주입 + 시장 분석)
-  ├─ [필터링] 레짐 + 다중 TF + AI 신호 교차 검증
+  ├─ [Gate 0] MarketTradabilityIndex (Spread+Depth+Volatility+Event+Session)
   │
-  ├─ [리스크] risk_manager.py → trade_approval.py
-  ├─ [실행] executor.py → Binance API (주문)
+  ├─ [Gate 1] RegimeDetector + RegimeTransitionManager
   │
-  ├─ [저장] trade_history.py → PostgreSQL
-  ├─ [학습] trade_analyzer.py → memory_context.py → AI 메모리
-  └─ [모니터] prometheus.py + audit_log.py + Discord 봇
+  ├─ [Gate 2+3] EnsembleSignalGenerator
+  │     ├─ 6채널 (TSMOM, Funding 5-State, SmartMoney, Scoring, OFI, WhaleFlow)
+  │     │   + LiquidationCascadeChannel (Mode A)
+  │     └─ ConfluenceEngine (8-step)
+  │         ├─ SignalDeduplicator (KSG MI 기반)
+  │         ├─ CostCalculator (net_edge 검증)
+  │         ├─ VitalityTracker (Strategy Lifecycle)
+  │         ├─ SessionClassifier
+  │         └─ Step 8: EnhancedGemini Dead Zone 검증 (~5-10% 호출)
+  │
+  ├─ [필터] regime_filter (안전장치) → MTF filter (15분 신선도)
+  │
+  ├─ [Gate 4] _compute_dynamic_size_with_modifiers
+  │     └─ KellySizer × ExecutionTracker × MTI × Vitality × CostAdj
+  │
+  ├─ [리스크] RiskManager + GracefulDegradation + TradeApproval
+  │
+  ├─ [실행] TradingExecutor → Microprice Smart Limit → Market 폴백 → Binance API
+  │
+  ├─ [저장] TradeHistoryDB (PG) + AuditLogManager + Redis 복구 마커 + SignalTracker
+  │
+  ├─ [Shadow Mode] 반대 경로 실행 → ShadowComparison 메트릭 (옵션)
+  │
+  └─ [피드백 루프 — 주로 일요일 배치]
+       ├─ TradeHistory → ThresholdTuner → ConfluenceEngine.update_thresholds
+       ├─ SignalHistory → PCMCIAnalyzer → ConfluenceEngine.update_causal_ordering
+       ├─ TradeHistory → EnhancedGemini.generate_weekly_report
+       ├─ TradeHistory → TradeAnalyzer → MemoryContextBuilder → EnhancedGemini.context
+       └─ TradeComparison → BTLiveComparator → divergence 알림 + auto-pause
 ```
+
+**Silent no-op 경고:** `use_bocpd_regime`, `use_lightgbm_dead_zone` 플래그는 BotConfig 필드로 받지만 운영 코드 wiring이 없어 효과 0. 활성화 시 BotConfig가 `logger.warning`을 발생시키며, deprecated로 마킹됨. 미통합 결정 대기.
 
 ### 계층 구조
 
