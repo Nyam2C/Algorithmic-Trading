@@ -521,11 +521,18 @@ class MultiBotManager:
     # 봇 제어 (단일)
     # =========================================================================
 
-    def pause_bot(self, bot_name: str) -> None:
+    def pause_bot(
+        self,
+        bot_name: str,
+        user_id: str | None = None,
+        reason: str | None = None,
+    ) -> None:
         """특정 봇 일시정지.
 
         Args:
             bot_name: 봇 이름
+            user_id: 일시정지 요청자 ID (감사 로그용, 선택)
+            reason: 일시정지 사유 (감사 로그용, 선택)
 
         Raises:
             ValueError: 봇이 존재하지 않는 경우
@@ -534,14 +541,15 @@ class MultiBotManager:
         if not bot:
             raise ValueError(f"Bot '{bot_name}' not found")
 
-        bot.pause()
+        bot.pause(user_id=user_id, reason=reason)
         logger.info(f"봇 일시정지: {bot_name}")
 
-    def resume_bot(self, bot_name: str) -> None:
+    def resume_bot(self, bot_name: str, user_id: str | None = None) -> None:
         """특정 봇 재개.
 
         Args:
             bot_name: 봇 이름
+            user_id: 재개 요청자 ID (감사 로그용, 선택)
 
         Raises:
             ValueError: 봇이 존재하지 않는 경우
@@ -550,7 +558,7 @@ class MultiBotManager:
         if not bot:
             raise ValueError(f"Bot '{bot_name}' not found")
 
-        bot.resume()
+        bot.resume(user_id=user_id)
         logger.info(f"봇 재개: {bot_name}")
 
     async def start_bot(self, bot_name: str) -> None:

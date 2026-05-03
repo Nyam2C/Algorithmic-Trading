@@ -3576,6 +3576,71 @@ class TestAuditLogIntegration:
         result = await instance._open_position("LONG", 50000.0)
         assert result is not None
 
+    @pytest.mark.asyncio
+    async def test_audit_log_on_pause(self, phase5_bot_config):
+        """봇 일시정지 시 감사 로그가 기록되어야 한다 (P1-2)."""
+        instance = _make_phase5_bot(phase5_bot_config)
+        instance._audit_log = MagicMock()
+        instance._audit_log.log_bot_pause = AsyncMock()
+
+        instance.pause(user_id="user-42", reason="manual via API")
+        await asyncio.sleep(0)  # fire-and-forget task 실행 기회 부여
+
+        assert instance.is_paused is True
+        instance._audit_log.log_bot_pause.assert_called_once_with(
+            bot_name="phase5-test",
+            user_id="user-42",
+            reason="manual via API",
+        )
+
+    @pytest.mark.asyncio
+    async def test_audit_log_on_resume(self, phase5_bot_config):
+        """봇 재개 시 감사 로그가 기록되어야 한다 (P1-2)."""
+        instance = _make_phase5_bot(phase5_bot_config)
+        instance._audit_log = MagicMock()
+        instance._audit_log.log_bot_pause = AsyncMock()
+        instance._audit_log.log_bot_resume = AsyncMock()
+        instance.pause()  # 먼저 paused 상태로
+
+        instance.resume(user_id="user-42")
+        await asyncio.sleep(0)
+
+        assert instance.is_paused is False
+        instance._audit_log.log_bot_resume.assert_called_once_with(
+            bot_name="phase5-test",
+            user_id="user-42",
+        )
+
+    @pytest.mark.asyncio
+    async def test_pause_resume_default_args_no_user_info(self, phase5_bot_config):
+        """user_id/reason 없이 호출해도 감사 로그가 None으로 기록된다 (하위호환)."""
+        instance = _make_phase5_bot(phase5_bot_config)
+        instance._audit_log = MagicMock()
+        instance._audit_log.log_bot_pause = AsyncMock()
+        instance._audit_log.log_bot_resume = AsyncMock()
+
+        instance.pause()
+        instance.resume()
+        await asyncio.sleep(0)
+
+        instance._audit_log.log_bot_pause.assert_called_once_with(
+            bot_name="phase5-test", user_id=None, reason=None
+        )
+        instance._audit_log.log_bot_resume.assert_called_once_with(
+            bot_name="phase5-test", user_id=None
+        )
+
+    def test_pause_resume_no_audit_log_no_error(self, phase5_bot_config):
+        """audit_log가 None이면 pause/resume이 에러 없이 동작 (이벤트 루프 없는 sync 컨텍스트)."""
+        instance = _make_phase5_bot(phase5_bot_config)
+        instance._audit_log = None
+
+        # 에러 없이 완료되어야 함
+        instance.pause()
+        instance.resume()
+
+        assert instance.is_paused is False
+
 
 class TestSignalTrackerDBPool:
     """Task #6: SignalTracker DB 연결 테스트"""

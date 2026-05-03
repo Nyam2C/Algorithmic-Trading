@@ -355,15 +355,42 @@ class BotInstance:
             ),
         }
 
-    def pause(self) -> None:
-        """봇 일시정지."""
+    def pause(self, user_id: str | None = None, reason: str | None = None) -> None:
+        """봇 일시정지.
+
+        Args:
+            user_id: 일시정지 요청자 ID (감사 로그용, 선택)
+            reason: 일시정지 사유 (감사 로그용, 선택)
+        """
         self._is_paused = True
         self._log.info("봇 일시정지됨")
+        # 감사 로그는 fire-and-forget — 이벤트 루프가 없으면 안전하게 skip
+        if self._audit_log is not None:
+            with contextlib.suppress(RuntimeError):
+                asyncio.get_running_loop().create_task(
+                    self._audit_log.log_bot_pause(
+                        bot_name=self.bot_name,
+                        user_id=user_id,
+                        reason=reason,
+                    )
+                )
 
-    def resume(self) -> None:
-        """봇 재개."""
+    def resume(self, user_id: str | None = None) -> None:
+        """봇 재개.
+
+        Args:
+            user_id: 재개 요청자 ID (감사 로그용, 선택)
+        """
         self._is_paused = False
         self._log.info("봇 재개됨")
+        if self._audit_log is not None:
+            with contextlib.suppress(RuntimeError):
+                asyncio.get_running_loop().create_task(
+                    self._audit_log.log_bot_resume(
+                        bot_name=self.bot_name,
+                        user_id=user_id,
+                    )
+                )
 
     def request_emergency_close(self) -> None:
         """긴급 포지션 청산 요청."""
