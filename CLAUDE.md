@@ -5,6 +5,36 @@
 
 ---
 
+## 하네스 (Code Audit Harnesses)
+
+이 프로젝트엔 두 개의 읽기 전용 분석 하네스가 등록되어 있다. 코드 변경/커밋은 절대 수행하지 않으며, 후속 작업은 사용자가 리포트를 보고 우선순위를 지정한 항목만 별도 세션에서 진행.
+
+### 하네스 1: Code Health Audit
+
+**목표:** 데드코드, 미사용 import, 순환 import, 테스트 갭, legacy 잔재를 P1/P2/P3로 분류한 헬스 리포트(`docs/audits/health_report.md`) 생성. **위생** 차원.
+
+**트리거:** "코드 감사", "데드코드", "리팩토링 분석", "헬스 체크", "전체 코드 분석", "오래된 코드 정리", "레거시 정리" → `code-health-audit` 스킬.
+
+**구성:** 5 에이전트 (`dead-code-hunter`, `import-graph-analyst`, `test-coverage-auditor`, `legacy-detector`, `audit-reporter`) + 오케스트레이터 스킬 `.claude/skills/code-health-audit/SKILL.md`.
+
+### 하네스 2: Architecture Analysis
+
+**목표:** 계층 분리 위반, god-module 분해 후보, 데이터 흐름과 AI 파이프라인 통합 구조를 분석하여 **의사결정 카드**(`docs/audits/architecture_report.md`)를 생성. **구조/설계** 차원.
+
+**트리거:** "아키텍처 분석", "구조 분석", "리팩토링 방향", "분해할까", "다음에 뭘 할지", "god-module", "계층 위반", "결합도", "데이터 흐름 검증" → `architecture-analysis` 스킬.
+
+**구성:** 4 에이전트 (`layer-boundary-analyst`, `module-cohesion-analyst`, `dataflow-tracer`, `architecture-reporter`) + 오케스트레이터 스킬 `.claude/skills/architecture-analysis/SKILL.md`.
+
+### 변경 이력
+
+| 날짜 | 변경 내용 | 대상 | 사유 |
+|------|----------|------|------|
+| 2026-05-03 | 코드 헬스 감사 하네스 초기 구성 | code-health-audit | 무분별한 전체 리팩토링 방지, P1/P2/P3 분류된 의사결정 가능한 리포트 생성 |
+| 2026-05-03 | 아키텍처 분석 하네스 초기 구성 | architecture-analysis | 헬스(위생)와 구분되는 구조/설계 차원의 의사결정 카드 필요 |
+| 2026-05-03 | `.gitignore` 화이트리스트 추가 | `.claude/agents/`, `.claude/skills/` | 하네스 파일을 git에 추적하여 다른 머신/세션에서 재사용 |
+
+---
+
 ## 행동 가이드라인
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.

@@ -5,8 +5,13 @@
 # Claude AI context (private)
 .claude/*
 !.claude/PROJECT_OVERVIEW.md
+!.claude/agents/
+!.claude/skills/
 mcp.json
 .mcp.json
+
+# Audit workspace (intermediate artifacts only — final reports go in docs/audits/)
+_workspace/
 
 # Environment variables (API keys)
 .env
