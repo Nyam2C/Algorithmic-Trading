@@ -1,6 +1,11 @@
 """모니터링 관련 슬래시 명령어.
 
 8개 한글 명령어: 대시보드, 상태, 포지션, 수익, 내역, 계정, 프롬프트, 핑
+
+권한 정책:
+- /계정 (잔고 노출): TRADER 이상
+- /프롬프트 (AI 시스템 프롬프트/응답 노출): TRADER 이상
+- 그 외 조회 명령(/대시보드, /상태, /포지션, /수익, /내역, /핑): 권한 체크 없음 (공개)
 """
 from typing import TYPE_CHECKING
 
@@ -8,6 +13,11 @@ import discord
 from discord import app_commands
 from loguru import logger
 
+from src.discord_bot.permissions import (
+    PermissionLevel,
+    check_permission,
+    get_permission_config,
+)
 from src.discord_bot.utils import PERIOD_LABELS, PERIOD_MAP
 
 if TYPE_CHECKING:
@@ -21,6 +31,7 @@ def register_monitoring_commands(client: "TradingBotClient") -> None:
         client: TradingBotClient 인스턴스
     """
     tree = client.tree
+    config = get_permission_config()
 
     # /대시보드
     @tree.command(name="대시보드", description="트레이딩 봇 대시보드 (버튼 UI)")
@@ -81,6 +92,13 @@ def register_monitoring_commands(client: "TradingBotClient") -> None:
     # /계정
     @tree.command(name="계정", description="계정 전체 포지션 및 잔고 조회")
     async def account_cmd(interaction: discord.Interaction):
+        if not check_permission(interaction, PermissionLevel.TRADER, config):
+            await interaction.response.send_message(
+                "🚫 권한이 없습니다. 이 명령어는 **TRADER** 이상의 권한이 필요합니다.",
+                ephemeral=True,
+            )
+            logger.warning(f"권한 부족 (계정): {interaction.user}")
+            return
         await client._account_command(interaction)
 
     # /프롬프트 [봇이름]
@@ -89,6 +107,13 @@ def register_monitoring_commands(client: "TradingBotClient") -> None:
     async def prompt_cmd(
         interaction: discord.Interaction, 봇이름: str = ""  # noqa: N803, PLC2401
     ):
+        if not check_permission(interaction, PermissionLevel.TRADER, config):
+            await interaction.response.send_message(
+                "🚫 권한이 없습니다. 이 명령어는 **TRADER** 이상의 권한이 필요합니다.",
+                ephemeral=True,
+            )
+            logger.warning(f"권한 부족 (프롬프트): {interaction.user}")
+            return
         await client._prompt_command(interaction, 봇이름)
 
     # /핑
