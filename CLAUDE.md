@@ -350,6 +350,8 @@ curl http://localhost:8000/docs            # Swagger UI
 > 형식: `- **문제**: 설명 → **해결**: 설명`
 
 - **문제**: WSL 환경에서 한국어 포함 경로(`/mnt/c/Users/박/...`)로 `Edit` 도구 사용 시 간헐적 `ENOENT` 에러 → **해결**: `Read` → `Write` 전체 덮어쓰기 또는 `Bash` sed -i 사용
+- **문제**: 정적 분석 도구가 보안 패턴 하나(예: `@requires_permission` 데코레이터)만 보고 "RBAC 미작동" false positive를 낼 수 있음 → **해결**: 같은 효과를 내는 대안 패턴(inline `check_permission()` 호출 등)도 함께 grep으로 검증한 뒤 분류. 보안 진단은 단일 패턴 의존 금지. `tests/test_command_permissions.py` AST 메타 테스트가 이 회귀를 방어한다.
+- **문제**: sync 메서드(예: `BotInstance.pause()`)에서 async audit log를 호출해야 할 때 `await` 사용 불가 → **해결**: `with contextlib.suppress(RuntimeError): asyncio.get_running_loop().create_task(...)` fire-and-forget 패턴 사용. 이벤트 루프가 없는 sync 컨텍스트(예: 단위 테스트의 `instance.pause()` 직접 호출)에서도 안전하게 skip된다.
 
 ---
 

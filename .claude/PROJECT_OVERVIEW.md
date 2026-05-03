@@ -236,6 +236,24 @@ Algorithmic-Trading/
 | Redis 시장 컨텍스트 | `src/storage/redis_state.py` | save/load_market_context (TTL 1시간) |
 | 워크플로우 정리 | `workflows/` | 중복 삭제 + 6개 워크플로우 (시그널, 리포트, 에스컬레이션, 데이터, 저널, 헬스) |
 
+### 코드 헬스 감사 P1/P2 처리 (2026-05-03 구현)
+**감사 보고서**: `docs/audits/health_report.md` (read-only 분석, 5개 에이전트 팬아웃)
+**전체 헬스 평가**: YELLOW → 처리 후 GREEN 수준. 코드 위생 지표(미사용 import/순환 import/TODO/주석코드/테스트 수집 실패) 모두 0건.
+
+| 기능 | 파일 | 설명 |
+|------|------|------|
+| 봇 일시정지 감사 로그 | `src/bot_instance.py` | pause()에 user_id/reason 인자 + log_bot_pause fire-and-forget |
+| 봇 재개 감사 로그 | `src/bot_instance.py` | resume()에 user_id 인자 + log_bot_resume fire-and-forget |
+| BotManager pass-through | `src/bot_manager.py` | pause_bot/resume_bot에 user_id/reason 전달 경로 |
+| /계정 권한 체크 | `src/discord_bot/commands/monitoring.py` | inline check_permission(TRADER) — 잔고 노출 방지 |
+| /프롬프트 권한 체크 | `src/discord_bot/commands/monitoring.py` | inline check_permission(TRADER) — AI 시스템 정보 노출 방지 |
+| 권한 메타 테스트 | `tests/test_command_permissions.py` | AST 기반 권한 체크 누락 회귀 가드 (5개 테스트) |
+| 감사 정정 노트 | `docs/audits/health_report.md` | P1-1 진단 정정 + audit 도구 한계 교훈 |
+
+**범위 외 (후속 P2):**
+- log_config_change 호출 추가 — 런타임 config 변경 운영 경로 자체가 미구현, 별도 설계 필요
+- monitoring.py 6개 조회 명령(/대시보드, /상태, /포지션, /수익, /내역, /핑) 권한 정책 — 현재 공개로 명문화, 정책 변경 시 별도 작업
+
 ---
 
 ## 구현 기능 상세
